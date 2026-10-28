@@ -11,6 +11,7 @@ backend; tested on its own with `cd knowledge_engine && pytest -q`.
 | `extract.py` | Main-content extraction (drops scripts, navigation, cookie banners), title, site name, author, publication date (meta tags, JSON-LD, `<time>`). |
 | `ranking.py` | Paragraph-aware chunking with overlap, BM25, cosine similarity, reciprocal-rank fusion. |
 | `embeddings.py` | Embedding adapters: OpenAI, Gemini, Ollama. Each vector records its model; vectors from different models are never compared. |
+| `documents.py` | Uploaded files: content-sniffed type checks, zip-bomb/encryption guards, text extraction for PDF, DOCX, XLSX (with exact column statistics), PPTX (slides + notes), CSV/TSV, text and code; images are passed through for vision models |
 | `research.py` | The pipeline: decide whether to search (`needs_search`), extract pasted links, search → read pages in parallel → rank passages → fall back to search snippets for pages that could not be read → number sources `[1]..[n]` with publication/retrieval dates for the prompt. |
 
 ## How the backend uses it

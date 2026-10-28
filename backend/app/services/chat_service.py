@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import dataclasses
 import logging
+import re
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -16,13 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.db.base import utcnow
-from app.models import Conversation, Message, User
+from app.models import Conversation, KnowledgeChunk, KnowledgeDocument, Memory, Message, Project, User
 from app.schemas import MessageOut, RegenerateRequest, SendMessageRequest
 from app.services import knowledge_service
+from app.services.files_service import FilesRuntime
 from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import (
+    Capability,
     ChatMessage,
     GenerationParams,
+    ImagePart,
     NoModelAvailableError,
     Orchestrator,
     ProviderError,
@@ -30,7 +36,7 @@ from dhanz_ai import (
     RoutingRequest,
     build_system_prompt,
 )
-from dhanz_knowledge import ResearchOutcome, build_context, extract_urls, needs_search
+from dhanz_knowledge import Passage, ResearchOutcome, bm25_scores, build_context, extract_urls, needs_search
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +57,48 @@ class PreparedTurn:
     question: str
     web: bool | None  # True: always research, False: never, None: decide automatically
     auto_index: bool
+    attachment_ids: list[uuid.UUID] = field(default_factory=list)
+    project_id: uuid.UUID | None = None
+    project_instructions: str | None = None
+    memories: list[str] = field(default_factory=list)
+    saved_memory: str | None = None  # stored from a "remember that …" message in this turn
+    memory_off_request: bool = False  # user asked to remember something while memory is off
+
+
+_REMEMBER = re.compile(r"^\s*(?:please\s+)?remember(?:\s+that|\s*:)\s+(.{3,500}?)\s*[.!]?\s*$", re.I | re.S)
+
+
+async def _attachments(
+    db: AsyncSession, settings: Settings, user: User, ids: list[uuid.UUID]
+) -> list[KnowledgeDocument]:
+    if len(ids) > settings.max_attachments_per_message:
+        raise HTTPException(422, f"Attach at most {settings.max_attachments_per_message} files per message.")
+    docs = []
+    for doc_id in dict.fromkeys(ids):
+        doc = await db.get(KnowledgeDocument, doc_id)
+        if doc is None or doc.user_id != user.id or doc.kind != "file":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Attached file not found")
+        docs.append(doc)
+    return docs
+
+
+def _snapshot(docs: list[KnowledgeDocument]) -> list[dict] | None:
+    return [
+        {"id": str(d.id), "filename": d.title, "file_type": d.file_type, "mime_type": d.mime_type} for d in docs
+    ] or None
+
+
+async def _turn_context(db: AsyncSession, user: User, conv: Conversation) -> dict:
+    """Project instructions and approved memories that shape this turn."""
+    ctx: dict = {"project_id": conv.project_id, "project_instructions": None, "memories": []}
+    if conv.project_id is not None:
+        project = await db.get(Project, conv.project_id)
+        if project is not None:
+            ctx["project_instructions"] = project.instructions
+    if user.memory_enabled:
+        rows = await db.scalars(select(Memory).where(Memory.user_id == user.id).order_by(Memory.created_at))
+        ctx["memories"] = [m.content for m in rows]
+    return ctx
 
 
 async def get_owned_conversation(db: AsyncSession, user: User, conversation_id: uuid.UUID) -> Conversation:
@@ -132,15 +180,34 @@ async def prepare_send(
     routing = _routing(user, settings, req.provider, req.model)
     _ensure_not_streaming(await _ordered_messages(db, conv.id))
 
+    attachment_ids = list(req.attachment_ids)
     if req.edit_message_id is not None:
         target = await db.get(Message, req.edit_message_id)
         if target is None or target.conversation_id != conv.id or target.role != "user":
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Message to edit not found")
+        if not attachment_ids and target.attachments:  # editing the text keeps the original files
+            attachment_ids = [uuid.UUID(a["id"]) for a in target.attachments]
         await db.execute(delete(Message).where(Message.conversation_id == conv.id, Message.position >= target.position))
         await db.flush()
+    docs = await _attachments(db, settings, user, attachment_ids)
+
+    saved_memory, memory_off_request = None, False
+    remember = _REMEMBER.match(req.content)
+    if remember:
+        if user.memory_enabled:
+            saved_memory = remember.group(1).strip()
+            db.add(Memory(user_id=user.id, content=saved_memory[:1000], source="chat"))
+        else:
+            memory_off_request = True
 
     position = await _next_position(db, conv.id)
-    user_msg = Message(conversation_id=conv.id, position=position, role="user", content=req.content)
+    user_msg = Message(
+        conversation_id=conv.id,
+        position=position,
+        role="user",
+        content=req.content,
+        attachments=_snapshot(docs),
+    )
     db.add(user_msg)
     assistant = await _add_assistant_placeholder(db, conv.id, position + 1)
 
@@ -152,7 +219,19 @@ async def prepare_send(
 
     history = build_history(await _ordered_messages(db, conv.id), settings.history_max_messages)
     return PreparedTurn(
-        conv.id, user_msg, assistant.id, history, routing, user.id, req.content, req.web, user.auto_index_web
+        conv.id,
+        user_msg,
+        assistant.id,
+        history,
+        routing,
+        user.id,
+        req.content,
+        req.web,
+        user.auto_index_web,
+        attachment_ids=[d.id for d in docs],
+        saved_memory=saved_memory,
+        memory_off_request=memory_off_request,
+        **await _turn_context(db, user, conv),
     )
 
 
@@ -170,8 +249,25 @@ async def prepare_regenerate(
     conv.updated_at = utcnow()
     await _commit_or_conflict(db)
     history = build_history(await _ordered_messages(db, conv.id), settings.history_max_messages)
+    attachment_ids = [uuid.UUID(a["id"]) for a in last_user.attachments or []]
+    # Files deleted since the original message are skipped rather than failing the regeneration.
+    existing = [
+        d.id
+        for d in [await db.get(KnowledgeDocument, i) for i in attachment_ids]
+        if d is not None and d.user_id == user.id
+    ]
     return PreparedTurn(
-        conv.id, None, assistant.id, history, routing, user.id, last_user.content, req.web, user.auto_index_web
+        conv.id,
+        None,
+        assistant.id,
+        history,
+        routing,
+        user.id,
+        last_user.content,
+        req.web,
+        user.auto_index_web,
+        attachment_ids=existing,
+        **await _turn_context(db, user, conv),
     )
 
 
@@ -213,49 +309,114 @@ class _Research:
     notes: str | None = None
     citations: list[dict] | None = None
     pages: list = field(default_factory=list)
+    images: list = field(default_factory=list)
+
+
+ATTACHMENT_FULL_TEXT_CHARS = 12_000  # shorter attachments are given to the model whole
+ATTACHMENT_CONTEXT_BUDGET = 40_000
+
+
+async def _attachment_passages(
+    db: AsyncSession, turn: PreparedTurn, notes: list[str]
+) -> tuple[list[Passage], list[KnowledgeDocument]]:
+    """Text passages from attached documents (whole text when short, best-matching chunks otherwise)."""
+    passages: list[Passage] = []
+    images: list[KnowledgeDocument] = []
+    for doc_id in turn.attachment_ids:
+        doc = await db.get(KnowledgeDocument, doc_id)
+        if doc is None:
+            continue
+        if doc.file_type == "image":
+            images.append(doc)
+            continue
+        if doc.notes:
+            notes.append(f"About the attached file {doc.title}: {doc.notes}")
+
+        def passage(text: str, doc: KnowledgeDocument = doc) -> Passage:
+            return Passage(text=text, url=doc.url, title=doc.title, retrieved_at=doc.created_at, origin="file")
+
+        if not doc.content:
+            continue
+        if len(doc.content) <= ATTACHMENT_FULL_TEXT_CHARS:
+            passages.append(passage(doc.content))
+            continue
+        chunks = list(
+            await db.scalars(
+                select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id).order_by(KnowledgeChunk.ordinal)
+            )
+        )
+        scores = bm25_scores(turn.question, [c.text for c in chunks])
+        best = sorted(range(len(chunks)), key=lambda k: scores[k], reverse=True)[:6]
+        keep = sorted({0, *best})  # the opening chunk gives context (title, abstract, headers)
+        passages += [passage(chunks[k].text) for k in keep]
+        notes.append(
+            f"The attached file {doc.title} is long; you were given its opening and the {len(keep) - 1} passages most "
+            "relevant to the question, not the whole document."
+        )
+    return passages, images
 
 
 async def _research(
     maker: async_sessionmaker[AsyncSession], knowledge: KnowledgeRuntime | None, turn: PreparedTurn, out: _Research
 ) -> AsyncIterator[dict]:
-    """Gather sources (web + the user's library) for this turn, yielding progress events."""
-    if knowledge is None or turn.web is False:
-        return
-    urls = extract_urls(turn.question)
-    use_web = turn.web is True or needs_search(turn.question)
-    passages = []
-    notes = []
-
-    if use_web and knowledge.search is None and not urls:
+    """Gather sources (attachments, web, the user's library) for this turn, yielding progress events."""
+    passages: list[Passage] = []
+    notes: list[str] = []
+    if turn.saved_memory:
+        notes.append(f"You saved this to the user's memory as they asked: “{turn.saved_memory}”. Confirm it briefly.")
+    if turn.memory_off_request:
         notes.append(
-            "Web search is not configured on this DHANZ AI server, so no live search was done. Tell the user you "
-            "could not search the web for this answer."
+            "The user asked you to remember something, but memory is turned off, so nothing was saved. Tell them they "
+            "can turn memory on in Settings → Memory."
         )
-        yield {"type": "research", "stage": "unavailable", "detail": "Web search is not configured on this server."}
-    if (use_web and knowledge.search is not None) or urls:
-        async for event in knowledge.pipeline().run(turn.question, use_search=use_web):
-            if isinstance(event, ResearchOutcome):
-                passages += event.passages
-                out.pages = event.pages
-                failed = [f for f in event.failures if f["url"]]
-                if failed:
-                    notes.append(
-                        "These pages could not be read and were not used: "
-                        + "; ".join(f"{f['url']} ({f['reason']})" for f in failed[:5])
-                    )
-                if event.query and not event.passages:
-                    notes.append("The web search returned no usable results.")
-            else:
-                yield {"type": "research", "stage": event.stage, **event.detail}
 
     async with maker() as db:
-        if await knowledge_service.has_library(db, turn.user_id):
-            library = await knowledge_service.search_library(db, turn.user_id, turn.question, knowledge.embedder)
-            known = {p.url for p in passages}
-            passages += [p for p in library if p.url not in known]
+        attached, out.images = await _attachment_passages(db, turn, notes)
+    passages += attached
+    if attached or out.images:
+        yield {"type": "research", "stage": "reading_files", "count": len(turn.attachment_ids)}
+
+    if knowledge is not None and turn.web is not False:
+        urls = extract_urls(turn.question)
+        use_web = turn.web is True or needs_search(turn.question)
+        if use_web and knowledge.search is None and not urls:
+            notes.append(
+                "Web search is not configured on this DHANZ AI server, so no live search was done. Tell the user you "
+                "could not search the web for this answer."
+            )
+            yield {
+                "type": "research",
+                "stage": "unavailable",
+                "detail": "Web search is not configured on this server.",
+            }
+        if (use_web and knowledge.search is not None) or urls:
+            async for event in knowledge.pipeline().run(turn.question, use_search=use_web):
+                if isinstance(event, ResearchOutcome):
+                    passages += event.passages
+                    out.pages = event.pages
+                    failed = [f for f in event.failures if f["url"]]
+                    if failed:
+                        notes.append(
+                            "These pages could not be read and were not used: "
+                            + "; ".join(f"{f['url']} ({f['reason']})" for f in failed[:5])
+                        )
+                    if event.query and not event.passages:
+                        notes.append("The web search returned no usable results.")
+                else:
+                    yield {"type": "research", "stage": event.stage, **event.detail}
+
+    if knowledge is not None:
+        async with maker() as db:
+            if await knowledge_service.has_library(db, turn.user_id):
+                library = await knowledge_service.search_library(
+                    db, turn.user_id, turn.question, knowledge.embedder, project_id=turn.project_id
+                )
+                known = {p.url for p in passages}
+                passages += [p for p in library if p.url not in known]
 
     if passages:
-        context, citations = build_context(passages)
+        budget = ATTACHMENT_CONTEXT_BUDGET if attached else 14_000
+        context, citations = build_context(passages, budget_chars=budget)
         out.sources = context
         out.citations = [c.to_json() for c in citations]
         yield {"type": "research", "stage": "sources", "sources": out.citations}
@@ -268,6 +429,7 @@ async def run_turn(
     settings: Settings,
     turn: PreparedTurn,
     knowledge: KnowledgeRuntime | None = None,
+    files: FilesRuntime | None = None,
 ) -> AsyncIterator[dict]:
     """Stream a reply as protocol events and persist the outcome.
 
@@ -297,10 +459,28 @@ async def run_turn(
             log.exception("Research failed for turn %s", turn.assistant_message_id)
             research.notes = "Research failed because of an internal error, so no sources were used."
             yield {"type": "research", "stage": "error", "detail": "Research failed; answering without sources."}
-        system = build_system_prompt(sources=research.sources, research_notes=research.notes)
-        messages = [ChatMessage("system", system), *turn.history]
+        if turn.saved_memory:
+            yield {"type": "memory", "action": "saved", "content": turn.saved_memory}
+        memories = [*turn.memories, *([turn.saved_memory] if turn.saved_memory else [])]
+        system = build_system_prompt(
+            sources=research.sources,
+            research_notes=research.notes,
+            user_preferences="\n".join(f"- {m}" for m in dict.fromkeys(memories)) or None,
+            project_instructions=turn.project_instructions,
+        )
+        history = list(turn.history)
+        routing = turn.routing
+        if research.images and files is not None and history and history[-1].role == "user":
+            images = []
+            for d in research.images:
+                data = await files.storage.get(d.storage_key)
+                images.append(ImagePart(d.mime_type, base64.b64encode(data).decode()))
+            names = ", ".join(d.title for d in research.images)
+            history[-1] = ChatMessage("user", f"{history[-1].content}\n\n[Attached images: {names}]", tuple(images))
+            routing = dataclasses.replace(routing, required=routing.required | {Capability.VISION})
+        messages = [ChatMessage("system", system), *history]
         params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
-        async for rc in orchestrator.stream_chat(messages, turn.routing, params):
+        async for rc in orchestrator.stream_chat(messages, routing, params):
             if (rc.model.provider, rc.model.model) != (provider, model):
                 provider, model = rc.model.provider, rc.model.model
                 yield {"type": "model", "provider": provider, "model": model}

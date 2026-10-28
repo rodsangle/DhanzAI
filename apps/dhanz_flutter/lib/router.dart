@@ -6,9 +6,12 @@ import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/library/library_screen.dart';
+import 'features/memory/memory_screen.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'features/onboarding/welcome_screen.dart';
+import 'features/projects/projects_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/voice/voice_screen.dart';
 
 const _publicRoutes = {'/welcome', '/login', '/register'};
 
@@ -50,6 +53,9 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
+      GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
+      GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
+      GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
     ],
   );
   ref.onDispose(router.dispose);

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../../models/models.dart';
 import '../config.dart';
@@ -142,6 +144,39 @@ class ApiClient {
     return res;
   }
 
+  Future<http.Response> _sendMultipart(
+    String path,
+    String field,
+    String filename,
+    Uint8List bytes, {
+    Map<String, String> fields = const {},
+    String? contentType,
+    bool retry = true,
+  }) async {
+    final req = http.MultipartRequest('POST', _uri(path))
+      ..fields.addAll(fields)
+      ..files.add(
+        http.MultipartFile.fromBytes(
+          field,
+          bytes,
+          filename: filename,
+          contentType: contentType == null ? null : MediaType.parse(contentType),
+        ),
+      );
+    final token = await store.read(StoreKeys.accessToken);
+    if (token != null) req.headers['Authorization'] = 'Bearer $token';
+    final http.Response res;
+    try {
+      res = await http.Response.fromStream(await _client.send(req));
+    } on http.ClientException catch (e) {
+      throw ApiException(0, 'Cannot reach the DHANZ AI server at $baseUrl (${e.message}).');
+    }
+    if (res.statusCode == 401 && retry && await _refresh()) {
+      return _sendMultipart(path, field, filename, bytes, fields: fields, contentType: contentType, retry: false);
+    }
+    return res;
+  }
+
   Future<Object?> _json(
     String method,
     String path, {
@@ -179,12 +214,14 @@ class ApiClient {
     String? preferredModel,
     String? routingPolicy,
     bool? autoIndexWeb,
+    bool? memoryEnabled,
   }) async {
     final body = <String, Object?>{
       'display_name': ?displayName,
       'preferred_model': ?preferredModel,
       'routing_policy': ?routingPolicy,
       'auto_index_web': ?autoIndexWeb,
+      'memory_enabled': ?memoryEnabled,
     };
     return User.fromJson(await _json('PATCH', '/users/me', body: body) as Map<String, dynamic>);
   }
@@ -236,32 +273,114 @@ class ApiClient {
 
   // ---- conversations -----------------------------------------------------
 
-  Future<List<ConversationSummary>> conversations({String? query}) async {
+  Future<List<ConversationSummary>> conversations({String? query, String? projectId}) async {
     final body = await _json(
       'GET',
       '/conversations',
-      query: {if (query != null && query.isNotEmpty) 'q': query},
+      query: {if (query != null && query.isNotEmpty) 'q': query, 'project_id': ?projectId},
     ) as Map<String, dynamic>;
     return [for (final c in body['items'] as List<dynamic>) ConversationSummary.fromJson(c as Map<String, dynamic>)];
   }
 
-  Future<ConversationSummary> createConversation() async =>
-      ConversationSummary.fromJson(await _json('POST', '/conversations', body: {}) as Map<String, dynamic>);
+  Future<ConversationSummary> createConversation({String? projectId}) async => ConversationSummary.fromJson(
+    await _json('POST', '/conversations', body: {'project_id': ?projectId}) as Map<String, dynamic>,
+  );
 
   Future<ConversationDetail> conversation(String id) async =>
       ConversationDetail.fromJson(await _json('GET', '/conversations/$id') as Map<String, dynamic>);
 
-  Future<ConversationSummary> updateConversation(String id, {String? title, bool? pinned}) async {
-    final body = <String, Object?>{'title': ?title, 'pinned': ?pinned};
+  /// [projectId]: pass a project id to move the chat into it, or '' to remove it from its project.
+  Future<ConversationSummary> updateConversation(String id, {String? title, bool? pinned, String? projectId}) async {
+    final body = <String, Object?>{
+      'title': ?title,
+      'pinned': ?pinned,
+      if (projectId != null) 'project_id': projectId.isEmpty ? null : projectId,
+    };
     return ConversationSummary.fromJson(await _json('PATCH', '/conversations/$id', body: body) as Map<String, dynamic>);
   }
 
   Future<void> deleteConversation(String id) => _json('DELETE', '/conversations/$id');
 
-  Future<String> exportConversation(String id, {String format = 'markdown'}) async {
+  Future<String> exportConversation(String id, {String format = 'markdown'}) async =>
+      utf8.decode(await exportConversationBytes(id, format: format));
+
+  /// Raw export (markdown, txt or pdf) for saving to a file.
+  Future<Uint8List> exportConversationBytes(String id, {String format = 'markdown'}) async {
     final res = await _send('GET', '/conversations/$id/export', query: {'format': format});
     if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
-    return utf8.decode(res.bodyBytes);
+    return res.bodyBytes;
+  }
+
+  // ---- files -------------------------------------------------------------
+
+  /// Uploads a document or image; it is scanned, its text extracted and indexed by the server.
+  Future<KnowledgeDocument> uploadFile(String filename, Uint8List bytes, {String? projectId}) async {
+    final res = await _sendMultipart('/files', 'file', filename, bytes, fields: {'project_id': ?projectId});
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return KnowledgeDocument.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
+  }
+
+  Future<Uint8List> downloadFile(String documentId) async {
+    final res = await _send('GET', '/files/$documentId/download');
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return res.bodyBytes;
+  }
+
+  Future<KnowledgeDocument> moveDocument(String documentId, String? projectId) async => KnowledgeDocument.fromJson(
+    await _json('PATCH', '/knowledge/documents/$documentId', body: {'project_id': projectId}) as Map<String, dynamic>,
+  );
+
+  // ---- projects ----------------------------------------------------------
+
+  Future<List<Project>> projects() async => [
+    for (final p in await _json('GET', '/projects') as List<dynamic>) Project.fromJson(p as Map<String, dynamic>),
+  ];
+
+  Future<Project> createProject(String name, {String? description, String? instructions}) async => Project.fromJson(
+    await _json('POST', '/projects', body: {'name': name, 'description': ?description, 'instructions': ?instructions})
+        as Map<String, dynamic>,
+  );
+
+  Future<Project> updateProject(String id, {String? name, String? description, String? instructions}) async =>
+      Project.fromJson(
+        await _json(
+          'PATCH',
+          '/projects/$id',
+          body: {'name': ?name, 'description': ?description, 'instructions': ?instructions},
+        ) as Map<String, dynamic>,
+      );
+
+  Future<void> deleteProject(String id) => _json('DELETE', '/projects/$id');
+
+  // ---- memory ------------------------------------------------------------
+
+  Future<List<Memory>> memories() async => [
+    for (final m in await _json('GET', '/memories') as List<dynamic>) Memory.fromJson(m as Map<String, dynamic>),
+  ];
+
+  Future<Memory> addMemory(String content) async =>
+      Memory.fromJson(await _json('POST', '/memories', body: {'content': content}) as Map<String, dynamic>);
+
+  Future<Memory> editMemory(String id, String content) async =>
+      Memory.fromJson(await _json('PATCH', '/memories/$id', body: {'content': content}) as Map<String, dynamic>);
+
+  Future<void> deleteMemory(String id) => _json('DELETE', '/memories/$id');
+
+  Future<void> deleteAllMemories() => _json('DELETE', '/memories');
+
+  // ---- voice -------------------------------------------------------------
+
+  Future<String> transcribe(Uint8List audio, {String filename = 'speech.m4a', String? language}) async {
+    final res = await _sendMultipart(
+      '/voice/transcribe',
+      'audio',
+      filename,
+      audio,
+      contentType: 'audio/m4a',
+      fields: {'language': ?language},
+    );
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return (jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>)['text'] as String;
   }
 
   // ---- streaming chat ----------------------------------------------------
@@ -273,6 +392,7 @@ class ApiClient {
     String? editMessageId,
     String? modelKey,
     bool? web,
+    List<String> attachmentIds = const [],
     bool regenerate = false,
   }) async {
     final parts = modelKey?.split(':');
@@ -280,6 +400,7 @@ class ApiClient {
       'content': ?content,
       'edit_message_id': ?editMessageId,
       'web': ?web,
+      if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
       if (parts != null && parts.length >= 2) 'provider': parts.first,
       if (parts != null && parts.length >= 2) 'model': parts.sublist(1).join(':'),
     };

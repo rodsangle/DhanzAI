@@ -8,9 +8,17 @@ from app.api.deps import CurrentUser, DbDep, OrchestratorDep
 from app.core import rate_limit
 from app.core.security import verify_password
 from app.db.base import utcnow
-from app.models import Conversation, KnowledgeDocument, User
-from app.schemas import ConversationDetail, DeleteAccountRequest, DocumentOut, UserOut, UserUpdate
-from app.services import audit
+from app.models import Conversation, KnowledgeDocument, Memory, Project, User
+from app.schemas import (
+    ConversationDetail,
+    DeleteAccountRequest,
+    DocumentOut,
+    MemoryOut,
+    ProjectOut,
+    UserOut,
+    UserUpdate,
+)
+from app.services import audit, files_service
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -36,6 +44,8 @@ async def update_me(body: UserUpdate, user: CurrentUser, db: DbDep, orchestrator
         user.routing_policy = body.routing_policy
     if body.auto_index_web is not None:
         user.auto_index_web = body.auto_index_web
+    if body.memory_enabled is not None:
+        user.memory_enabled = body.memory_enabled
     user.updated_at = utcnow()
     await db.commit()
     return user
@@ -48,11 +58,16 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
         select(Conversation).where(Conversation.user_id == user.id).options(selectinload(Conversation.messages))
     )
     docs = await db.scalars(select(KnowledgeDocument).where(KnowledgeDocument.user_id == user.id))
+    projects = await db.scalars(select(Project).where(Project.user_id == user.id))
+    memories = await db.scalars(select(Memory).where(Memory.user_id == user.id))
     return {
         "exported_at": utcnow().isoformat(),
         "user": UserOut.model_validate(user).model_dump(mode="json"),
         "conversations": [ConversationDetail.model_validate(c).model_dump(mode="json") for c in convs],
         "knowledge_documents": [DocumentOut.model_validate(d).model_dump(mode="json") for d in docs],
+        "projects": [ProjectOut.model_validate(p).model_dump(mode="json") for p in projects],
+        "memories": [MemoryOut.model_validate(m).model_dump(mode="json") for m in memories],
+        "note": "Uploaded files can be downloaded individually from the knowledge library.",
     }
 
 
@@ -62,6 +77,15 @@ async def delete_me(body: DeleteAccountRequest, request: Request, user: CurrentU
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Password is incorrect")
     audit.record(db, "user.deleted", user_id=None, ip=rate_limit.client_ip(request), detail={"user_id": str(user.id)})
+    uploads = list(
+        await db.scalars(
+            select(KnowledgeDocument).where(
+                KnowledgeDocument.user_id == user.id, KnowledgeDocument.storage_key.is_not(None)
+            )
+        )
+    )
     await db.delete(user)
     await db.commit()
+    # Stored file bytes live outside the database: remove them too.
+    await files_service.delete_document_files(request.app.state.files, uploads)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

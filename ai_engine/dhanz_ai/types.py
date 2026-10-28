@@ -10,9 +10,18 @@ Role = Literal["system", "user", "assistant"]
 
 
 @dataclass(frozen=True)
+class ImagePart:
+    """An image attached to a user message (base64-encoded bytes)."""
+
+    mime_type: str
+    data_b64: str
+
+
+@dataclass(frozen=True)
 class ChatMessage:
     role: Role
     content: str
+    images: tuple[ImagePart, ...] = ()
 
 
 class Capability(str, Enum):

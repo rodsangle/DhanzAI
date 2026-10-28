@@ -63,7 +63,7 @@ class AnthropicProvider(Provider):
             "max_tokens": params.max_tokens,
             "temperature": params.temperature,
             "stream": True,
-            "messages": [{"role": m.role, "content": m.content} for m in messages if m.role != "system"],
+            "messages": [_to_anthropic(m) for m in messages if m.role != "system"],
         }
         if system:
             payload["system"] = system
@@ -95,3 +95,14 @@ class AnthropicProvider(Provider):
         except httpx.HTTPError as exc:
             raise ProviderError(self.name, f"Network error: {exc}") from exc
         yield StreamChunk(done=True, input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+def _to_anthropic(m: ChatMessage) -> dict:
+    if not m.images:
+        return {"role": m.role, "content": m.content}
+    parts: list[dict] = [
+        {"type": "image", "source": {"type": "base64", "media_type": img.mime_type, "data": img.data_b64}}
+        for img in m.images
+    ]
+    parts.append({"type": "text", "text": m.content})
+    return {"role": m.role, "content": parts}

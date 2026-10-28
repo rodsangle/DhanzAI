@@ -55,6 +55,24 @@ class Settings(BaseSettings):
     embedding_model: str | None = None
     rate_limit_ingest_per_minute: int = 20
 
+    # Uploaded files (Phase 3). Stored on local disk under STORAGE_DIR (mount a volume in production).
+    storage_dir: str = "./data/uploads"
+    max_upload_mb: int = Field(default=20, ge=1, le=200)
+    max_attachments_per_message: int = Field(default=5, ge=1, le=20)
+    rate_limit_upload_per_minute: int = 20
+    # Optional ClamAV (clamd) malware scanning. When CLAMAV_HOST is set, files that cannot be
+    # scanned are rejected (fail closed); when unset, files are stored as "not_scanned".
+    clamav_host: str | None = None
+    clamav_port: int = 3310
+
+    # Speech-to-text for the voice assistant: an OpenAI-compatible /audio/transcriptions endpoint
+    # (OpenAI, or a self-hosted Whisper server). Text-to-speech runs on the device.
+    stt_provider: Literal["none", "openai"] = "none"
+    stt_model: str = "gpt-4o-mini-transcribe"
+    stt_base_url: str | None = None  # defaults to OPENAI_BASE_URL
+    stt_api_key: str | None = None  # defaults to OPENAI_API_KEY
+    max_audio_mb: int = Field(default=20, ge=1, le=25)
+
     default_routing_policy: Literal["balanced", "cheapest", "best", "local_first"] = "balanced"
     default_temperature: float = 0.7
     default_max_tokens: int = Field(default=2048, ge=64, le=32000)

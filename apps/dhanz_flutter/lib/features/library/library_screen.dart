@@ -8,10 +8,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
+import '../../core/files.dart';
+import '../chat/attachment_chip.dart';
+import '../chat/file_icons.dart';
 import '../../models/models.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
+import '../projects/projects_controller.dart';
 
 class LibraryController extends AsyncNotifier<List<KnowledgeDocument>> {
   @override
@@ -30,6 +34,12 @@ class LibraryController extends AsyncNotifier<List<KnowledgeDocument>> {
         if (d.id != doc.id) d,
     ]);
   }
+
+  void addLocal(KnowledgeDocument doc) => state = AsyncData([
+    doc,
+    for (final d in state.value ?? const <KnowledgeDocument>[])
+      if (d.id != doc.id) d,
+  ]);
 
   Future<void> remove(String id) async {
     await ref.read(apiClientProvider).deleteDocument(id);
@@ -119,6 +129,54 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     }
   }
 
+  Future<void> _upload() async {
+    final files = await pickFiles();
+    if (files.isEmpty || !mounted) return;
+    final projectId = ref.read(selectedProjectProvider);
+    for (final f in files) {
+      _snack('Uploading ${f.name}…');
+      try {
+        final doc = await ref.read(apiClientProvider).uploadFile(f.name, f.bytes, projectId: projectId);
+        ref.read(libraryProvider.notifier).addLocal(doc);
+        if (mounted) _snack(doc.notes ?? 'Added ${f.name} to your library');
+      } on ApiException catch (e) {
+        if (mounted) _snack('${f.name}: ${e.message}');
+      }
+    }
+  }
+
+  String _size(int? bytes) {
+    if (bytes == null) return 'file';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / 1024 / 1024).toStringAsFixed(1)} MB';
+  }
+
+  String _projectName(String id) =>
+      (ref.read(projectsProvider).value ?? const <Project>[]).where((p) => p.id == id).firstOrNull?.name ?? 'project';
+
+  Future<void> _move(KnowledgeDocument d) async {
+    final projects = ref.read(projectsProvider).value ?? const <Project>[];
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Move to project'),
+        children: [
+          SimpleDialogOption(onPressed: () => Navigator.pop(context, ''), child: const Text('No project')),
+          for (final p in projects)
+            SimpleDialogOption(onPressed: () => Navigator.pop(context, p.id), child: Text(p.name)),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    try {
+      final moved = await ref.read(apiClientProvider).moveDocument(d.id, choice.isEmpty ? null : choice);
+      ref.read(libraryProvider.notifier).addLocal(moved);
+    } on ApiException catch (e) {
+      if (mounted) _snack(e.message);
+    }
+  }
+
   Future<void> _delete(KnowledgeDocument d) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -155,10 +213,22 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
           content: SizedBox(
             width: 640,
             height: 460,
-            child: SingleChildScrollView(child: SelectableText(full.content ?? '')),
+            child: SingleChildScrollView(
+              child: SelectableText(
+                [
+                  if (d.notes != null) d.notes!,
+                  if ((full.content ?? '').isEmpty && d.fileType == 'image')
+                    'Images have no text. Attach it to a message to ask a vision model about it.',
+                  full.content ?? '',
+                ].where((s) => s.isNotEmpty).join('\n\n'),
+              ),
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => _open(full.url), child: const Text('Open page')),
+            if (d.isFile)
+              TextButton(onPressed: () => downloadAndSave(context, ref, d.id, d.title), child: const Text('Download'))
+            else
+              TextButton(onPressed: () => _open(full.url), child: const Text('Open page')),
             FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
           ],
         ),
@@ -180,10 +250,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         title: const Text('Knowledge library'),
         leading: IconButton(tooltip: 'Back', icon: const Icon(Icons.arrow_back), onPressed: () => context.go('/chat')),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addUrl,
-        icon: const Icon(Icons.add_link),
-        label: const Text('Add page'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: 'upload',
+            onPressed: _upload,
+            icon: const Icon(Icons.upload_file),
+            label: const Text('Upload files'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'add-page',
+            onPressed: _addUrl,
+            icon: const Icon(Icons.add_link),
+            label: const Text('Add page'),
+          ),
+        ],
       ),
       body: Center(
         child: ConstrainedBox(
@@ -269,13 +353,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                   final d = items[i];
                                   return ListTile(
                                     leading: Icon(
-                                      d.addedVia == 'research' ? Icons.travel_explore : Icons.bookmark_outline,
+                                      d.isFile
+                                          ? fileIcon(d.fileType)
+                                          : d.addedVia == 'research'
+                                          ? Icons.travel_explore
+                                          : Icons.bookmark_outline,
                                       color: theme.colorScheme.primary,
                                     ),
                                     title: Text(d.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                                     subtitle: Text(
                                       [
-                                        d.siteName ?? d.host,
+                                        if (d.isFile) _size(d.sizeBytes) else d.siteName ?? d.host,
+                                        if (d.projectId != null) _projectName(d.projectId!),
+                                        if (d.scanStatus == 'clean') 'virus-scanned',
                                         if (d.publishedAt != null) 'published ${_date.format(d.publishedAt!)}',
                                         'retrieved ${_date.format(d.retrievedAt)}',
                                         if (d.addedVia == 'research') 'saved from research',
@@ -286,10 +376,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                     onTap: () => _preview(d),
                                     trailing: PopupMenuButton<String>(
                                       tooltip: 'Document options',
-                                      onSelected: (a) => a == 'open' ? _open(d.url) : _delete(d),
-                                      itemBuilder: (context) => const [
-                                        PopupMenuItem(value: 'open', child: Text('Open page')),
-                                        PopupMenuItem(value: 'delete', child: Text('Remove')),
+                                      onSelected: (a) => switch (a) {
+                                        'open' => _open(d.url),
+                                        'download' => downloadAndSave(context, ref, d.id, d.title),
+                                        'move' => _move(d),
+                                        _ => _delete(d),
+                                      },
+                                      itemBuilder: (context) => [
+                                        if (d.isFile)
+                                          const PopupMenuItem(value: 'download', child: Text('Download'))
+                                        else
+                                          const PopupMenuItem(value: 'open', child: Text('Open page')),
+                                        const PopupMenuItem(value: 'move', child: Text('Move to project…')),
+                                        const PopupMenuItem(value: 'delete', child: Text('Remove')),
                                       ],
                                     ),
                                   );

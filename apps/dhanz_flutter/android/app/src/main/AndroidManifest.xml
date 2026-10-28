@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Required to talk to the DHANZ AI backend. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Voice assistant: the microphone is used only while the Voice screen is open (no background recording). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <application
         android:label="DHANZ AI"
         android:name="${applicationName}"

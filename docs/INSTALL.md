@@ -54,6 +54,18 @@ For semantic search in the knowledge library also set `EMBEDDING_PROVIDER=openai
 
 The API reads public web pages itself, so it needs outbound HTTPS access to the internet.
 
+### Files, voice and malware scanning (optional)
+
+```bash
+MAX_UPLOAD_MB=20
+STT_PROVIDER=openai                 # voice assistant speech-to-text; uses OPENAI_API_KEY by default
+# STT_BASE_URL=http://whisper:8000/v1   # or a self-hosted OpenAI-compatible Whisper server
+CLAMAV_HOST=clamav                  # with: docker compose --profile scan up -d
+```
+
+Uploaded files are stored in the `uploads` Docker volume. Text-to-speech uses the voices installed
+on each device. The apps ask for microphone permission the first time the Voice screen is used.
+
 ### Using local models (Ollama)
 
 Install [Ollama](https://ollama.com), run `ollama pull llama3.1`, then set

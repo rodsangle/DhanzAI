@@ -46,7 +46,7 @@ jobs:
         run: pytest -q
 
   backend-postgres:
-    name: Backend on PostgreSQL + pgvector (migrations, e2e smoke)
+    name: Backend on PostgreSQL + pgvector (migrations, full tests, e2e smoke)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -77,11 +77,15 @@ jobs:
       - name: Migrate (upgrade, downgrade, upgrade, check)
         working-directory: backend
         run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
-      - name: pgvector tests
+      - name: Full backend test suite on PostgreSQL (incl. pgvector tests)
         working-directory: backend
         env:
+          TEST_DATABASE_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
           TEST_POSTGRES_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
-        run: pytest -q tests/test_postgres.py
+        run: pytest -q
+      - name: Re-apply migrations for the smoke test
+        working-directory: backend
+        run: alembic upgrade head
       - name: Start API and run smoke test
         working-directory: backend
         run: |

@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import Float, bindparam, delete, func, or_, select
+from sqlalchemy import Float, bindparam, delete, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
@@ -125,13 +125,20 @@ async def ingest_page(
     doc.content_hash = content_hash
     await db.flush()
 
-    chunks = chunk_text(page.text)
+    await store_chunks(db, doc, page.text, embedder)
+    return doc
+
+
+async def store_chunks(db: AsyncSession, doc: KnowledgeDocument, text: str, embedder: Embedder | None) -> None:
+    """Chunk and (if an embedder is configured) embed a document's text. Caller commits."""
+    chunks = chunk_text(text)
     vectors: list[list[float]] | None = None
     if embedder and chunks:
         try:
             vectors = await embedder.embed(chunks)
         except EmbeddingError as exc:
-            log.warning("Embedding failed for %s; stored for keyword search only: %s", page.url, exc)
+            log.warning("Embedding failed for %s; stored for keyword search only: %s", doc.url, exc)
+    user_id = doc.user_id
     for i, text in enumerate(chunks):
         db.add(
             KnowledgeChunk(
@@ -143,7 +150,6 @@ async def ingest_page(
                 embedding_model=embedder.key if vectors and embedder else None,
             )
         )
-    return doc
 
 
 _background: set[asyncio.Task] = set()
@@ -178,8 +184,23 @@ async def wait_for_background_indexing() -> None:
 # ---------------------------------------------------------------- retrieval
 
 
+def _scope(project_id: uuid.UUID | None):
+    """Restrict chunks to one project's documents (project conversations), or allow all."""
+    if project_id is None:
+        return true()
+    return KnowledgeChunk.document_id.in_(
+        select(KnowledgeDocument.id).where(KnowledgeDocument.project_id == project_id)
+    )
+
+
 async def search_library(
-    db: AsyncSession, user_id: uuid.UUID, query: str, embedder: Embedder | None, *, limit: int = 4
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    query: str,
+    embedder: Embedder | None,
+    *,
+    limit: int = 4,
+    project_id: uuid.UUID | None = None,
 ) -> list[Passage]:
     """Hybrid (keyword + semantic) search over one user's library. Never sees other users' chunks."""
     terms = tokenize(query)[:8]
@@ -190,6 +211,7 @@ async def search_library(
                 select(KnowledgeChunk)
                 .where(
                     KnowledgeChunk.user_id == user_id,
+                    _scope(project_id),
                     or_(*[func.lower(KnowledgeChunk.text).contains(t, autoescape=True) for t in terms]),
                 )
                 .limit(400)
@@ -215,7 +237,7 @@ async def search_library(
             log.warning("Query embedding failed: %s", exc)
             qv = None
         if qv is not None:
-            vector_hits = await _vector_search(db, user_id, embedder.key, qv)
+            vector_hits = await _vector_search(db, user_id, embedder.key, qv, project_id=project_id)
 
     by_id: dict[uuid.UUID, KnowledgeChunk] = {}
     rankings = []
@@ -253,10 +275,17 @@ async def search_library(
 
 
 async def _vector_search(
-    db: AsyncSession, user_id: uuid.UUID, model_key: str, qv: list[float], k: int = 20
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    model_key: str,
+    qv: list[float],
+    k: int = 20,
+    *,
+    project_id: uuid.UUID | None = None,
 ) -> list[tuple[KnowledgeChunk, float]]:
     base = select(KnowledgeChunk).where(
         KnowledgeChunk.user_id == user_id,
+        _scope(project_id),
         KnowledgeChunk.embedding_model == model_key,
         KnowledgeChunk.embedding.is_not(None),
     )

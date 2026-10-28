@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../auth/auth_controller.dart';
+import '../projects/projects_controller.dart';
 
 class ConversationSearch extends Notifier<String> {
   @override
@@ -22,7 +23,8 @@ class ConversationsController extends AsyncNotifier<List<ConversationSummary>> {
     final userId = ref.watch(authControllerProvider.select((s) => s.value?.id));
     if (userId == null) return const [];
     final query = ref.watch(conversationSearchProvider);
-    return ref.read(apiClientProvider).conversations(query: query);
+    final projectId = ref.watch(selectedProjectProvider);
+    return ref.read(apiClientProvider).conversations(query: query, projectId: projectId);
   }
 
   Future<void> refresh() async {
@@ -32,6 +34,12 @@ class ConversationsController extends AsyncNotifier<List<ConversationSummary>> {
 
   Future<void> rename(String id, String title) async {
     await ref.read(apiClientProvider).updateConversation(id, title: title);
+    await refresh();
+  }
+
+  /// Move a chat into a project (or out of any project with null).
+  Future<void> moveToProject(String id, String? projectId) async {
+    await ref.read(apiClientProvider).updateConversation(id, projectId: projectId ?? '');
     await refresh();
   }
 

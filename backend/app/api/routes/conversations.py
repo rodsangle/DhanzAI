@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import func, or_, select
 
 from app.api.deps import CurrentUser, DbDep, KnowledgeDep, OrchestratorDep, SettingsDep, get_sessionmaker, parse_uuid
+from app.api.routes.projects import get_owned_project
 from app.core import rate_limit
 from app.db.base import utcnow
 from app.models import Conversation, Message
@@ -23,7 +26,7 @@ from app.schemas import (
     SendMessageRequest,
 )
 from app.services import chat_service
-from app.services.export import render_conversation
+from app.services.export import render_conversation, render_pdf
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -35,8 +38,11 @@ async def list_conversations(
     q: str | None = Query(default=None, max_length=200, description="Search titles and message text"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    project_id: str | None = Query(default=None, description="Only conversations in this project"),
 ) -> ConversationList:
     stmt = select(Conversation).where(Conversation.user_id == user.id)
+    if project_id:
+        stmt = stmt.where(Conversation.project_id == parse_uuid(project_id))
     if q:
         escaped = q.strip().lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         pattern = f"%{escaped}%"
@@ -51,7 +57,13 @@ async def list_conversations(
 
 @router.post("", response_model=ConversationOut, status_code=status.HTTP_201_CREATED)
 async def create_conversation(body: ConversationCreate, user: CurrentUser, db: DbDep) -> Conversation:
-    conv = Conversation(user_id=user.id, title=(body.title or "").strip() or chat_service.DEFAULT_TITLE)
+    if body.project_id is not None:
+        await get_owned_project(db, user, body.project_id)
+    conv = Conversation(
+        user_id=user.id,
+        title=(body.title or "").strip() or chat_service.DEFAULT_TITLE,
+        project_id=body.project_id,
+    )
     db.add(conv)
     await db.commit()
     return conv
@@ -76,6 +88,10 @@ async def update_conversation(
         conv.title = body.title.strip() or conv.title
     if body.pinned is not None:
         conv.pinned = body.pinned
+    if "project_id" in body.model_fields_set:
+        if body.project_id is not None:
+            await get_owned_project(db, user, body.project_id)
+        conv.project_id = body.project_id
     conv.updated_at = utcnow()
     await db.commit()
     return conv
@@ -94,18 +110,40 @@ async def export_conversation(
     conversation_id: str,
     user: CurrentUser,
     db: DbDep,
-    format: Literal["markdown", "txt"] = "markdown",
-) -> PlainTextResponse:
+    format: Literal["markdown", "txt", "pdf"] = "markdown",
+) -> Response:
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
-    messages = await db.scalars(select(Message).where(Message.conversation_id == conv.id).order_by(Message.position))
-    body = render_conversation(conv, list(messages), format)
+    messages = list(
+        await db.scalars(select(Message).where(Message.conversation_id == conv.id).order_by(Message.position))
+    )
+    disposition = _attachment_header(conv.title)
+    if format == "pdf":
+        pdf = await asyncio.to_thread(render_pdf, conv, messages)
+        return Response(
+            pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": disposition("pdf")},
+        )
+    body = render_conversation(conv, messages, format)
     ext, media = ("md", "text/markdown") if format == "markdown" else ("txt", "text/plain")
-    safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in conv.title)[:60].strip() or "conversation"
     return PlainTextResponse(
         body,
         media_type=f"{media}; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{safe_title}.{ext}"'},
+        headers={"Content-Disposition": disposition(ext)},
     )
+
+
+def _attachment_header(title: str):
+    """Content-Disposition with an ASCII fallback name plus the full UTF-8 name (RFC 6266/5987)."""
+    ascii_name = "".join(c if c.isascii() and (c.isalnum() or c in "-_ ") else "_" for c in title)[:60].strip("_ ")
+    utf8_name = "".join(c for c in title if c.isprintable() and c not in '/\\"')[:60].strip() or "conversation"
+
+    def header(ext: str) -> str:
+        return (
+            f"attachment; filename=\"{ascii_name or 'conversation'}.{ext}\"; filename*=UTF-8''{quote(utf8_name)}.{ext}"
+        )
+
+    return header
 
 
 def _sse(events: AsyncIterator[dict]) -> StreamingResponse:
@@ -134,7 +172,11 @@ async def send_message(
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_send(db, settings, user, conv, body)
-    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn, knowledge))
+    return _sse(
+        chat_service.run_turn(
+            get_sessionmaker(request), orchestrator, settings, turn, knowledge, request.app.state.files
+        )
+    )
 
 
 @router.post("/{conversation_id}/regenerate", summary="Regenerate the last reply (Server-Sent Events)")
@@ -151,4 +193,8 @@ async def regenerate(
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_regenerate(db, settings, user, conv, body)
-    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn, knowledge))
+    return _sse(
+        chat_service.run_turn(
+            get_sessionmaker(request), orchestrator, settings, turn, knowledge, request.app.state.files
+        )
+    )

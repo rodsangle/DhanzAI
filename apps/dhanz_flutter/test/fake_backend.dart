@@ -15,6 +15,11 @@ class FakeBackend {
   String? validRefresh;
   String reply = 'Hello from **Dhanz**.';
   final documents = <Map<String, dynamic>>[];
+  final uploads = <String>[]; // raw multipart bodies
+  final projects = <Map<String, dynamic>>[];
+  final memories = <Map<String, dynamic>>[];
+  final conversationBodies = <Map<String, dynamic>>[];
+  String transcript = 'Hey Dhanz, what is the capital of France?';
   final chatBodies = <Map<String, dynamic>>[];
 
   static const source = {
@@ -46,8 +51,11 @@ class FakeBackend {
   http.Client client() => MockClient.streaming(_handle);
 
   Future<http.StreamedResponse> _handle(http.BaseRequest req, http.ByteStream bodyStream) async {
-    final bodyText = await bodyStream.bytesToString();
+    final bytes = await bodyStream.toBytes();
+    final isMultipart = (req.headers['content-type'] ?? '').startsWith('multipart/');
+    final bodyText = isMultipart ? '' : utf8.decode(bytes);
     final body = bodyText.isEmpty ? <String, dynamic>{} : jsonDecode(bodyText) as Map<String, dynamic>;
+    if (isMultipart) uploads.add(latin1.decode(bytes));
     final path = req.url.path.replaceFirst('/api/v1', '');
     requests.add('${req.method} $path');
 
@@ -85,7 +93,59 @@ class FakeBackend {
       return json({'detail': 'Not authenticated'}, 401);
     }
 
+    if (path == '/users/me' && req.method == 'PATCH') {
+      if (body.containsKey('memory_enabled')) _user['memory_enabled'] = body['memory_enabled'];
+      return json(_user);
+    }
     if (path == '/users/me') return json(_user);
+    if (path == '/files' && req.method == 'POST') {
+      final raw = uploads.last;
+      final name = RegExp(r'filename="([^"]+)"').firstMatch(raw)?.group(1) ?? 'file';
+      final projectId = RegExp(r'name="project_id"\r\n\r\n([^\r]+)').firstMatch(raw)?.group(1);
+      final now = DateTime.now().toUtc().toIso8601String();
+      final doc = {
+        'id': _id(),
+        'kind': 'file',
+        'url': 'upload:x',
+        'title': name,
+        'site_name': null,
+        'author': null,
+        'published_at': null,
+        'retrieved_at': now,
+        'added_via': 'upload',
+        'project_id': projectId,
+        'file_type': name.endsWith('.png') ? 'image' : 'pdf',
+        'mime_type': 'application/pdf',
+        'size_bytes': 1234,
+        'scan_status': 'not_scanned',
+        'notes': null,
+        'created_at': now,
+      };
+      documents.insert(0, doc);
+      return json(doc, 201);
+    }
+    if (path == '/projects' && req.method == 'GET') return json(projects);
+    if (path == '/projects' && req.method == 'POST') {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final p = {
+        'id': _id(),
+        'name': body['name'],
+        'description': body['description'],
+        'instructions': body['instructions'],
+        'created_at': now,
+        'updated_at': now,
+      };
+      projects.add(p);
+      return json(p, 201);
+    }
+    if (path == '/memories' && req.method == 'GET') return json(memories);
+    if (path == '/memories' && req.method == 'POST') {
+      final now = DateTime.now().toUtc().toIso8601String();
+      final m = {'id': _id(), 'content': body['content'], 'source': 'manual', 'created_at': now, 'updated_at': now};
+      memories.add(m);
+      return json(m, 201);
+    }
+    if (path == '/voice/transcribe') return json({'text': transcript});
     if (path == '/models') {
       return json({
         'models': [
@@ -100,12 +160,13 @@ class FakeBackend {
           },
         ],
         'default_policy': 'balanced',
-        'features': {'web_search': true, 'semantic_search': false},
+        'features': {'web_search': true, 'semantic_search': false, 'speech_to_text': true, 'vision': true},
         'greeting': "Hello! I'm Dhanz, your personal AI assistant. How can I help you today?",
       });
     }
     if (path == '/conversations' && req.method == 'POST') {
-      final c = _conversation();
+      conversationBodies.add(body);
+      final c = _conversation()..['project_id'] = body['project_id'];
       conversations[c['id'] as String] = c;
       return json(c, 201);
     }
@@ -119,7 +180,12 @@ class FakeBackend {
       if (c == null) return json({'detail': 'Conversation not found'}, 404);
       if (match.group(2) == '/messages') {
         chatBodies.add(body);
-        return _stream(c, body['content'] as String, research: body['web'] == true);
+        return _stream(
+          c,
+          body['content'] as String,
+          research: body['web'] == true,
+          attachmentIds: (body['attachment_ids'] as List<dynamic>?)?.cast<String>() ?? const [],
+        );
       }
       if (req.method == 'GET') return json(c);
       if (req.method == 'DELETE') {
@@ -179,8 +245,24 @@ class FakeBackend {
     'created_at': DateTime.now().toUtc().toIso8601String(),
   };
 
-  http.StreamedResponse _stream(Map<String, dynamic> conv, String content, {bool research = false}) {
+  http.StreamedResponse _stream(
+    Map<String, dynamic> conv,
+    String content, {
+    bool research = false,
+    List<String> attachmentIds = const [],
+  }) {
     final user = _message('user', content);
+    if (attachmentIds.isNotEmpty) {
+      user['attachments'] = [
+        for (final id in attachmentIds)
+          {
+            'id': id,
+            'filename': documents.firstWhere((d) => d['id'] == id)['title'],
+            'file_type': documents.firstWhere((d) => d['id'] == id)['file_type'],
+          },
+      ];
+    }
+    final remember = RegExp(r'^remember that (.+?)\.?$', caseSensitive: false).firstMatch(content);
     final assistant = _message('assistant', reply, model: 'echo-1');
     if (research) assistant['citations'] = [source];
     (conv['messages'] as List<Object>).addAll([user, assistant]);
@@ -201,6 +283,7 @@ class FakeBackend {
           'sources': [source],
         }),
       ],
+      if (remember != null) ev('memory', {'action': 'saved', 'content': remember.group(1)}),
       ev('model', {'provider': 'echo', 'model': 'echo-1'}),
       for (var i = 0; i < words.length; i++) ev('delta', {'text': i == 0 ? words[i] : ' ${words[i]}'}),
       ev('done', {'message': assistant}),

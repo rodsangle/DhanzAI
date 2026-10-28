@@ -56,6 +56,7 @@ class UserOut(ORM):
     preferred_model: str | None
     routing_policy: str
     auto_index_web: bool
+    memory_enabled: bool
     created_at: datetime
 
 
@@ -72,6 +73,7 @@ class UserUpdate(BaseModel):
     preferred_model: str | None = Field(default=None, max_length=200, description="'provider:model' or '' to clear")
     routing_policy: RoutingPolicyName | None = None
     auto_index_web: bool | None = None
+    memory_enabled: bool | None = None
 
 
 class DeleteAccountRequest(BaseModel):
@@ -94,6 +96,10 @@ class ModelOut(BaseModel):
 class Features(BaseModel):
     web_search: bool
     semantic_search: bool
+    speech_to_text: bool = False
+    malware_scanning: bool = False
+    vision: bool = False
+    max_upload_mb: int = 20
 
 
 class ModelsResponse(BaseModel):
@@ -117,22 +123,26 @@ class MessageOut(ORM):
     output_tokens: int | None
     error: str | None
     citations: list[dict] | None = None
+    attachments: list[dict] | None = None
     created_at: datetime
 
 
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
+    project_id: uuid.UUID | None = None
 
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     pinned: bool | None = None
+    project_id: uuid.UUID | None = Field(default=None, description="Move to a project; send null to remove")
 
 
 class ConversationOut(ORM):
     id: uuid.UUID
     title: str
     pinned: bool
+    project_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -154,6 +164,7 @@ class SendMessageRequest(BaseModel):
         default=None, description="Replace this user message (and drop everything after it) before sending"
     )
     web: bool | None = Field(default=None, description="Web research: true always, false never, null automatic")
+    attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
     @field_validator("content")
     @classmethod
@@ -174,6 +185,11 @@ class RegenerateRequest(BaseModel):
 
 class AddDocumentRequest(BaseModel):
     url: str = Field(min_length=8, max_length=2048)
+    project_id: uuid.UUID | None = None
+
+
+class MoveDocumentRequest(BaseModel):
+    project_id: uuid.UUID | None
 
 
 class DocumentOut(ORM):
@@ -186,6 +202,12 @@ class DocumentOut(ORM):
     published_at: datetime | None
     retrieved_at: datetime
     added_via: str
+    project_id: uuid.UUID | None = None
+    file_type: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    scan_status: str | None = None
+    notes: str | None = None
     created_at: datetime
 
 
@@ -205,3 +227,54 @@ class LibraryHit(BaseModel):
     url: str
     site_name: str | None
     snippet: str
+
+
+# --- projects -------------------------------------------------------------
+
+
+class ProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    instructions: str | None = Field(default=None, max_length=8000, description="Standing instructions for Dhanz")
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    instructions: str | None = Field(default=None, max_length=8000)
+
+
+class ProjectOut(ORM):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    instructions: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectDetail(ProjectOut):
+    conversation_count: int
+    document_count: int
+
+
+# --- memory ---------------------------------------------------------------
+
+
+class MemoryCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class MemoryOut(ORM):
+    id: uuid.UUID
+    content: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+
+# --- voice ----------------------------------------------------------------
+
+
+class TranscriptionOut(BaseModel):
+    text: str

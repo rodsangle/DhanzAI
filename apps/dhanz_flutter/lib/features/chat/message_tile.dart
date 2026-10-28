@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
+import 'attachment_chip.dart';
 import 'markdown_view.dart';
 import 'sources_view.dart';
 
@@ -47,6 +48,19 @@ class MessageTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            if (message.attachments.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final a in message.attachments)
+                      AttachmentChip(documentId: a.id, filename: a.filename, fileType: a.fileType),
+                  ],
+                ),
+              ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(

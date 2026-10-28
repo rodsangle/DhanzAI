@@ -8,8 +8,9 @@ pip install -r backend/requirements-dev.txt             # also installs ai_engin
 (cd ai_engine && pytest -q)                             # provider wire formats, routing, fallback
 (cd knowledge_engine && pytest -q)                      # search APIs, robots.txt, SSRF, extraction, ranking, research
 (cd backend && pytest -q)                               # API: auth, chat, research turns, library, isolation, migrations
-TEST_POSTGRES_URL=postgresql+asyncpg://dhanz:...@localhost:5432/dhanz \
-  pytest -q backend/tests/test_postgres.py              # pgvector ingestion + hybrid search (CI runs this)
+# The same backend suite on PostgreSQL (fresh schema per test) plus the pgvector tests — CI runs this:
+TEST_DATABASE_URL=postgresql+asyncpg://dhanz:...@localhost:5432/dhanz \
+TEST_POSTGRES_URL=postgresql+asyncpg://dhanz:...@localhost:5432/dhanz (cd backend && pytest -q)
 ruff check backend ai_engine knowledge_engine tests scripts
 ruff format --check backend ai_engine knowledge_engine tests scripts
 ```
@@ -75,3 +76,20 @@ Requires `SEARCH_PROVIDER` configured.
 5. Knowledge library → *Add page* → listed with site and dates; search finds it; ask a related
    question in a new chat → the answer cites it with the library icon.
 6. Settings → turn off *Save researched pages* → new research no longer adds documents.
+
+## Manual verification checklist (Phase 3)
+
+1. Paperclip in the composer → attach a PDF/Word/Excel file → ask about it → the answer cites the
+   file; tap the source card to download it again.
+2. Attach a spreadsheet → ask for totals → numbers match the column statistics.
+3. Attach two documents → "compare these" → both are cited.
+4. Attach a photo or drawing with a vision model configured → it is described; without one,
+   Dhanz explains that no configured model can read images.
+5. History panel → project switcher → *Manage projects…* → create a project with instructions →
+   new chats and uploads go into it; the instructions are followed; another project's documents
+   are not used.
+6. Settings → Memory → turn on → say "Remember that I prefer metric units" → notice appears and
+   the memory is listed; later answers use it; turn off → no longer used.
+7. Microphone button in the chat bar → speak → the transcript appears, Dhanz answers aloud;
+   enable *Hands-free* and *Require "Hey Dhanz"* and check both behaviours.
+8. Conversation menu → *Save as PDF* → the PDF opens with the conversation, code and sources.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, true
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Embedding, UTCDateTime, utcnow
@@ -24,6 +24,8 @@ class User(Base):
     routing_policy: Mapped[str] = mapped_column(String(20), default="balanced")
     # Save pages read during web research to the user's knowledge library.
     auto_index_web: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # Long-term memory is opt-in: nothing is remembered unless the user turns it on.
+    memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
@@ -54,6 +56,7 @@ class Conversation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     title: Mapped[str] = mapped_column(String(200), default="New conversation")
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -84,13 +87,43 @@ class Message(Base):
     error: Mapped[str | None] = mapped_column(Text)
     # Numbered sources the reply was grounded on: [{n, title, url, site_name, published_at, retrieved_at, origin}]
     citations: Mapped[list | None] = mapped_column(JSON)
+    # Files attached to a user message: [{id, filename, kind, mime_type}]
+    attachments: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class Project(Base):
+    """A workspace grouping conversations and documents, with optional standing instructions."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str | None] = mapped_column(Text)
+    instructions: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class Memory(Base):
+    """Something the user approved Dhanz to remember across conversations."""
+
+    __tablename__ = "memories"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    # manual (typed in Settings) | chat ("remember that …" in a conversation)
+    source: Mapped[str] = mapped_column(String(20), default="manual")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class KnowledgeDocument(Base):
-    """A source in a user's private knowledge library (a web page today; uploaded files in Phase 3)."""
+    """A source in a user's private knowledge library: a web page (kind "web") or an uploaded file ("file")."""
 
     __tablename__ = "knowledge_documents"
     __table_args__ = (UniqueConstraint("user_id", "url", name="uq_knowledge_documents_user_url"),)
@@ -106,8 +139,16 @@ class KnowledgeDocument(Base):
     retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     content: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
-    # manual (user added it) | research (saved automatically while answering)
+    # manual (user added a URL) | research (saved while answering) | upload (user uploaded a file)
     added_via: Mapped[str] = mapped_column(String(20), default="manual")
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    # Uploaded files only:
+    file_type: Mapped[str | None] = mapped_column(String(20))  # pdf | docx | xlsx | pptx | csv | text | code | image
+    mime_type: Mapped[str | None] = mapped_column(String(120))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    storage_key: Mapped[str | None] = mapped_column(String(80))
+    scan_status: Mapped[str | None] = mapped_column(String(20))  # clean | not_scanned
+    notes: Mapped[str | None] = mapped_column(Text)  # extraction notes, e.g. scanned PDF without text
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     chunks: Mapped[list[KnowledgeChunk]] = relationship(
@@ -147,7 +188,9 @@ __all__ = [
     "Conversation",
     "KnowledgeChunk",
     "KnowledgeDocument",
+    "Memory",
     "Message",
+    "Project",
     "RefreshToken",
     "User",
 ]

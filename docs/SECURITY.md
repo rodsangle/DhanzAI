@@ -18,6 +18,10 @@
 | Prompt injection | Retrieved web/library text is placed in a `<sources>` block labelled as untrusted data; the system prompt forbids following instructions inside it. There are still no action-taking tools, so injected text cannot trigger actions |
 | Server-side fetching (Phase 2) | Only http/https on ports 80/443; URLs with credentials refused; every DNS answer must be a public address (blocks localhost, private ranges, link-local/cloud metadata) and this is re-checked on every redirect; 2 MB cap; HTML/text only; no cookies or auth headers sent |
 | Responsible crawling | Fetches only pages a user asked about or a search returned (no crawling); honours robots.txt for `DhanzAI-Research` (robots.txt unreachable because of a server or network error = disallowed); spaces requests per host; pages returning 401/402/403 are reported as requiring a login/subscription and are never worked around |
+| File uploads (Phase 3) | Size cap (`MAX_UPLOAD_MB`); type decided by content signatures, not the filename; Office files checked for zip bombs and encryption; legacy binary Office formats refused; filenames sanitised; bytes stored under random keys outside the web root; optional ClamAV scanning that fails closed; downloads only as `application/octet-stream` attachments with `nosniff`; parsing runs off the event loop and errors are contained |
+| Images and vision | Images are only sent to the model handling that message, and only to vision-capable models |
+| Memory | Off by default; only saved on explicit request ("Remember that …") or manual entry; fully viewable, editable and deletable; never used while disabled |
+| Voice | Audio is recorded only while the Voice screen is open, uploaded for transcription, and the temporary file is deleted from the device; nothing is recorded in the background |
 | Knowledge privacy | Library documents and chunks are scoped to their owner in every query (including vector search); deleted with the account; included in data export |
 | Privacy | Data export (`GET /users/me/export`), real account deletion (DB cascade), no analytics or third-party trackers in the app |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
@@ -38,6 +42,10 @@
 * Conversations are sent to whichever AI provider handles the request; their data-retention
   policies apply. Use Ollama (`local_first`) to keep data on your own hardware.
 * Audit-log retention and data-retention settings are not yet configurable.
+* Without ClamAV configured, uploads are stored unscanned (marked `not_scanned`). Enable the
+  `scan` profile for any multi-user deployment.
+* Uploaded files are stored unencrypted on the server volume; use encrypted disks/volumes.
+* Voice recordings are sent to the configured speech-to-text provider (OpenAI or your own Whisper server).
 
 ## Operating securely
 

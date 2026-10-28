@@ -3,7 +3,7 @@
 > Your World. Your Knowledge. Your AI.
 
 This document describes the target architecture for all phases and marks what exists today
-(**Phases 1 and 2**) versus what is planned. See [ROADMAP.md](ROADMAP.md) for the phase plan and the
+(**Phases 1–3**) versus what is planned. See [ROADMAP.md](ROADMAP.md) for the phase plan and the
 list of features that are not implemented yet.
 
 ## 1. Overview
@@ -59,6 +59,9 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `models/` | `users`, `refresh_tokens`, `conversations`, `messages`, `audit_logs` |
 | `services/auth_service.py` | Token issue, rotation, reuse detection (revokes the whole session family) |
 | `services/chat_service.py` | Turn preparation (send / edit-and-resend / regenerate), research phase, history building, streaming + persistence |
+| `services/files_service.py`, `storage.py`, `scanner.py` | Uploads: validate → ClamAV scan (optional) → extract text → store bytes under a random key → chunk/index |
+| `services/stt.py` | Speech-to-text through an OpenAI-compatible `/audio/transcriptions` endpoint |
+| `services/export.py` | Markdown, text and PDF (fpdf2 + bundled DejaVu fonts) conversation exports |
 | `services/knowledge_service.py` | Knowledge runtime (search provider, fetcher, embedder), library ingestion, hybrid retrieval (pgvector `<=>` on PostgreSQL), background auto-indexing |
 | `api/routes/*` | REST endpoints, SSE streaming, WebSocket endpoint |
 
@@ -74,9 +77,17 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `GET /conversations/{id}/export?format=markdown\|txt` | Export a conversation |
 | `GET/POST /knowledge/documents`, `GET/DELETE /knowledge/documents/{id}` | Knowledge library: list/filter, add a public URL, read, delete |
 | `GET /knowledge/search?q=` | Hybrid search over the user's library |
+| `PATCH /knowledge/documents/{id}` | Move a document into or out of a project |
+| `POST /files`, `GET /files/{id}/download` | Upload a document/image (multipart, optional `project_id`); download it back |
+| `GET/POST /projects`, `GET/PATCH/DELETE /projects/{id}` | Project workspaces (name, description, instructions) |
+| `GET/POST/DELETE /memories`, `PATCH/DELETE /memories/{id}` | Opt-in memory (toggle with `PATCH /users/me {"memory_enabled": …}`) |
+| `POST /voice/transcribe` | Speech-to-text for the voice assistant |
 | `POST /conversations/{id}/messages` | Send (or edit-and-resend) and stream the reply as SSE; `web: true\|false\|null` controls research |
 | `POST /conversations/{id}/regenerate` | Regenerate the last reply as SSE |
 | `WS /ws/chat` | Same chat protocol over WebSocket (auth frame first) |
+
+`POST /conversations/{id}/messages` also takes `attachment_ids`; conversations take an optional
+`project_id`; exports take `format=markdown|txt|pdf`.
 
 Interactive OpenAPI docs are served at `/docs` outside production.
 
@@ -86,7 +97,8 @@ Both SSE and WebSocket emit the same JSON events:
 
 1. `meta` — `conversation_id`, `assistant_message_id`, the saved `user_message`
 2. `research` (zero or more) — `stage`: `searching` (`query`), `reading` (`urls`), `done`,
-   `sources` (numbered citations), `unavailable` (no search provider) or `error`
+   `sources` (numbered citations), `reading_files` (attachments), `unavailable` (no search provider) or `error`;
+   `memory` — something the user asked Dhanz to remember was saved
 3. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
 4. `delta` — `text` (append-only)
 5. `done` — final saved `message` (content, tokens, model, `citations`) **or** `error` — `detail` + saved message
@@ -140,7 +152,10 @@ users 1──* audit_logs (user_id SET NULL on delete)
 * Deleting a user cascades to conversations, messages and tokens (data deletion is real).
 * Phase 2 added `knowledge_documents` (page text + metadata, unique per user and URL),
   `knowledge_chunks` (text, `embedding vector`, `embedding_model`), `messages.citations` and
-  `users.auto_index_web`. Phase 3 adds `memories`, `projects`, `files`.
+  `users.auto_index_web`. Phase 3 added `projects` (conversations and documents reference them, SET NULL
+  on delete), `memories`, `users.memory_enabled`, `messages.attachments`, and file columns on
+  `knowledge_documents` (`kind = "file"`, type, size, storage key, scan status, extraction notes).
+  File bytes live in `STORAGE_DIR` (a Docker volume), are removed when the document or account is deleted.
 
 ## 6. Flutter app (`apps/dhanz_flutter/lib`)
 
@@ -153,6 +168,10 @@ users 1──* audit_logs (user_id SET NULL on delete)
 | `features/conversations` | History panel: search, rename, pin, export, delete |
 | `features/chat/sources_view.dart` | Numbered, clickable source cards with site and dates |
 | `features/library` | Knowledge library: add page, list, preview, search, remove |
+| `features/projects` | Project switcher (in the history panel), projects screen, move chats/documents |
+| `features/memory` | Memory screen: toggle, list, add, edit, delete |
+| `features/voice` | Voice screen and controller: recording with level-based end-of-speech detection, transcription, spoken replies, hands-free loop, wake phrase |
+| `core/files.dart` | File picking and "save as" (attachments, downloads, exports) |
 | `features/settings` | Profile, theme, default model, routing policy, data export, account deletion, sign-out |
 | `router.dart` | GoRouter with auth-aware redirects |
 

@@ -51,7 +51,11 @@ class GeminiProvider(Provider):
     ) -> AsyncIterator[StreamChunk]:
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         contents = [
-            {"role": "model" if m.role == "assistant" else "user", "parts": [{"text": m.content}]}
+            {
+                "role": "model" if m.role == "assistant" else "user",
+                "parts": [{"inline_data": {"mime_type": i.mime_type, "data": i.data_b64}} for i in m.images]
+                + [{"text": m.content}],
+            }
             for m in messages
             if m.role != "system"
         ]

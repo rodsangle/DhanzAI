@@ -219,6 +219,27 @@ class SettingsScreen extends ConsumerWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.go('/library'),
               ),
+              section('Personalisation'),
+              ListTile(
+                leading: const Icon(Icons.psychology_outlined),
+                title: const Text('Memory'),
+                subtitle: Text(user.memoryEnabled ? 'On — Dhanz uses what you asked it to remember' : 'Off'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/memory'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: const Text('Projects'),
+                subtitle: const Text('Workspaces with their own chats, documents and instructions'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/projects'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.mic_none),
+                title: const Text('Voice assistant'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/voice'),
+              ),
               section('Privacy & data'),
               ListTile(
                 leading: const Icon(Icons.download_outlined),

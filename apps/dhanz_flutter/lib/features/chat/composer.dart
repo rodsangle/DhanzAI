@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/files.dart';
 import '../../models/models.dart';
+import 'file_icons.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
 
@@ -38,9 +40,21 @@ class _ComposerState extends ConsumerState<Composer> {
     return KeyEventResult.ignored;
   }
 
+  Future<void> _attach() async {
+    final files = await pickFiles();
+    final chat = ref.read(chatControllerProvider.notifier);
+    await Future.wait([for (final f in files) chat.attachFile(f.name, f.bytes)]);
+  }
+
   void _submit() {
-    final text = _controller.text;
-    if (text.trim().isEmpty || ref.read(chatControllerProvider).streaming) return;
+    final chat = ref.read(chatControllerProvider);
+    var text = _controller.text;
+    if (chat.streaming || chat.uploading > 0) return;
+    if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
+      // Attachments alone: ask for the obvious thing rather than refusing to send.
+      text = chat.attachments.every((a) => a.fileType == 'image') ? 'Describe this image.' : 'Summarize this file.';
+    }
+    if (text.trim().isEmpty) return;
     _controller.clear();
     widget.onSend(text);
     _focus.requestFocus();
@@ -60,6 +74,32 @@ class _ComposerState extends ConsumerState<Composer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (chat.attachments.isNotEmpty || chat.uploading > 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final a in chat.attachments)
+                      InputChip(
+                        avatar: Icon(fileIcon(a.fileType), size: 18),
+                        label: Text(a.title, overflow: TextOverflow.ellipsis),
+                        tooltip: a.notes ?? a.title,
+                        onDeleted: () => ref.read(chatControllerProvider.notifier).removeAttachment(a.id),
+                        deleteButtonTooltipMessage: 'Remove attachment',
+                      ),
+                    if (chat.uploading > 0)
+                      Chip(
+                        avatar: const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                        label: Text('Uploading ${chat.uploading}…'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           TextField(
             controller: _controller,
             focusNode: _focus,
@@ -79,6 +119,11 @@ class _ComposerState extends ConsumerState<Composer> {
               Expanded(
                 child: Row(
                   children: [
+                    IconButton(
+                      tooltip: 'Attach files',
+                      icon: const Icon(Icons.attach_file),
+                      onPressed: chat.streaming ? null : _attach,
+                    ),
                     Flexible(child: _ModelPicker(selected: chat.modelKey)),
                     _WebModePicker(mode: chat.webMode),
                   ],
@@ -96,7 +141,9 @@ class _ComposerState extends ConsumerState<Composer> {
                   builder: (context, _) => IconButton.filled(
                     tooltip: 'Send',
                     icon: const Icon(Icons.arrow_upward_rounded),
-                    onPressed: _controller.text.trim().isEmpty ? null : _submit,
+                    onPressed: (_controller.text.trim().isEmpty && chat.attachments.isEmpty) || chat.uploading > 0
+                        ? null
+                        : _submit,
                   ),
                 ),
             ],

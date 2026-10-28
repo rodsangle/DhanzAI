@@ -1,18 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/models.dart';
+import 'attachment_chip.dart';
 
 /// Numbered, clickable sources under an answer. Numbers match the [n] markers in the text.
-class SourcesView extends StatelessWidget {
+class SourcesView extends ConsumerWidget {
   const SourcesView({super.key, required this.citations});
 
   final List<Citation> citations;
 
   static final _date = DateFormat.yMMMd();
 
-  Future<void> _open(BuildContext context, Citation c) async {
+  Future<void> _open(BuildContext context, WidgetRef ref, Citation c) async {
+    final upload = c.uploadId;
+    if (upload != null) return downloadAndSave(context, ref, upload, c.title);
     final uri = Uri.tryParse(c.url);
     if (uri == null || !(uri.scheme == 'https' || uri.scheme == 'http')) return;
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication) && context.mounted) {
@@ -21,7 +25,7 @@ class SourcesView extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final muted = theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant);
     return Padding(
@@ -37,10 +41,10 @@ class SourcesView extends StatelessWidget {
             children: [
               for (final c in citations)
                 Tooltip(
-                  message: c.url,
+                  message: c.fromFile ? 'Download ${c.title}' : c.url,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
-                    onTap: () => _open(context, c),
+                    onTap: () => _open(context, ref, c),
                     child: Container(
                       constraints: const BoxConstraints(maxWidth: 280),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -75,7 +79,11 @@ class SourcesView extends StatelessWidget {
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
-                                      c.fromLibrary ? Icons.local_library_outlined : Icons.public,
+                                      c.fromFile
+                                          ? Icons.attach_file
+                                          : c.fromLibrary
+                                          ? Icons.local_library_outlined
+                                          : Icons.public,
                                       size: 12,
                                       color: theme.colorScheme.onSurfaceVariant,
                                     ),
@@ -83,7 +91,7 @@ class SourcesView extends StatelessWidget {
                                     Flexible(
                                       child: Text(
                                         [
-                                          c.siteName ?? c.host,
+                                          c.fromFile ? 'your file' : (c.siteName ?? c.host),
                                           if (c.publishedAt != null) _date.format(c.publishedAt!),
                                         ].join(' · '),
                                         style: muted,

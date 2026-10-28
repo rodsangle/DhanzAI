@@ -28,8 +28,14 @@ library with hybrid keyword + semantic (pgvector) retrieval.
 |---|---|
 | ![Research answer with sources](docs/screenshots/research-sources.png) | ![Answer citing the library](docs/screenshots/library-answer.png) |
 
-Voice, document analysis, memory and projects are **not implemented yet** — see
-[docs/ROADMAP.md](docs/ROADMAP.md) for the exact status of every feature.
+**Phase 3 — advanced assistant:** upload and analyse PDF, Word, Excel, PowerPoint, CSV, text,
+code and images (vision models), compare documents, exact spreadsheet statistics, optional ClamAV
+malware scanning, project workspaces with standing instructions, opt-in long-term memory, a
+voice assistant (speech-to-text, spoken replies, hands-free mode, "Hey Dhanz"), and PDF export.
+
+Tools (calendar, reminders, email drafting, calculators), OCR for scanned PDFs and Google/Apple
+sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
+of every feature.
 
 ## Quick start
 

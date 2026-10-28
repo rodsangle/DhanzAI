@@ -44,14 +44,23 @@ features that work.
 | LangGraph research flow | ⬜ | The pipeline is a plain async function; a graph adds value once tools need approvals (Phase 3) |
 | Approximate-nearest-neighbour (HNSW) index | ⬜ | Exact vector search per user is fast at personal-library scale; add an index per embedding model when libraries get large |
 
-## Phase 3 — Advanced assistant
+## Phase 3 — Advanced assistant (this milestone)
 
-⬜ Voice: speech-to-text, text-to-speech, voice picker/speed, hands-free mode where the OS allows,
-optional "Hey Dhanz" wake phrase (foreground-only on iOS/Android per platform rules) ·
-⬜ file uploads (PDF, DOCX, XLSX, PPTX, CSV, images, code) with malware scanning, extraction,
-Q&A, comparison, report generation · ⬜ opt-in long-term memory (view/edit/delete/disable) ·
-⬜ projects/workspaces · ⬜ tools (calculator, unit conversion, email drafting, calendar,
-reminders) with explicit user approval for any external action · ⬜ PDF export and file saving.
+| Feature | Status | Notes |
+|---|---|---|
+| File uploads: PDF, DOCX, XLSX, PPTX, CSV/TSV, text, Markdown, source code, images | ✅ | Real type checked (not just the name), size limit, zip-bomb and password-protection checks; legacy .doc/.xls/.ppt rejected with a clear message |
+| Malware scanning | 🟡 | ClamAV (clamd) integration, fail-closed when configured (`docker compose --profile scan`); without it files are stored as `not_scanned` |
+| Ask questions about attached documents, compare documents, summarise | ✅ | Short files given whole, long files by opening + most relevant passages; each file is a citable `[n]` source |
+| Spreadsheet analysis | ✅ | Row/column counts and exact per-column sum/mean/min/max computed server-side, plus the first 200 rows |
+| Images / technical drawings | ✅ | Sent to a vision-capable model (OpenAI, Claude, Gemini, LLaVA-type Ollama models); routing refuses non-vision models |
+| Scanned PDFs (OCR) | ⬜ | Detected and reported honestly; text recognition is not implemented |
+| Uploaded files in the knowledge library (search, download, move to project, delete) | ✅ | Files are private; downloads are always `attachment` + `nosniff` |
+| Generate downloadable files | 🟡 | Conversations can be saved as PDF, Markdown or text; generating new reports/spreadsheets as files is not implemented |
+| Project workspaces | ✅ | Group chats and documents, standing instructions added to the prompt, project chats only search that project's documents |
+| Opt-in long-term memory | ✅ | Off by default; "Remember that …" in chat or manual entries; view, edit, delete, delete all, disable; included in data export |
+| Voice assistant | ✅ | Record → server speech-to-text (OpenAI-compatible, e.g. Whisper) → answer → device text-to-speech; voice picker and speed; automatic end-of-speech detection; hands-free loop; optional "Hey Dhanz" wake phrase |
+| Background / always-on wake word | ⬜ | Deliberately not done: the microphone is only used while the Voice screen is open, as Android and iOS require |
+| Tools (calculator, unit conversion, email drafting, calendar, reminders) | ⬜ | Moved to Phase 3b: needs provider tool-calling and an approval step for any external action |
 
 ## Phase 4 — Platform distribution
 

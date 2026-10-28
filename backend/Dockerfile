@@ -16,7 +16,8 @@ RUN pip install -r /srv/backend/requirements.txt /srv/ai_engine /srv/knowledge_e
 COPY backend /srv/backend
 WORKDIR /srv/backend
 
-RUN useradd --system --uid 10001 --no-create-home dhanz && chown -R dhanz /srv/backend
+RUN useradd --system --uid 10001 --no-create-home dhanz \
+    && mkdir -p /srv/data/uploads && chown -R dhanz /srv/backend /srv/data
 USER dhanz
 
 EXPOSE 8000

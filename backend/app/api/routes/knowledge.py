@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, or_, select
 
 from app.api.deps import CurrentUser, DbDep, KnowledgeDep, SettingsDep, parse_uuid
+from app.api.routes.projects import get_owned_project
 from app.core import rate_limit
 from app.models import KnowledgeChunk, KnowledgeDocument
-from app.schemas import AddDocumentRequest, DocumentDetail, DocumentList, DocumentOut, LibraryHit
-from app.services import audit, knowledge_service
+from app.schemas import AddDocumentRequest, DocumentDetail, DocumentList, DocumentOut, LibraryHit, MoveDocumentRequest
+from app.services import audit, files_service, knowledge_service
 from dhanz_knowledge import FetchError
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -29,8 +30,14 @@ async def list_documents(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    project_id: str | None = Query(default=None),
+    kind: str | None = Query(default=None, pattern="^(web|file)$"),
 ) -> DocumentList:
     stmt = select(KnowledgeDocument).where(KnowledgeDocument.user_id == user.id)
+    if project_id:
+        stmt = stmt.where(KnowledgeDocument.project_id == parse_uuid(project_id))
+    if kind:
+        stmt = stmt.where(KnowledgeDocument.kind == kind)
     if q:
         needle = q.strip().lower()
         stmt = stmt.where(
@@ -55,6 +62,9 @@ async def add_document(
     except FetchError as exc:
         raise HTTPException(422, f"Could not add this page: {exc.reason}") from None
     doc = await knowledge_service.ingest_page(db, user.id, page, knowledge.embedder, added_via="manual")
+    if body.project_id is not None:
+        await get_owned_project(db, user, body.project_id)
+        doc.project_id = body.project_id
     audit.record(db, "knowledge.add", user_id=user.id, detail={"url": page.url})
     await db.commit()
     return doc
@@ -67,11 +77,23 @@ async def get_document(document_id: str, user: CurrentUser, db: DbDep) -> Docume
     return DocumentDetail(**DocumentOut.model_validate(doc).model_dump(), content=doc.content, chunk_count=count or 0)
 
 
+@router.patch("/documents/{document_id}", response_model=DocumentOut)
+async def move_document(document_id: str, body: MoveDocumentRequest, user: CurrentUser, db: DbDep) -> KnowledgeDocument:
+    """Assign a document to a project (or remove it from one with null)."""
+    doc = await _owned(db, user, document_id)
+    if body.project_id is not None:
+        await get_owned_project(db, user, body.project_id)
+    doc.project_id = body.project_id
+    await db.commit()
+    return doc
+
+
 @router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_document(document_id: str, user: CurrentUser, db: DbDep) -> Response:
+async def delete_document(document_id: str, request: Request, user: CurrentUser, db: DbDep) -> Response:
     doc = await _owned(db, user, document_id)
     await db.delete(doc)
     await db.commit()
+    await files_service.delete_document_files(request.app.state.files, [doc])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -30,17 +30,27 @@ class OllamaProvider(Provider):
         return bool(self.base_url) and bool(self._models)
 
     def models(self) -> list[ModelInfo]:
-        caps = frozenset({Capability.CHAT, Capability.CODE, Capability.LOCAL})
-        return [
-            ModelInfo(self.name, m, f"{m} (local)", caps, CostTier.FREE, context_window=8_192) for m in self._models
-        ]
+        infos = []
+        for m in self._models:
+            caps = {Capability.CHAT, Capability.CODE, Capability.LOCAL}
+            if any(v in m for v in ("llava", "vision", "gemma3", "qwen2.5vl", "minicpm-v", "moondream")):
+                caps.add(Capability.VISION)
+            infos.append(ModelInfo(self.name, m, f"{m} (local)", frozenset(caps), CostTier.FREE, context_window=8_192))
+        return infos
 
     async def stream(
         self, model: str, messages: Sequence[ChatMessage], params: GenerationParams
     ) -> AsyncIterator[StreamChunk]:
         payload = {
             "model": model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [
+                {
+                    "role": m.role,
+                    "content": m.content,
+                    **({"images": [i.data_b64 for i in m.images]} if m.images else {}),
+                }
+                for m in messages
+            ],
             "stream": True,
             "options": {"temperature": params.temperature, "num_predict": params.max_tokens},
         }

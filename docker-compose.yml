@@ -31,6 +31,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dhanz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-dhanz}
+      STORAGE_DIR: /srv/data/uploads
+    volumes:
+      - uploads:/srv/data
     depends_on:
       db:
         condition: service_healthy
@@ -38,5 +41,12 @@ services:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
 
+  clamav:
+    # Optional malware scanning for uploads: `docker compose --profile scan up -d` and set CLAMAV_HOST=clamav.
+    image: clamav/clamav:stable
+    profiles: ["scan"]
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  uploads:

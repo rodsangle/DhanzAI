@@ -139,9 +139,22 @@ async def test_non_retryable_error_is_not_masked():
 
 
 def test_system_prompt_mentions_identity_and_honesty():
-    p = build_system_prompt(user_preferences="Answer in French")
-    assert "Dhanz" in p and "Never fabricate" in p and "Answer in French" in p
+    p = build_system_prompt(user_preferences="Answer in French", project_instructions="Use metric units")
+    assert "Dhanz" in p and "Never fabricate" in p and "Answer in French" in p and "Use metric units" in p
     assert "do not have live internet access" in p
     p = build_system_prompt(sources="[1] Title\nURL: https://a.com\ntext", research_notes="1 page was blocked")
     assert "<sources>" in p and "[1] Title" in p and "untrusted" in p and "1 page was blocked" in p
     assert "do not have live internet access" not in p
+
+
+def test_required_capabilities_filter_candidates():
+    o, _ = orch()
+    req = RoutingRequest(required=frozenset({Capability.CODE}))
+    assert all(Capability.CODE in m.capabilities for m in o.candidates(req, TaskType.GENERAL))
+    with pytest.raises(NoModelAvailableError, match="vision"):
+        o.candidates(RoutingRequest(required=frozenset({Capability.VISION})), TaskType.GENERAL)
+    with pytest.raises(NoModelAvailableError, match="cannot handle"):
+        o.candidates(
+            RoutingRequest(explicit_provider="a", explicit_model="cheap", required=frozenset({Capability.CODE})),
+            TaskType.GENERAL,
+        )

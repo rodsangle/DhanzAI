@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.api.deps import CurrentUser, KnowledgeDep, OrchestratorDep, SettingsDep
 from app.schemas import Features, ModelOut, ModelsResponse
-from dhanz_ai import GREETING
+from dhanz_ai import GREETING, Capability
 
 router = APIRouter(tags=["meta"])
 
@@ -34,7 +34,7 @@ async def ready(request: Request, orchestrator: OrchestratorDep) -> JSONResponse
 
 @router.get("/models", response_model=ModelsResponse)
 async def list_models(
-    _: CurrentUser, orchestrator: OrchestratorDep, settings: SettingsDep, knowledge: KnowledgeDep
+    request: Request, _: CurrentUser, orchestrator: OrchestratorDep, settings: SettingsDep, knowledge: KnowledgeDep
 ) -> ModelsResponse:
     return ModelsResponse(
         models=[
@@ -51,5 +51,12 @@ async def list_models(
         ],
         default_policy=settings.default_routing_policy,
         greeting=GREETING,
-        features=Features(web_search=knowledge.search is not None, semantic_search=knowledge.embedder is not None),
+        features=Features(
+            web_search=knowledge.search is not None,
+            semantic_search=knowledge.embedder is not None,
+            speech_to_text=request.app.state.stt is not None,
+            malware_scanning=request.app.state.files.scanner is not None,
+            vision=any(Capability.VISION in m.capabilities for m in orchestrator.available_models()),
+            max_upload_mb=settings.max_upload_mb,
+        ),
     )

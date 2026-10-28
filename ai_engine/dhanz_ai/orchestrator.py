@@ -69,6 +69,8 @@ class RoutingRequest:
     preferred_model_key: str | None = None  # "provider:model"
     policy: RoutingPolicy = RoutingPolicy.BALANCED
     allow_fallback: bool = True
+    # Capabilities every candidate must have (e.g. VISION when the message carries images).
+    required: frozenset[Capability] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -111,11 +113,23 @@ class Orchestrator:
 
         ordered: list[ModelInfo] = []
 
+        if request.required:
+            available = [m for m in available if request.required <= m.capabilities]
+            if not available:
+                needs = ", ".join(sorted(c.value for c in request.required))
+                raise NoModelAvailableError(f"No configured AI model supports what this message needs ({needs}).")
+
         if request.explicit_provider and request.explicit_model:
             explicit = self.find_model(request.explicit_provider, request.explicit_model)
             if explicit is None:
                 raise NoModelAvailableError(
                     f"Model {request.explicit_provider}:{request.explicit_model} is not available."
+                )
+            if not request.required <= explicit.capabilities:
+                raise NoModelAvailableError(
+                    f"{explicit.display_name} cannot handle this message (it needs "
+                    + ", ".join(sorted(c.value for c in request.required))
+                    + "). Choose another model or Auto."
                 )
             ordered.append(explicit)
             if not request.allow_fallback:
@@ -123,7 +137,9 @@ class Orchestrator:
         elif request.preferred_model_key:
             provider, _, model = request.preferred_model_key.partition(":")
             preferred = self.find_model(provider, model)
-            if preferred:  # a stale preference silently falls through to automatic routing
+            if (
+                preferred and request.required <= preferred.capabilities
+            ):  # a stale preference silently falls through to automatic routing
                 ordered.append(preferred)
 
         for info in sorted(available, key=lambda m: self._score(m, task, request.policy), reverse=True):

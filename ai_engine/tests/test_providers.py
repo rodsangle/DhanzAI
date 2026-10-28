@@ -10,6 +10,7 @@ from dhanz_ai import (
     ChatMessage,
     GeminiProvider,
     GenerationParams,
+    ImagePart,
     OllamaProvider,
     OpenAIProvider,
     ProviderError,
@@ -139,3 +140,36 @@ def test_is_configured():
     assert not AnthropicProvider("k", []).is_configured()
     assert OllamaProvider("http://x", ["m"]).is_configured()
     assert not OllamaProvider("", ["m"]).is_configured()
+
+
+IMG = ImagePart("image/png", "iVBORw0KGgo=")
+VISION_MESSAGES = [ChatMessage("user", "what is this?", images=(IMG,))]
+
+
+async def test_images_are_sent_in_each_provider_format():
+    body = sse((None, "[DONE]"))
+    cap: dict = {}
+    p = OpenAIProvider("k", ["gpt-4.1"], client=client_returning(body, captured=cap))
+    [c async for c in p.stream("gpt-4.1", VISION_MESSAGES, GenerationParams())]
+    content = cap["json"]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "what is this?"}
+    assert content[1]["image_url"]["url"] == "data:image/png;base64,iVBORw0KGgo="
+
+    cap = {}
+    p = AnthropicProvider(
+        "k", ["claude"], client=client_returning(sse(("message_stop", {"type": "message_stop"})), captured=cap)
+    )
+    [c async for c in p.stream("claude", VISION_MESSAGES, GenerationParams())]
+    content = cap["json"]["messages"][0]["content"]
+    assert content[0]["source"] == {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}
+
+    cap = {}
+    p = GeminiProvider("k", ["g"], client=client_returning(sse((None, {"candidates": []})), captured=cap))
+    [c async for c in p.stream("g", VISION_MESSAGES, GenerationParams())]
+    assert cap["json"]["contents"][0]["parts"][0]["inline_data"]["mime_type"] == "image/png"
+
+    cap = {}
+    p = OllamaProvider("http://o", ["llava"], client=client_returning(b'{"done": true}\n', captured=cap))
+    [c async for c in p.stream("llava", VISION_MESSAGES, GenerationParams())]
+    assert cap["json"]["messages"][0]["images"] == ["iVBORw0KGgo="]
+    assert any("vision" == c.value for c in p.models()[0].capabilities)

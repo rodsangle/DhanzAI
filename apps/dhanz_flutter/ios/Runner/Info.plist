@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>DHANZ AI lets you attach photos to your questions.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DHANZ AI uses the microphone when you talk to Dhanz in the Voice screen.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Allows http:// only for localhost/LAN development servers; everything else must use HTTPS. -->

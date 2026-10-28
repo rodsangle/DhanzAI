@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
@@ -35,8 +36,10 @@ class EchoProvider(Provider):
 
     name = "echo"
 
-    def __init__(self) -> None:
+    def __init__(self, name: str = "echo", vision: bool = False) -> None:
         super().__init__()
+        self.name = name
+        self.vision = vision
         self.fail_with: ProviderError | None = None
         self.last_messages: list[ChatMessage] = []
 
@@ -44,7 +47,8 @@ class EchoProvider(Provider):
         return True
 
     def models(self) -> list[ModelInfo]:
-        return [ModelInfo("echo", "echo-1", "Echo", frozenset({Capability.CHAT}), CostTier.FREE)]
+        caps = {Capability.CHAT, *([Capability.VISION] if self.vision else [])}
+        return [ModelInfo(self.name, f"{self.name}-1", self.name.title(), frozenset(caps), CostTier.FREE)]
 
     async def stream(
         self, model: str, messages: Sequence[ChatMessage], params: GenerationParams
@@ -58,19 +62,32 @@ class EchoProvider(Provider):
         yield StreamChunk(done=True, input_tokens=10, output_tokens=5)
 
 
-def migrate(database_url: str) -> None:
+def migrate(database_url: str, *, fresh: bool = False) -> None:
     cfg = Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     cfg.attributes["database_url"] = database_url
     cfg.attributes["configure_logger"] = False
+    if fresh:
+        command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
+
+
+# Run the whole suite against PostgreSQL with TEST_DATABASE_URL=postgresql+asyncpg://... (CI does);
+# each test then starts from an empty, freshly migrated schema.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
-    url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
-    migrate(url)
-    return Settings(app_env="test", database_url=url, jwt_secret="t" * 40, rate_limit_auth_per_minute=1000)
+    url = TEST_DATABASE_URL or f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
+    migrate(url, fresh=bool(TEST_DATABASE_URL))
+    return Settings(
+        app_env="test",
+        database_url=url,
+        jwt_secret="t" * 40,
+        rate_limit_auth_per_minute=1000,
+        storage_dir=str(tmp_path / "uploads"),
+    )
 
 
 @pytest.fixture

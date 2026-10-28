@@ -26,7 +26,8 @@ def documents(client, auth):
 
 def test_features_reported(client, auth):
     features = client.get("/api/v1/models", headers=auth["headers"]).json()["features"]
-    assert features == {"web_search": True, "semantic_search": True}
+    assert features["web_search"] is True and features["semantic_search"] is True
+    assert features["speech_to_text"] is False and features["malware_scanning"] is False
 
 
 def test_web_research_turn_cites_sources_and_indexes(client, auth, provider, search):

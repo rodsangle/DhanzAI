@@ -55,7 +55,7 @@ class OpenAIProvider(Provider):
     ) -> AsyncIterator[StreamChunk]:
         payload = {
             "model": model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_to_openai(m) for m in messages],
             "stream": True,
             "stream_options": {"include_usage": True},
             "temperature": params.temperature,
@@ -85,3 +85,13 @@ class OpenAIProvider(Provider):
         except httpx.HTTPError as exc:
             raise ProviderError(self.name, f"Network error: {exc}") from exc
         yield StreamChunk(done=True, input_tokens=input_tokens, output_tokens=output_tokens)
+
+
+def _to_openai(m: ChatMessage) -> dict:
+    if not m.images:
+        return {"role": m.role, "content": m.content}
+    parts: list[dict] = [{"type": "text", "text": m.content}]
+    parts += [
+        {"type": "image_url", "image_url": {"url": f"data:{img.mime_type};base64,{img.data_b64}"}} for img in m.images
+    ]
+    return {"role": m.role, "content": parts}

@@ -67,6 +67,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
     final chat = ref.watch(chatControllerProvider);
 
+    ref.listen(chatControllerProvider.select((s) => s.notice), (_, notice) {
+      if (notice != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
+        ref.read(chatControllerProvider.notifier).clearNotice();
+      }
+    });
     ref.listen(chatControllerProvider.select((s) => s.error), (_, error) {
       if (error != null) {
         ScaffoldMessenger.of(context)
@@ -111,6 +117,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       automaticallyImplyLeading: !wide,
       title: Text(listed?.title ?? chat.title ?? AppConfig.appName, overflow: TextOverflow.ellipsis),
       actions: [
+        IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
         IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: () => context.go('/chat')),
       ],
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,8 @@ import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
+import '../memory/memory_screen.dart';
+import '../projects/projects_controller.dart';
 
 /// Web research for the next messages: decided per message by the server, always, or never.
 enum WebMode {
@@ -32,6 +35,9 @@ class ChatState {
     this.modelKey,
     this.webMode = WebMode.auto,
     this.researchStatus,
+    this.attachments = const [],
+    this.uploading = 0,
+    this.notice,
   });
 
   final String? conversationId;
@@ -49,6 +55,15 @@ class ChatState {
   /// What Dhanz is doing before the reply starts ("Searching the web…"), or null.
   final String? researchStatus;
 
+  /// Files uploaded for the next message.
+  final List<KnowledgeDocument> attachments;
+
+  /// Uploads in progress.
+  final int uploading;
+
+  /// One-off information for the user (e.g. "Saved to memory"), shown once then cleared.
+  final String? notice;
+
   ChatState copyWith({
     String? conversationId,
     String? title,
@@ -59,6 +74,9 @@ class ChatState {
     String? Function()? modelKey,
     WebMode? webMode,
     String? Function()? researchStatus,
+    List<KnowledgeDocument>? attachments,
+    int? uploading,
+    String? Function()? notice,
   }) => ChatState(
     conversationId: conversationId ?? this.conversationId,
     title: title ?? this.title,
@@ -69,6 +87,9 @@ class ChatState {
     modelKey: modelKey != null ? modelKey() : this.modelKey,
     webMode: webMode ?? this.webMode,
     researchStatus: researchStatus != null ? researchStatus() : this.researchStatus,
+    attachments: attachments ?? this.attachments,
+    uploading: uploading ?? this.uploading,
+    notice: notice != null ? notice() : this.notice,
   );
 }
 
@@ -112,26 +133,64 @@ class ChatController extends Notifier<ChatState> {
 
   void setWebMode(WebMode mode) => state = state.copyWith(webMode: mode);
 
+  void clearNotice() => state = state.copyWith(notice: () => null);
+
+  /// Uploads a file (into the selected project, if any) and attaches it to the next message.
+  Future<void> attachFile(String filename, Uint8List bytes) async {
+    state = state.copyWith(uploading: state.uploading + 1);
+    try {
+      final doc = await _api.uploadFile(filename, bytes, projectId: ref.read(selectedProjectProvider));
+      state = state.copyWith(attachments: [...state.attachments, doc]);
+    } on ApiException catch (e) {
+      state = state.copyWith(error: () => '$filename: ${e.message}');
+    } finally {
+      state = state.copyWith(uploading: state.uploading - 1);
+    }
+  }
+
+  void removeAttachment(String id) => state = state.copyWith(
+    attachments: [
+      for (final a in state.attachments)
+        if (a.id != id) a,
+    ],
+  );
+
   void clearError() => state = state.copyWith(error: () => null);
 
   /// Sends [text]. Returns the conversation id (created on first send).
   Future<String?> send(String text) async {
     if (state.streaming || text.trim().isEmpty) return state.conversationId;
     var id = state.conversationId;
+    final attachments = state.attachments;
     try {
       if (id == null) {
-        final conv = await _api.createConversation();
+        final conv = await _api.createConversation(projectId: ref.read(selectedProjectProvider));
         id = conv.id;
         _loadToken++;
         state = state.copyWith(conversationId: id, title: conv.title);
       }
-      final pendingUser = ChatMessage(id: 'pending-user', role: 'user', content: text, status: MessageStatus.complete);
-      state = state.copyWith(messages: [...state.messages, pendingUser], error: () => null);
-      await _stream(() => _api.streamChat(id!, content: text, modelKey: state.modelKey, web: state.webMode.asRequest));
+      final pendingUser = ChatMessage(
+        id: 'pending-user',
+        role: 'user',
+        content: text,
+        status: MessageStatus.complete,
+        attachments: [for (final a in attachments) Attachment(id: a.id, filename: a.title, fileType: a.fileType)],
+      );
+      state = state.copyWith(messages: [...state.messages, pendingUser], error: () => null, attachments: const []);
+      await _stream(
+        () => _api.streamChat(
+          id!,
+          content: text,
+          modelKey: state.modelKey,
+          web: state.webMode.asRequest,
+          attachmentIds: [for (final a in attachments) a.id],
+        ),
+      );
     } on ApiException catch (e) {
       state = state.copyWith(
         streaming: false,
         error: () => e.message,
+        attachments: attachments, // keep the files so the user can retry
         messages: [
           for (final m in state.messages)
             if (!m.id.startsWith('pending')) m,
@@ -270,11 +329,16 @@ class ChatController extends Notifier<ChatState> {
             final sources = Citation.listFrom(d['sources']);
             _updateLast((m) => m.copyWith(citations: sources));
             state = state.copyWith(researchStatus: () => 'Writing an answer from ${sources.length} sources…');
+          case 'reading_files':
+            state = state.copyWith(researchStatus: () => 'Reading your files…');
           case 'unavailable':
             state = state.copyWith(researchStatus: () => 'Web search isn’t available on this server.');
           default:
             break;
         }
+      case 'memory':
+        state = state.copyWith(notice: () => 'Saved to memory: “${d['content']}”');
+        ref.invalidate(memoriesProvider);
       case 'model':
         _updateLast((m) => m.copyWith(provider: d['provider'] as String?, model: d['model'] as String?));
       case 'delta':
