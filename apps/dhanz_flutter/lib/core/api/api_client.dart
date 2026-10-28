@@ -174,11 +174,17 @@ class ApiClient {
 
   Future<User> me() async => User.fromJson(await _json('GET', '/users/me') as Map<String, dynamic>);
 
-  Future<User> updateMe({String? displayName, String? preferredModel, String? routingPolicy}) async {
+  Future<User> updateMe({
+    String? displayName,
+    String? preferredModel,
+    String? routingPolicy,
+    bool? autoIndexWeb,
+  }) async {
     final body = <String, Object?>{
       'display_name': ?displayName,
       'preferred_model': ?preferredModel,
       'routing_policy': ?routingPolicy,
+      'auto_index_web': ?autoIndexWeb,
     };
     return User.fromJson(await _json('PATCH', '/users/me', body: body) as Map<String, dynamic>);
   }
@@ -194,9 +200,38 @@ class ApiClient {
     await clearTokens();
   }
 
-  Future<List<AiModel>> models() async {
+  /// Configured models plus optional features (web search, semantic search).
+  Future<ServerInfo> serverInfo() async {
     final body = await _json('GET', '/models') as Map<String, dynamic>;
-    return [for (final m in body['models'] as List<dynamic>) AiModel.fromJson(m as Map<String, dynamic>)];
+    return (
+      models: [for (final m in body['models'] as List<dynamic>) AiModel.fromJson(m as Map<String, dynamic>)],
+      features: Features.fromJson(body['features'] as Map<String, dynamic>?),
+    );
+  }
+
+  // ---- knowledge library -------------------------------------------------
+
+  Future<List<KnowledgeDocument>> documents({String? query}) async {
+    final body = await _json(
+      'GET',
+      '/knowledge/documents',
+      query: {if (query != null && query.isNotEmpty) 'q': query, 'limit': '200'},
+    ) as Map<String, dynamic>;
+    return [for (final d in body['items'] as List<dynamic>) KnowledgeDocument.fromJson(d as Map<String, dynamic>)];
+  }
+
+  Future<KnowledgeDocument> document(String id) async =>
+      KnowledgeDocument.fromJson(await _json('GET', '/knowledge/documents/$id') as Map<String, dynamic>);
+
+  Future<KnowledgeDocument> addDocument(String url) async => KnowledgeDocument.fromJson(
+    await _json('POST', '/knowledge/documents', body: {'url': url}) as Map<String, dynamic>,
+  );
+
+  Future<void> deleteDocument(String id) => _json('DELETE', '/knowledge/documents/$id');
+
+  Future<List<LibraryHit>> searchLibrary(String query) async {
+    final body = await _json('GET', '/knowledge/search', query: {'q': query}) as List<dynamic>;
+    return [for (final h in body) LibraryHit.fromJson(h as Map<String, dynamic>)];
   }
 
   // ---- conversations -----------------------------------------------------
@@ -237,12 +272,14 @@ class ApiClient {
     String? content,
     String? editMessageId,
     String? modelKey,
+    bool? web,
     bool regenerate = false,
   }) async {
     final parts = modelKey?.split(':');
     final body = <String, Object?>{
       'content': ?content,
       'edit_message_id': ?editMessageId,
+      'web': ?web,
       if (parts != null && parts.length >= 2) 'provider': parts.first,
       if (parts != null && parts.length >= 2) 'model': parts.sublist(1).join(':'),
     };
@@ -280,6 +317,8 @@ class ApiClient {
 
   void close() => _client.close();
 }
+
+typedef ServerInfo = ({List<AiModel> models, Features features});
 
 class ChatStream {
   ChatStream(this.events, this._client);

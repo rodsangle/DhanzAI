@@ -8,6 +8,19 @@ import '../../models/models.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
 
+/// Web research for the next messages: decided per message by the server, always, or never.
+enum WebMode {
+  auto,
+  always,
+  off;
+
+  bool? get asRequest => switch (this) {
+    WebMode.auto => null,
+    WebMode.always => true,
+    WebMode.off => false,
+  };
+}
+
 class ChatState {
   const ChatState({
     this.conversationId,
@@ -17,6 +30,8 @@ class ChatState {
     this.streaming = false,
     this.error,
     this.modelKey,
+    this.webMode = WebMode.auto,
+    this.researchStatus,
   });
 
   final String? conversationId;
@@ -29,6 +44,11 @@ class ChatState {
   /// "provider:model" picked for this chat, or null for automatic routing.
   final String? modelKey;
 
+  final WebMode webMode;
+
+  /// What Dhanz is doing before the reply starts ("Searching the web…"), or null.
+  final String? researchStatus;
+
   ChatState copyWith({
     String? conversationId,
     String? title,
@@ -37,6 +57,8 @@ class ChatState {
     bool? streaming,
     String? Function()? error,
     String? Function()? modelKey,
+    WebMode? webMode,
+    String? Function()? researchStatus,
   }) => ChatState(
     conversationId: conversationId ?? this.conversationId,
     title: title ?? this.title,
@@ -45,6 +67,8 @@ class ChatState {
     streaming: streaming ?? this.streaming,
     error: error != null ? error() : this.error,
     modelKey: modelKey != null ? modelKey() : this.modelKey,
+    webMode: webMode ?? this.webMode,
+    researchStatus: researchStatus != null ? researchStatus() : this.researchStatus,
   );
 }
 
@@ -70,10 +94,10 @@ class ChatController extends Notifier<ChatState> {
     _stopLocal();
     final token = ++_loadToken;
     if (id == null) {
-      state = ChatState(modelKey: state.modelKey);
+      state = ChatState(modelKey: state.modelKey, webMode: state.webMode);
       return;
     }
-    state = ChatState(conversationId: id, loading: true, modelKey: state.modelKey);
+    state = ChatState(conversationId: id, loading: true, modelKey: state.modelKey, webMode: state.webMode);
     try {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
@@ -85,6 +109,8 @@ class ChatController extends Notifier<ChatState> {
   }
 
   void selectModel(String? key) => state = state.copyWith(modelKey: () => key);
+
+  void setWebMode(WebMode mode) => state = state.copyWith(webMode: mode);
 
   void clearError() => state = state.copyWith(error: () => null);
 
@@ -101,7 +127,7 @@ class ChatController extends Notifier<ChatState> {
       }
       final pendingUser = ChatMessage(id: 'pending-user', role: 'user', content: text, status: MessageStatus.complete);
       state = state.copyWith(messages: [...state.messages, pendingUser], error: () => null);
-      await _stream(() => _api.streamChat(id!, content: text, modelKey: state.modelKey));
+      await _stream(() => _api.streamChat(id!, content: text, modelKey: state.modelKey, web: state.webMode.asRequest));
     } on ApiException catch (e) {
       state = state.copyWith(
         streaming: false,
@@ -131,7 +157,15 @@ class ChatController extends Notifier<ChatState> {
       error: () => null,
     );
     try {
-      await _stream(() => _api.streamChat(id, content: text, editMessageId: messageId, modelKey: state.modelKey));
+      await _stream(
+        () => _api.streamChat(
+          id,
+          content: text,
+          editMessageId: messageId,
+          modelKey: state.modelKey,
+          web: state.webMode.asRequest,
+        ),
+      );
     } on ApiException catch (e) {
       state = state.copyWith(streaming: false, error: () => e.message);
       await _reload();
@@ -145,7 +179,9 @@ class ChatController extends Notifier<ChatState> {
     if (lastUser < 0) return;
     state = state.copyWith(messages: state.messages.sublist(0, lastUser + 1), error: () => null);
     try {
-      await _stream(() => _api.streamChat(id, regenerate: true, modelKey: state.modelKey));
+      await _stream(
+        () => _api.streamChat(id, regenerate: true, modelKey: state.modelKey, web: state.webMode.asRequest),
+      );
     } on ApiException catch (e) {
       state = state.copyWith(streaming: false, error: () => e.message);
       await _reload();
@@ -157,6 +193,7 @@ class ChatController extends Notifier<ChatState> {
     _stopLocal();
     state = state.copyWith(
       streaming: false,
+      researchStatus: () => null,
       messages: [
         for (final m in state.messages)
           m.status == MessageStatus.streaming ? m.copyWith(status: MessageStatus.stopped) : m,
@@ -222,11 +259,29 @@ class ChatController extends Notifier<ChatState> {
             assistant,
           ],
         );
+      case 'research':
+        switch (d['stage']) {
+          case 'searching':
+            state = state.copyWith(researchStatus: () => 'Searching the web for “${d['query']}”…');
+          case 'reading':
+            final n = (d['urls'] as List<dynamic>? ?? const []).length;
+            state = state.copyWith(researchStatus: () => 'Reading $n ${n == 1 ? 'page' : 'pages'}…');
+          case 'sources':
+            final sources = Citation.listFrom(d['sources']);
+            _updateLast((m) => m.copyWith(citations: sources));
+            state = state.copyWith(researchStatus: () => 'Writing an answer from ${sources.length} sources…');
+          case 'unavailable':
+            state = state.copyWith(researchStatus: () => 'Web search isn’t available on this server.');
+          default:
+            break;
+        }
       case 'model':
         _updateLast((m) => m.copyWith(provider: d['provider'] as String?, model: d['model'] as String?));
       case 'delta':
+        if (state.researchStatus != null) state = state.copyWith(researchStatus: () => null);
         _updateLast((m) => m.copyWith(content: m.content + (d['text'] as String)));
       case 'done' || 'error':
+        state = state.copyWith(researchStatus: () => null);
         final msg = d['message'];
         if (msg is Map<String, dynamic>) {
           final finalMsg = ChatMessage.fromJson(msg);

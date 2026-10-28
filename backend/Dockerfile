@@ -9,8 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv
 
 COPY ai_engine /srv/ai_engine
+COPY knowledge_engine /srv/knowledge_engine
 COPY backend/requirements.txt /srv/backend/requirements.txt
-RUN pip install -r /srv/backend/requirements.txt /srv/ai_engine
+RUN pip install -r /srv/backend/requirements.txt /srv/ai_engine /srv/knowledge_engine
 
 COPY backend /srv/backend
 WORKDIR /srv/backend

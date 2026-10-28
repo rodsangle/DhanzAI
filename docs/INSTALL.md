@@ -37,6 +37,23 @@ uvicorn app.main:app --reload --port 8000
 
 Open http://localhost:8000/docs for the interactive API.
 
+### Web research and the knowledge library (optional)
+
+Set one search provider in `.env` and restart the API:
+
+```bash
+SEARCH_PROVIDER=brave        # or tavily / searxng
+BRAVE_API_KEY=...            # https://brave.com/search/api/
+# TAVILY_API_KEY=...         # https://tavily.com
+# SEARXNG_URL=http://searxng:8080   # self-hosted, JSON format enabled
+```
+
+For semantic search in the knowledge library also set `EMBEDDING_PROVIDER=openai` (or
+`gemini` / `ollama`, using that provider's key/URL above). Without it, keyword search is used.
+`GET /api/v1/models` reports `features.web_search` / `features.semantic_search`.
+
+The API reads public web pages itself, so it needs outbound HTTPS access to the internet.
+
 ### Using local models (Ollama)
 
 Install [Ollama](https://ollama.com), run `ollama pull llama3.1`, then set

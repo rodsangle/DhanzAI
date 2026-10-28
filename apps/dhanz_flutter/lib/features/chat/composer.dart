@@ -75,8 +75,15 @@ class _ComposerState extends ConsumerState<Composer> {
           ),
           Row(
             children: [
-              _ModelPicker(selected: chat.modelKey),
-              const Spacer(),
+              // Pickers take the free space (shrinking the model name if needed); send stays at the right edge.
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(child: _ModelPicker(selected: chat.modelKey)),
+                    _WebModePicker(mode: chat.webMode),
+                  ],
+                ),
+              ),
               if (chat.streaming)
                 IconButton.filledTonal(
                   tooltip: 'Stop generating',
@@ -139,11 +146,59 @@ class _ModelPicker extends ConsumerWidget {
           children: [
             Icon(current == null ? Icons.auto_awesome : Icons.memory, size: 18),
             const SizedBox(width: 6),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 180),
-              child: Text(current?.displayName ?? 'Auto', overflow: TextOverflow.ellipsis),
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Text(current?.displayName ?? 'Auto', overflow: TextOverflow.ellipsis),
+              ),
             ),
             const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WebModePicker extends ConsumerWidget {
+  const _WebModePicker({required this.mode});
+
+  final WebMode mode;
+
+  static const _labels = {
+    WebMode.auto: ('Web: Auto', 'Search when the question needs current information', Icons.travel_explore),
+    WebMode.always: ('Web: Always', 'Search the web for every message', Icons.public),
+    WebMode.off: ('Web: Off', 'Answer without searching or reading links', Icons.public_off),
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final available = ref.watch(serverInfoProvider).value?.features.webSearch ?? false;
+    final (label, _, icon) = _labels[mode]!;
+    return PopupMenuButton<WebMode>(
+      tooltip: available ? 'Web research' : 'Web research (search not configured on the server)',
+      initialValue: mode,
+      onSelected: (m) => ref.read(chatControllerProvider.notifier).setWebMode(m),
+      itemBuilder: (context) => [
+        for (final e in _labels.entries)
+          PopupMenuItem(
+            value: e.key,
+            child: ListTile(leading: Icon(e.value.$3), title: Text(e.value.$1), subtitle: Text(e.value.$2)),
+          ),
+        if (!available)
+          const PopupMenuItem(
+            enabled: false,
+            child: Text('Web search isn’t configured on this server. Pasted links can still be read.'),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: mode == WebMode.off ? null : Theme.of(context).colorScheme.primary),
+            // Phones show just the icon to leave room for the model name.
+            if (MediaQuery.sizeOf(context).width >= 600) ...[const SizedBox(width: 6), Text(label)],
           ],
         ),
       ),

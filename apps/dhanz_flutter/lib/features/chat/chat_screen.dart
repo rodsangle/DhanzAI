@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/config.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
+import '../../widgets/text_prompt_dialog.dart';
 import '../conversations/conversation_panel.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
@@ -48,22 +49,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _edit(ChatMessage message) async {
-    final controller = TextEditingController(text: message.content);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Edit message'),
-        content: SizedBox(
-          width: 520,
-          child: TextField(controller: controller, maxLines: 8, minLines: 3, autofocus: true),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Send')),
-        ],
-      ),
+    final result = await showTextPrompt(
+      context,
+      title: 'Edit message',
+      confirmLabel: 'Send',
+      initialText: message.content,
+      minLines: 3,
+      maxLines: 8,
     );
-    controller.dispose();
     if (result != null && result.trim().isNotEmpty) {
       await ref.read(chatControllerProvider.notifier).editAndResend(message.id, result);
     }
@@ -220,6 +213,7 @@ class _MessageList extends ConsumerWidget {
                 busy: state.streaming,
                 onRegenerate: controller.regenerate,
                 onEdit: onEdit,
+                researchStatus: m.status == MessageStatus.streaming ? state.researchStatus : null,
               ),
             ),
           ),

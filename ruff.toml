@@ -6,10 +6,10 @@ select = ["E", "F", "I", "B", "UP", "S"]
 ignore = ["S101", "B008", "UP042"]
 
 [lint.isort]
-known-first-party = ["app", "dhanz_ai"]
+known-first-party = ["app", "dhanz_ai", "dhanz_knowledge"]
 known-third-party = ["alembic"]
 
 [lint.per-file-ignores]
-"**/tests/**" = ["S105", "S106", "S108"]
+"**/tests/**" = ["S105", "S106", "S108", "E501"]
 "backend/alembic/**" = ["E501"]
 "ai_engine/dhanz_ai/prompts.py" = ["E501"]

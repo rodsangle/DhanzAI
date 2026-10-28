@@ -8,8 +8,8 @@ from app.api.deps import CurrentUser, DbDep, OrchestratorDep
 from app.core import rate_limit
 from app.core.security import verify_password
 from app.db.base import utcnow
-from app.models import Conversation, User
-from app.schemas import ConversationDetail, DeleteAccountRequest, UserOut, UserUpdate
+from app.models import Conversation, KnowledgeDocument, User
+from app.schemas import ConversationDetail, DeleteAccountRequest, DocumentOut, UserOut, UserUpdate
 from app.services import audit
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -34,6 +34,8 @@ async def update_me(body: UserUpdate, user: CurrentUser, db: DbDep, orchestrator
             user.preferred_model = body.preferred_model
     if body.routing_policy is not None:
         user.routing_policy = body.routing_policy
+    if body.auto_index_web is not None:
+        user.auto_index_web = body.auto_index_web
     user.updated_at = utcnow()
     await db.commit()
     return user
@@ -45,10 +47,12 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
     convs = await db.scalars(
         select(Conversation).where(Conversation.user_id == user.id).options(selectinload(Conversation.messages))
     )
+    docs = await db.scalars(select(KnowledgeDocument).where(KnowledgeDocument.user_id == user.id))
     return {
         "exported_at": utcnow().isoformat(),
         "user": UserOut.model_validate(user).model_dump(mode="json"),
         "conversations": [ConversationDetail.model_validate(c).model_dump(mode="json") for c in convs],
+        "knowledge_documents": [DocumentOut.model_validate(d).model_dump(mode="json") for d in docs],
     }
 
 

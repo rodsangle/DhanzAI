@@ -4,8 +4,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api.deps import CurrentUser, OrchestratorDep, SettingsDep
-from app.schemas import ModelOut, ModelsResponse
+from app.api.deps import CurrentUser, KnowledgeDep, OrchestratorDep, SettingsDep
+from app.schemas import Features, ModelOut, ModelsResponse
 from dhanz_ai import GREETING
 
 router = APIRouter(tags=["meta"])
@@ -33,7 +33,9 @@ async def ready(request: Request, orchestrator: OrchestratorDep) -> JSONResponse
 
 
 @router.get("/models", response_model=ModelsResponse)
-async def list_models(_: CurrentUser, orchestrator: OrchestratorDep, settings: SettingsDep) -> ModelsResponse:
+async def list_models(
+    _: CurrentUser, orchestrator: OrchestratorDep, settings: SettingsDep, knowledge: KnowledgeDep
+) -> ModelsResponse:
     return ModelsResponse(
         models=[
             ModelOut(
@@ -49,4 +51,5 @@ async def list_models(_: CurrentUser, orchestrator: OrchestratorDep, settings: S
         ],
         default_policy=settings.default_routing_policy,
         greeting=GREETING,
+        features=Features(web_search=knowledge.search is not None, semantic_search=knowledge.embedder is not None),
     )

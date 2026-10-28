@@ -14,6 +14,18 @@ class FakeBackend {
   String? validAccess;
   String? validRefresh;
   String reply = 'Hello from **Dhanz**.';
+  final documents = <Map<String, dynamic>>[];
+  final chatBodies = <Map<String, dynamic>>[];
+
+  static const source = {
+    'n': 1,
+    'title': '2nm chips arrive',
+    'url': 'https://chips.example/2nm',
+    'site_name': 'Chip Times',
+    'published_at': '2026-10-20T09:00:00+00:00',
+    'retrieved_at': '2026-10-28T10:00:00+00:00',
+    'origin': 'web',
+  };
 
   String _id() => 'id-${_ids++}';
 
@@ -88,6 +100,7 @@ class FakeBackend {
           },
         ],
         'default_policy': 'balanced',
+        'features': {'web_search': true, 'semantic_search': false},
         'greeting': "Hello! I'm Dhanz, your personal AI assistant. How can I help you today?",
       });
     }
@@ -104,12 +117,39 @@ class FakeBackend {
     if (match != null) {
       final c = conversations[match.group(1)];
       if (c == null) return json({'detail': 'Conversation not found'}, 404);
-      if (match.group(2) == '/messages') return _stream(c, body['content'] as String);
+      if (match.group(2) == '/messages') {
+        chatBodies.add(body);
+        return _stream(c, body['content'] as String, research: body['web'] == true);
+      }
       if (req.method == 'GET') return json(c);
       if (req.method == 'DELETE') {
         conversations.remove(c['id']);
         return json(null, 204);
       }
+    }
+    if (path == '/knowledge/documents' && req.method == 'GET') {
+      return json({'items': documents, 'total': documents.length});
+    }
+    if (path == '/knowledge/documents' && req.method == 'POST') {
+      final url = body['url'] as String;
+      if (url.contains('blocked')) {
+        return json({'detail': "Could not add this page: the site's robots.txt does not allow automated reading"}, 422);
+      }
+      final now = DateTime.now().toUtc().toIso8601String();
+      final doc = {
+        'id': _id(),
+        'kind': 'web',
+        'url': url,
+        'title': 'Growing tomatoes',
+        'site_name': 'Garden Weekly',
+        'author': null,
+        'published_at': null,
+        'retrieved_at': now,
+        'added_via': 'manual',
+        'created_at': now,
+      };
+      documents.insert(0, doc);
+      return json(doc, 201);
     }
     return json({'detail': 'Not found'}, 404);
   }
@@ -139,9 +179,10 @@ class FakeBackend {
     'created_at': DateTime.now().toUtc().toIso8601String(),
   };
 
-  http.StreamedResponse _stream(Map<String, dynamic> conv, String content) {
+  http.StreamedResponse _stream(Map<String, dynamic> conv, String content, {bool research = false}) {
     final user = _message('user', content);
     final assistant = _message('assistant', reply, model: 'echo-1');
+    if (research) assistant['citations'] = [source];
     (conv['messages'] as List<Object>).addAll([user, assistant]);
     conv['title'] = content;
     String ev(String type, Map<String, dynamic> data) =>
@@ -149,6 +190,17 @@ class FakeBackend {
     final words = reply.split(' ');
     final chunks = <String>[
       ev('meta', {'conversation_id': conv['id'], 'assistant_message_id': assistant['id'], 'user_message': user}),
+      if (research) ...[
+        ev('research', {'stage': 'searching', 'query': content}),
+        ev('research', {
+          'stage': 'reading',
+          'urls': [source['url']],
+        }),
+        ev('research', {
+          'stage': 'sources',
+          'sources': [source],
+        }),
+      ],
       ev('model', {'provider': 'echo', 'model': 'echo-1'}),
       for (var i = 0; i < words.length; i++) ev('delta', {'text': i == 0 ? words[i] : ' ${words[i]}'}),
       ev('done', {'message': assistant}),

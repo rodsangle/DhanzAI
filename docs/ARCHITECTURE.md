@@ -3,7 +3,7 @@
 > Your World. Your Knowledge. Your AI.
 
 This document describes the target architecture for all phases and marks what exists today
-(**Phase 1**) versus what is planned. See [ROADMAP.md](ROADMAP.md) for the phase plan and the
+(**Phases 1 and 2**) versus what is planned. See [ROADMAP.md](ROADMAP.md) for the phase plan and the
 list of features that are not implemented yet.
 
 ## 1. Overview
@@ -20,7 +20,7 @@ list of features that are not implemented yet.
 │ rate limiting · security headers · audit log · input validation · CORS                   │
 │                                  │                                                       │
 │                    ┌─────────────▼──────────────┐      ┌───────────────────────────────┐ │
-│                    │ AI engine (/ai_engine)      │      │ Knowledge engine (Phase 2)    │ │
+│                    │ AI engine (/ai_engine)      │      │ Knowledge engine              │ │
 │                    │ Orchestrator: routing,      │      │ web search · fetch (robots)   │ │
 │                    │ fallback, prompts           │      │ extraction · embeddings · RAG │ │
 │                    │ Providers: OpenAI ·         │      └───────────────┬───────────────┘ │
@@ -41,7 +41,7 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `apps/dhanz_flutter` | Flutter app for Windows, Android, iOS (+ macOS/web scaffolding) | Phase 1 |
 | `backend` | FastAPI service, SQLAlchemy models, Alembic migrations, tests | Phase 1 |
 | `ai_engine` | `dhanz_ai` Python package: provider adapters + orchestrator | Phase 1 |
-| `knowledge_engine` | Web research + RAG (search, fetch, chunk, embed, retrieve) | Phase 2 (not started) |
+| `knowledge_engine` | `dhanz_knowledge` package: search APIs, safe fetching, extraction, embeddings, ranking, research pipeline | Phase 2 |
 | `database` | PostgreSQL init scripts (pgvector, pg_trgm) | Phase 1 |
 | `tests/e2e` | Black-box smoke test against a running API | Phase 1 |
 | `scripts` | Icon generator, Windows installer script | Phase 1 |
@@ -58,7 +58,8 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `core/rate_limit.py` | Sliding-window limiter for auth (per IP) and chat (per user) |
 | `models/` | `users`, `refresh_tokens`, `conversations`, `messages`, `audit_logs` |
 | `services/auth_service.py` | Token issue, rotation, reuse detection (revokes the whole session family) |
-| `services/chat_service.py` | Turn preparation (send / edit-and-resend / regenerate), history building, streaming + persistence |
+| `services/chat_service.py` | Turn preparation (send / edit-and-resend / regenerate), research phase, history building, streaming + persistence |
+| `services/knowledge_service.py` | Knowledge runtime (search provider, fetcher, embedder), library ingestion, hybrid retrieval (pgvector `<=>` on PostgreSQL), background auto-indexing |
 | `api/routes/*` | REST endpoints, SSE streaming, WebSocket endpoint |
 
 ### API (prefix `/api/v1`)
@@ -71,7 +72,9 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `GET /models` | Models currently configured on the server, plus Dhanz's greeting |
 | `GET/POST /conversations`, `GET/PATCH/DELETE /conversations/{id}` | History, search (`?q=`), rename, pin, delete |
 | `GET /conversations/{id}/export?format=markdown\|txt` | Export a conversation |
-| `POST /conversations/{id}/messages` | Send (or edit-and-resend) and stream the reply as SSE |
+| `GET/POST /knowledge/documents`, `GET/DELETE /knowledge/documents/{id}` | Knowledge library: list/filter, add a public URL, read, delete |
+| `GET /knowledge/search?q=` | Hybrid search over the user's library |
+| `POST /conversations/{id}/messages` | Send (or edit-and-resend) and stream the reply as SSE; `web: true\|false\|null` controls research |
 | `POST /conversations/{id}/regenerate` | Regenerate the last reply as SSE |
 | `WS /ws/chat` | Same chat protocol over WebSocket (auth frame first) |
 
@@ -82,9 +85,11 @@ Interactive OpenAPI docs are served at `/docs` outside production.
 Both SSE and WebSocket emit the same JSON events:
 
 1. `meta` — `conversation_id`, `assistant_message_id`, the saved `user_message`
-2. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
-3. `delta` — `text` (append-only)
-4. `done` — final saved `message` (content, tokens, model) **or** `error` — `detail` + saved message
+2. `research` (zero or more) — `stage`: `searching` (`query`), `reading` (`urls`), `done`,
+   `sources` (numbered citations), `unavailable` (no search provider) or `error`
+3. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
+4. `delta` — `text` (append-only)
+5. `done` — final saved `message` (content, tokens, model, `citations`) **or** `error` — `detail` + saved message
 
 The assistant row is created as `streaming` before the model is called and finalised as
 `complete`, `error` or `stopped` (client disconnected). Partial output is never lost.
@@ -102,9 +107,25 @@ The assistant row is created as `streaming` before the model is called and final
   candidate is tried. Errors after partial output are surfaced, never silently mixed.
 * `prompts.py` — Dhanz's identity and rules: separate facts from estimates, never fabricate
   sources or claim actions that did not happen, treat external content as untrusted data, state
-  plainly that there is no live web access (until Phase 2 adds it).
+  plainly when there is no web access; with sources, cite them as `[n]` and flag conflicts.
 
-LangGraph is not used in Phase 1: single-turn routing does not need a graph runtime. It is the
+### Research flow (Phase 2)
+
+```
+message ──► web mode / needs_search? ──► search API ──► fetch top pages in parallel
+                                              │          (robots.txt, SSRF checks, size/type limits)
+pasted links ─────────────────────────────────┘                  │
+                                                 extract ─► chunk ─► BM25 rank ─► best passages
+user's knowledge library ─► hybrid search (keyword ∪ pgvector, RRF) ─────────────┘
+                                                        │
+                       numbered <sources> block (+ notes on unreadable pages) ─► system prompt
+                                                        │
+                        streamed answer citing [n]  +  source cards in the app
+                                                        │
+                        pages saved to the library in the background (if the user allows)
+```
+
+LangGraph is not used in Phases 1–2: single-turn routing does not need a graph runtime. It is the
 planned choice for Phase 2/3 multi-step flows (research → read → cite, tool use with approvals).
 
 ## 5. Data model
@@ -117,8 +138,9 @@ users 1──* audit_logs (user_id SET NULL on delete)
 * `messages.position` is unique per conversation, giving a total order and a cheap guard against
   concurrent writers (a second concurrent turn gets HTTP 409).
 * Deleting a user cascades to conversations, messages and tokens (data deletion is real).
-* Phase 2 adds `documents`, `chunks (embedding vector)`, `sources`; Phase 3 adds `memories`,
-  `projects`, `files`.
+* Phase 2 added `knowledge_documents` (page text + metadata, unique per user and URL),
+  `knowledge_chunks` (text, `embedding vector`, `embedding_model`), `messages.citations` and
+  `users.auto_index_web`. Phase 3 adds `memories`, `projects`, `files`.
 
 ## 6. Flutter app (`apps/dhanz_flutter/lib`)
 
@@ -129,6 +151,8 @@ users 1──* audit_logs (user_id SET NULL on delete)
 | `features/auth` | Auth state (`AsyncNotifier`), sign-in / registration screen with server URL override |
 | `features/chat` | Chat state machine, Markdown + highlighted code, composer, model picker |
 | `features/conversations` | History panel: search, rename, pin, export, delete |
+| `features/chat/sources_view.dart` | Numbered, clickable source cards with site and dates |
+| `features/library` | Knowledge library: add page, list, preview, search, remove |
 | `features/settings` | Profile, theme, default model, routing policy, data export, account deletion, sign-out |
 | `router.dart` | GoRouter with auth-aware redirects |
 

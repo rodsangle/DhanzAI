@@ -7,8 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import auth, conversations, meta, realtime, users
+from app.api.routes import knowledge as knowledge_routes
 from app.core.config import Settings, get_settings
 from app.db.session import make_engine, make_sessionmaker
+from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
 from dhanz_ai import AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider, Orchestrator
 
 
@@ -23,7 +25,11 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
     )
 
 
-def create_app(settings: Settings | None = None, orchestrator: Orchestrator | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    orchestrator: Orchestrator | None = None,
+    knowledge: KnowledgeRuntime | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
 
@@ -33,14 +39,17 @@ def create_app(settings: Settings | None = None, orchestrator: Orchestrator | No
         app.state.engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.orchestrator = orchestrator or build_orchestrator(settings)
+        app.state.knowledge = knowledge or build_knowledge_runtime(settings)
         yield
+        await wait_for_background_indexing()
         for provider in app.state.orchestrator.providers.values():
             await provider.aclose()
+        await app.state.knowledge.aclose()
         await engine.dispose()
 
     app = FastAPI(
         title="DHANZ AI API",
-        version="0.1.0",
+        version="0.2.0",
         description="Backend for the DHANZ AI assistant. Your World. Your Knowledge. Your AI.",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
@@ -67,7 +76,14 @@ def create_app(settings: Settings | None = None, orchestrator: Orchestrator | No
             response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
         return response
 
-    for router in (meta.router, auth.router, users.router, conversations.router, realtime.router):
+    for router in (
+        meta.router,
+        auth.router,
+        users.router,
+        conversations.router,
+        knowledge_routes.router,
+        realtime.router,
+    ):
         app.include_router(router, prefix=settings.api_prefix)
     return app
 

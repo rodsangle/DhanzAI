@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
+import 'features/library/library_screen.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'features/onboarding/welcome_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -48,6 +49,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         ],
       ),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
     ],
   );
   ref.onDispose(router.dispose);

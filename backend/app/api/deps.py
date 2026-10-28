@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings
 from app.core.security import InvalidTokenError, decode_access_token
 from app.models import User
+from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import Orchestrator
 
 _bearer = HTTPBearer(auto_error=False)
@@ -33,7 +34,12 @@ def get_orchestrator(request: Request) -> Orchestrator:
     return request.app.state.orchestrator
 
 
+def get_knowledge(request: Request) -> KnowledgeRuntime:
+    return request.app.state.knowledge
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+KnowledgeDep = Annotated[KnowledgeRuntime, Depends(get_knowledge)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 OrchestratorDep = Annotated[Orchestrator, Depends(get_orchestrator)]
 

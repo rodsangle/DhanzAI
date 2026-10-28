@@ -33,10 +33,13 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Ruff
         run: |
-          ruff check backend ai_engine tests scripts
-          ruff format --check backend ai_engine tests scripts
+          ruff check backend ai_engine knowledge_engine tests scripts
+          ruff format --check backend ai_engine knowledge_engine tests scripts
       - name: AI engine tests
         working-directory: ai_engine
+        run: pytest -q
+      - name: Knowledge engine tests
+        working-directory: knowledge_engine
         run: pytest -q
       - name: Backend tests
         working-directory: backend
@@ -71,9 +74,14 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Enable extensions
         run: PGPASSWORD=dhanz psql -h localhost -U dhanz -d dhanz -f database/init/01-extensions.sql
-      - name: Migrate (upgrade, downgrade, upgrade)
+      - name: Migrate (upgrade, downgrade, upgrade, check)
         working-directory: backend
-        run: alembic upgrade head && alembic downgrade base && alembic upgrade head
+        run: alembic upgrade head && alembic downgrade base && alembic upgrade head && alembic check
+      - name: pgvector tests
+        working-directory: backend
+        env:
+          TEST_POSTGRES_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
+        run: pytest -q tests/test_postgres.py
       - name: Start API and run smoke test
         working-directory: backend
         run: |

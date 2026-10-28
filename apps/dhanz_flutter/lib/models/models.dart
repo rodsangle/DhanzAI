@@ -11,6 +11,7 @@ class User {
     required this.role,
     required this.routingPolicy,
     this.preferredModel,
+    this.autoIndexWeb = true,
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -20,6 +21,7 @@ class User {
     role: j['role'] as String,
     routingPolicy: j['routing_policy'] as String,
     preferredModel: j['preferred_model'] as String?,
+    autoIndexWeb: j['auto_index_web'] as bool? ?? true,
   );
 
   final String id;
@@ -28,6 +30,9 @@ class User {
   final String role;
   final String routingPolicy;
   final String? preferredModel;
+
+  /// Save pages read during web research to the knowledge library.
+  final bool autoIndexWeb;
 }
 
 class AuthTokens {
@@ -71,6 +76,7 @@ class ChatMessage {
     this.provider,
     this.model,
     this.error,
+    this.citations = const [],
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
@@ -81,6 +87,7 @@ class ChatMessage {
     provider: j['provider'] as String?,
     model: j['model'] as String?,
     error: j['error'] as String?,
+    citations: Citation.listFrom(j['citations']),
   );
 
   final String id;
@@ -91,18 +98,129 @@ class ChatMessage {
   final String? model;
   final String? error;
 
+  /// Numbered sources the reply cites as [n].
+  final List<Citation> citations;
+
   bool get isUser => role == 'user';
 
-  ChatMessage copyWith({String? content, MessageStatus? status, String? provider, String? model, String? error}) =>
-      ChatMessage(
-        id: id,
-        role: role,
-        content: content ?? this.content,
-        status: status ?? this.status,
-        provider: provider ?? this.provider,
-        model: model ?? this.model,
-        error: error ?? this.error,
-      );
+  ChatMessage copyWith({
+    String? content,
+    MessageStatus? status,
+    String? provider,
+    String? model,
+    String? error,
+    List<Citation>? citations,
+  }) => ChatMessage(
+    id: id,
+    role: role,
+    content: content ?? this.content,
+    status: status ?? this.status,
+    provider: provider ?? this.provider,
+    model: model ?? this.model,
+    error: error ?? this.error,
+    citations: citations ?? this.citations,
+  );
+}
+
+class Citation {
+  const Citation({
+    required this.n,
+    required this.title,
+    required this.url,
+    this.siteName,
+    this.publishedAt,
+    this.retrievedAt,
+    this.origin = 'web',
+  });
+
+  factory Citation.fromJson(Map<String, dynamic> j) => Citation(
+    n: j['n'] as int,
+    title: j['title'] as String,
+    url: j['url'] as String,
+    siteName: j['site_name'] as String?,
+    publishedAt: _maybeDate(j['published_at']),
+    retrievedAt: _maybeDate(j['retrieved_at']),
+    origin: j['origin'] as String? ?? 'web',
+  );
+
+  static List<Citation> listFrom(Object? raw) =>
+      raw is List ? [for (final c in raw) Citation.fromJson(c as Map<String, dynamic>)] : const [];
+
+  final int n;
+  final String title;
+  final String url;
+  final String? siteName;
+  final DateTime? publishedAt;
+  final DateTime? retrievedAt;
+  final String origin; // web | library
+
+  bool get fromLibrary => origin == 'library';
+
+  String get host => Uri.tryParse(url)?.host.replaceFirst('www.', '') ?? url;
+}
+
+DateTime? _maybeDate(Object? v) => v is String ? DateTime.tryParse(v)?.toLocal() : null;
+
+/// Optional server features (Phase 2).
+class Features {
+  const Features({this.webSearch = false, this.semanticSearch = false});
+
+  factory Features.fromJson(Map<String, dynamic>? j) =>
+      Features(webSearch: j?['web_search'] as bool? ?? false, semanticSearch: j?['semantic_search'] as bool? ?? false);
+
+  final bool webSearch;
+  final bool semanticSearch;
+}
+
+class KnowledgeDocument {
+  const KnowledgeDocument({
+    required this.id,
+    required this.url,
+    required this.title,
+    required this.retrievedAt,
+    required this.addedVia,
+    this.siteName,
+    this.publishedAt,
+    this.content,
+  });
+
+  factory KnowledgeDocument.fromJson(Map<String, dynamic> j) => KnowledgeDocument(
+    id: j['id'] as String,
+    url: j['url'] as String,
+    title: j['title'] as String,
+    siteName: j['site_name'] as String?,
+    publishedAt: _maybeDate(j['published_at']),
+    retrievedAt: _date(j['retrieved_at']),
+    addedVia: j['added_via'] as String,
+    content: j['content'] as String?,
+  );
+
+  final String id;
+  final String url;
+  final String title;
+  final String? siteName;
+  final DateTime? publishedAt;
+  final DateTime retrievedAt;
+  final String addedVia; // manual | research
+  final String? content;
+
+  String get host => Uri.tryParse(url)?.host.replaceFirst('www.', '') ?? url;
+}
+
+class LibraryHit {
+  const LibraryHit({required this.documentId, required this.title, required this.url, required this.snippet});
+
+  factory LibraryHit.fromJson(Map<String, dynamic> j) => LibraryHit(
+    documentId: j['document_id'] as String,
+    title: j['title'] as String,
+    url: j['url'] as String,
+    snippet: j['snippet'] as String,
+  );
+
+  final String documentId;
+  final String title;
+  final String url;
+  final String snippet;
 }
 
 class ConversationDetail {

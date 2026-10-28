@@ -6,7 +6,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from fastapi import HTTPException, status
@@ -18,6 +18,8 @@ from app.core.config import Settings
 from app.db.base import utcnow
 from app.models import Conversation, Message, User
 from app.schemas import MessageOut, RegenerateRequest, SendMessageRequest
+from app.services import knowledge_service
+from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import (
     ChatMessage,
     GenerationParams,
@@ -28,6 +30,7 @@ from dhanz_ai import (
     RoutingRequest,
     build_system_prompt,
 )
+from dhanz_knowledge import ResearchOutcome, build_context, extract_urls, needs_search
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +47,10 @@ class PreparedTurn:
     assistant_message_id: uuid.UUID
     history: list[ChatMessage]
     routing: RoutingRequest
+    user_id: uuid.UUID
+    question: str
+    web: bool | None  # True: always research, False: never, None: decide automatically
+    auto_index: bool
 
 
 async def get_owned_conversation(db: AsyncSession, user: User, conversation_id: uuid.UUID) -> Conversation:
@@ -144,7 +151,9 @@ async def prepare_send(
     await _commit_or_conflict(db)
 
     history = build_history(await _ordered_messages(db, conv.id), settings.history_max_messages)
-    return PreparedTurn(conv.id, user_msg, assistant.id, history, routing)
+    return PreparedTurn(
+        conv.id, user_msg, assistant.id, history, routing, user.id, req.content, req.web, user.auto_index_web
+    )
 
 
 async def prepare_regenerate(
@@ -161,7 +170,9 @@ async def prepare_regenerate(
     conv.updated_at = utcnow()
     await _commit_or_conflict(db)
     history = build_history(await _ordered_messages(db, conv.id), settings.history_max_messages)
-    return PreparedTurn(conv.id, None, assistant.id, history, routing)
+    return PreparedTurn(
+        conv.id, None, assistant.id, history, routing, user.id, last_user.content, req.web, user.auto_index_web
+    )
 
 
 async def _finalize(
@@ -175,6 +186,7 @@ async def _finalize(
     input_tokens: int | None,
     output_tokens: int | None,
     error: str | None,
+    citations: list[dict] | None,
 ) -> MessageOut | None:
     async with maker() as db:
         msg = await db.get(Message, message_id)
@@ -187,6 +199,7 @@ async def _finalize(
         msg.input_tokens = input_tokens
         msg.output_tokens = output_tokens
         msg.error = error
+        msg.citations = citations or None
         conv = await db.get(Conversation, msg.conversation_id)
         if conv is not None:
             conv.updated_at = utcnow()
@@ -194,15 +207,71 @@ async def _finalize(
         return MessageOut.model_validate(msg)
 
 
+@dataclass
+class _Research:
+    sources: str | None = None
+    notes: str | None = None
+    citations: list[dict] | None = None
+    pages: list = field(default_factory=list)
+
+
+async def _research(
+    maker: async_sessionmaker[AsyncSession], knowledge: KnowledgeRuntime | None, turn: PreparedTurn, out: _Research
+) -> AsyncIterator[dict]:
+    """Gather sources (web + the user's library) for this turn, yielding progress events."""
+    if knowledge is None or turn.web is False:
+        return
+    urls = extract_urls(turn.question)
+    use_web = turn.web is True or needs_search(turn.question)
+    passages = []
+    notes = []
+
+    if use_web and knowledge.search is None and not urls:
+        notes.append(
+            "Web search is not configured on this DHANZ AI server, so no live search was done. Tell the user you "
+            "could not search the web for this answer."
+        )
+        yield {"type": "research", "stage": "unavailable", "detail": "Web search is not configured on this server."}
+    if (use_web and knowledge.search is not None) or urls:
+        async for event in knowledge.pipeline().run(turn.question, use_search=use_web):
+            if isinstance(event, ResearchOutcome):
+                passages += event.passages
+                out.pages = event.pages
+                failed = [f for f in event.failures if f["url"]]
+                if failed:
+                    notes.append(
+                        "These pages could not be read and were not used: "
+                        + "; ".join(f"{f['url']} ({f['reason']})" for f in failed[:5])
+                    )
+                if event.query and not event.passages:
+                    notes.append("The web search returned no usable results.")
+            else:
+                yield {"type": "research", "stage": event.stage, **event.detail}
+
+    async with maker() as db:
+        if await knowledge_service.has_library(db, turn.user_id):
+            library = await knowledge_service.search_library(db, turn.user_id, turn.question, knowledge.embedder)
+            known = {p.url for p in passages}
+            passages += [p for p in library if p.url not in known]
+
+    if passages:
+        context, citations = build_context(passages)
+        out.sources = context
+        out.citations = [c.to_json() for c in citations]
+        yield {"type": "research", "stage": "sources", "sources": out.citations}
+    out.notes = " ".join(notes) or None
+
+
 async def run_turn(
     maker: async_sessionmaker[AsyncSession],
     orchestrator: Orchestrator,
     settings: Settings,
     turn: PreparedTurn,
+    knowledge: KnowledgeRuntime | None = None,
 ) -> AsyncIterator[dict]:
     """Stream a reply as protocol events and persist the outcome.
 
-    Events: meta, model, delta, done | error. If the client disconnects, the partial
+    Events: meta, research*, model, delta, done | error. If the client disconnects, the partial
     reply is saved with status "stopped".
     """
     yield {
@@ -214,14 +283,23 @@ async def run_turn(
         else None,
     }
 
-    messages = [ChatMessage("system", build_system_prompt()), *turn.history]
-    params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
+    research = _Research()
     parts: list[str] = []
     provider = model = None
     input_tokens = output_tokens = None
     outcome, error = "stopped", None
     result: MessageOut | None = None
     try:
+        try:
+            async for event in _research(maker, knowledge, turn, research):
+                yield event
+        except Exception:  # noqa: BLE001 - research problems must not prevent an answer
+            log.exception("Research failed for turn %s", turn.assistant_message_id)
+            research.notes = "Research failed because of an internal error, so no sources were used."
+            yield {"type": "research", "stage": "error", "detail": "Research failed; answering without sources."}
+        system = build_system_prompt(sources=research.sources, research_notes=research.notes)
+        messages = [ChatMessage("system", system), *turn.history]
+        params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
         async for rc in orchestrator.stream_chat(messages, turn.routing, params):
             if (rc.model.provider, rc.model.model) != (provider, model):
                 provider, model = rc.model.provider, rc.model.model
@@ -249,8 +327,11 @@ async def run_turn(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 error=error,
+                citations=research.citations,
             )
         )
+    if outcome == "complete" and research.pages and turn.auto_index and knowledge is not None:
+        knowledge_service.index_in_background(maker, turn.user_id, research.pages, knowledge.embedder)
     message = result.model_dump(mode="json") if result else None
     if outcome == "complete":
         yield {"type": "done", "message": message}

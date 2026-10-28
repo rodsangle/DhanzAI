@@ -5,7 +5,7 @@ Legend: ✅ implemented and tested · 🟡 partially implemented · ⬜ not star
 Nothing marked ⬜ exists in the code base as a mock or placeholder screen; the app only shows
 features that work.
 
-## Phase 1 — Working MVP (this milestone)
+## Phase 1 — Working MVP
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -26,13 +26,23 @@ features that work.
 | Google / Apple sign-in | ⬜ | Phase 5 (needs OAuth client IDs and Apple developer account) |
 | Projects / workspaces | ⬜ | Phase 3 |
 
-## Phase 2 — Internet intelligence
+## Phase 2 — Internet intelligence (this milestone)
 
-⬜ Search API integration (e.g. Brave, Bing, Tavily, SearXNG — pluggable) ·
-⬜ fetcher that honours `robots.txt`, rate limits per host, never bypasses paywalls/logins ·
-⬜ readability extraction · ⬜ chunking + embeddings into pgvector · ⬜ hybrid retrieval ·
-⬜ answers with clickable citations, publication/retrieval dates and source reliability notes ·
-⬜ "Web research" screen and **Knowledge library** screen · ⬜ LangGraph research flow.
+| Feature | Status | Notes |
+|---|---|---|
+| Web search via search APIs (Brave, Tavily, SearXNG) | ✅ | Configure one with `SEARCH_PROVIDER`; adapters tested against recorded API responses |
+| Automatic "does this need the web?" decision + per-chat web mode (Auto / Always / Off) | ✅ | Keyword heuristic; links pasted in a message are always read |
+| Polite, safe page fetching (robots.txt, per-host rate limit, no paywall/login bypass, SSRF protection) | ✅ | |
+| Main-content extraction with title, site, author and publication date | ✅ | HTML and plain text; PDFs come with Phase 3 document support |
+| Multi-source answers with numbered `[n]` citations, clickable source cards, publication and retrieval dates | ✅ | Pages that cannot be read fall back to the search engine's snippet |
+| Webpage summarisation ("summarise https://…") | ✅ | |
+| News research | 🟡 | News-flavoured queries use the provider's news vertical; there is no dedicated news screen |
+| Source reliability | 🟡 | The model is told to flag conflicts and dates; there is no automated per-site reliability score |
+| Knowledge library: add pages, browse, preview, search, delete | ✅ | Private per user; included in data export and account deletion |
+| RAG: chunking, embeddings in pgvector, hybrid keyword + semantic retrieval used in chat | ✅ | Semantic search needs `EMBEDDING_PROVIDER`; keyword search works without it |
+| Auto-saving researched pages to the library (user opt-out) | ✅ | |
+| LangGraph research flow | ⬜ | The pipeline is a plain async function; a graph adds value once tools need approvals (Phase 3) |
+| Approximate-nearest-neighbour (HNSW) index | ⬜ | Exact vector search per user is fast at personal-library scale; add an index per embedding model when libraries get large |
 
 ## Phase 3 — Advanced assistant
 

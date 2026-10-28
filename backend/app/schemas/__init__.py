@@ -55,6 +55,7 @@ class UserOut(ORM):
     role: str
     preferred_model: str | None
     routing_policy: str
+    auto_index_web: bool
     created_at: datetime
 
 
@@ -70,6 +71,7 @@ class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=100)
     preferred_model: str | None = Field(default=None, max_length=200, description="'provider:model' or '' to clear")
     routing_policy: RoutingPolicyName | None = None
+    auto_index_web: bool | None = None
 
 
 class DeleteAccountRequest(BaseModel):
@@ -89,10 +91,16 @@ class ModelOut(BaseModel):
     context_window: int
 
 
+class Features(BaseModel):
+    web_search: bool
+    semantic_search: bool
+
+
 class ModelsResponse(BaseModel):
     models: list[ModelOut]
     default_policy: str
     greeting: str
+    features: Features
 
 
 # --- conversations --------------------------------------------------------
@@ -108,6 +116,7 @@ class MessageOut(ORM):
     input_tokens: int | None
     output_tokens: int | None
     error: str | None
+    citations: list[dict] | None = None
     created_at: datetime
 
 
@@ -144,6 +153,7 @@ class SendMessageRequest(BaseModel):
     edit_message_id: uuid.UUID | None = Field(
         default=None, description="Replace this user message (and drop everything after it) before sending"
     )
+    web: bool | None = Field(default=None, description="Web research: true always, false never, null automatic")
 
     @field_validator("content")
     @classmethod
@@ -156,3 +166,42 @@ class SendMessageRequest(BaseModel):
 class RegenerateRequest(BaseModel):
     provider: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
+    web: bool | None = None
+
+
+# --- knowledge library ----------------------------------------------------
+
+
+class AddDocumentRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2048)
+
+
+class DocumentOut(ORM):
+    id: uuid.UUID
+    kind: str
+    url: str
+    title: str
+    site_name: str | None
+    author: str | None
+    published_at: datetime | None
+    retrieved_at: datetime
+    added_via: str
+    created_at: datetime
+
+
+class DocumentDetail(DocumentOut):
+    content: str
+    chunk_count: int
+
+
+class DocumentList(BaseModel):
+    items: list[DocumentOut]
+    total: int
+
+
+class LibraryHit(BaseModel):
+    document_id: uuid.UUID
+    title: str
+    url: str
+    site_name: str | None
+    snippet: str

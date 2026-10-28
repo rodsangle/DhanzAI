@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid
+from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, UTCDateTime, utcnow
+from app.db.base import Base, Embedding, UTCDateTime, utcnow
 
 
 class User(Base):
@@ -22,6 +22,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     preferred_model: Mapped[str | None] = mapped_column(String(200))
     routing_policy: Mapped[str] = mapped_column(String(20), default="balanced")
+    # Save pages read during web research to the user's knowledge library.
+    auto_index_web: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
@@ -80,9 +82,51 @@ class Message(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
+    # Numbered sources the reply was grounded on: [{n, title, url, site_name, published_at, retrieved_at, origin}]
+    citations: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class KnowledgeDocument(Base):
+    """A source in a user's private knowledge library (a web page today; uploaded files in Phase 3)."""
+
+    __tablename__ = "knowledge_documents"
+    __table_args__ = (UniqueConstraint("user_id", "url", name="uq_knowledge_documents_user_url"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="web")
+    url: Mapped[str] = mapped_column(String(2048))
+    title: Mapped[str] = mapped_column(String(300))
+    site_name: Mapped[str | None] = mapped_column(String(200))
+    author: Mapped[str | None] = mapped_column(String(200))
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    retrieved_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    # manual (user added it) | research (saved automatically while answering)
+    added_via: Mapped[str] = mapped_column(String(20), default="manual")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    chunks: Mapped[list[KnowledgeChunk]] = relationship(
+        back_populates="document", cascade="all, delete-orphan", passive_deletes=True, order_by="KnowledgeChunk.ordinal"
+    )
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Embedding)
+    embedding_model: Mapped[str | None] = mapped_column(String(200))
+
+    document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
 
 
 class AuditLog(Base):
@@ -97,4 +141,13 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
-__all__ = ["AuditLog", "Base", "Conversation", "Message", "RefreshToken", "User"]
+__all__ = [
+    "AuditLog",
+    "Base",
+    "Conversation",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
+    "Message",
+    "RefreshToken",
+    "User",
+]

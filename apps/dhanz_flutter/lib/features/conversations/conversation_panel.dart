@@ -9,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
+import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../chat/chat_controller.dart';
 import 'conversations_controller.dart';
@@ -47,24 +48,13 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
   }
 
   Future<void> _rename(ConversationSummary c) async {
-    final controller = TextEditingController(text: c.title);
-    final title = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Rename conversation'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          maxLength: 200,
-          onSubmitted: (v) => Navigator.pop(context, v),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Save')),
-        ],
-      ),
+    final title = await showTextPrompt(
+      context,
+      title: 'Rename conversation',
+      confirmLabel: 'Save',
+      initialText: c.title,
+      maxLength: 200,
     );
-    controller.dispose();
     if (title != null && title.trim().isNotEmpty) {
       await _run(() => ref.read(conversationsProvider.notifier).rename(c.id, title.trim()));
     }
@@ -230,6 +220,11 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
               ),
             ),
             const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.local_library_outlined),
+              title: const Text('Knowledge library'),
+              onTap: () => _go('/library'),
+            ),
             ListTile(
               leading: CircleAvatar(
                 backgroundColor: theme.colorScheme.primary,

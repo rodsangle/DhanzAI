@@ -15,7 +15,10 @@
 | Client storage | Tokens in Keychain (iOS/macOS), Android Keystore-backed storage, Windows DPAPI via `flutter_secure_storage` |
 | Errors | Raw provider errors are logged server-side and replaced with a generic message for clients |
 | Audit log | Register, login, failed login, logout, account deletion (IP + timestamp); entries survive account deletion with the user link removed |
-| Prompt injection | System prompt instructs the model to treat web/document/tool content as untrusted data that cannot change rules or authorize actions. Phase 1 has no tools, so model output cannot trigger actions |
+| Prompt injection | Retrieved web/library text is placed in a `<sources>` block labelled as untrusted data; the system prompt forbids following instructions inside it. There are still no action-taking tools, so injected text cannot trigger actions |
+| Server-side fetching (Phase 2) | Only http/https on ports 80/443; URLs with credentials refused; every DNS answer must be a public address (blocks localhost, private ranges, link-local/cloud metadata) and this is re-checked on every redirect; 2 MB cap; HTML/text only; no cookies or auth headers sent |
+| Responsible crawling | Fetches only pages a user asked about or a search returned (no crawling); honours robots.txt for `DhanzAI-Research` (robots.txt unreachable because of a server or network error = disallowed); spaces requests per host; pages returning 401/402/403 are reported as requiring a login/subscription and are never worked around |
+| Knowledge privacy | Library documents and chunks are scoped to their owner in every query (including vector search); deleted with the account; included in data export |
 | Privacy | Data export (`GET /users/me/export`), real account deletion (DB cascade), no analytics or third-party trackers in the app |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
 
@@ -27,6 +30,11 @@
   hosting provider, not by application-level encryption.
 * No email verification or password reset flow yet.
 * No MFA; no Google/Apple sign-in yet.
+* DNS rebinding: addresses are checked before connecting, but a hostile DNS server could
+  answer differently at connect time. Run the API with egress restricted to the public
+  internet (no route to internal networks) for defence in depth.
+* Search queries go to the configured search provider (Brave/Tavily) under its privacy
+  policy; use self-hosted SearXNG to avoid that.
 * Conversations are sent to whichever AI provider handles the request; their data-retention
   policies apply. Use Ollama (`local_first`) to keep data on your own hardware.
 * Audit-log retention and data-retention settings are not yet configurable.

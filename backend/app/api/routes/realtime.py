@@ -85,5 +85,5 @@ async def _handle(ws: WebSocket, frame, user_id, request_id, settings, maker, or
             body = RegenerateRequest.model_validate(frame)
             turn = await chat_service.prepare_regenerate(db, settings, user, conv, body)
 
-    async for event in chat_service.run_turn(maker, orchestrator, settings, turn):
+    async for event in chat_service.run_turn(maker, orchestrator, settings, turn, ws.app.state.knowledge):
         await ws.send_json({**event, "request_id": request_id})

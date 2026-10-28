@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../auth/auth_controller.dart';
@@ -53,9 +54,13 @@ final conversationsProvider = AsyncNotifierProvider<ConversationsController, Lis
   ConversationsController.new,
 );
 
-/// Models the backend currently has configured.
-final modelsProvider = FutureProvider<List<AiModel>>((ref) async {
+/// Models and features the backend currently has configured.
+final serverInfoProvider = FutureProvider<ServerInfo>((ref) async {
   final userId = ref.watch(authControllerProvider.select((s) => s.value?.id));
-  if (userId == null) return const [];
-  return ref.read(apiClientProvider).models();
+  if (userId == null) return (models: const <AiModel>[], features: const Features());
+  return ref.read(apiClientProvider).serverInfo();
 });
+
+final modelsProvider = FutureProvider<List<AiModel>>(
+  (ref) async => (await ref.watch(serverInfoProvider.future)).models,
+);

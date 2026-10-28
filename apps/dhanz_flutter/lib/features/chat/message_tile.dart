@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import 'markdown_view.dart';
+import 'sources_view.dart';
 
 class MessageTile extends StatelessWidget {
   const MessageTile({
@@ -13,6 +14,7 @@ class MessageTile extends StatelessWidget {
     required this.busy,
     required this.onRegenerate,
     required this.onEdit,
+    this.researchStatus,
   });
 
   final ChatMessage message;
@@ -20,6 +22,9 @@ class MessageTile extends StatelessWidget {
   final bool busy;
   final VoidCallback onRegenerate;
   final ValueChanged<ChatMessage> onEdit;
+
+  /// Live research progress shown before the reply text arrives.
+  final String? researchStatus;
 
   Future<void> _copy(BuildContext context) async {
     await Clipboard.setData(ClipboardData(text: message.content));
@@ -83,9 +88,21 @@ class MessageTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (message.content.isEmpty && streaming)
-                const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: _TypingDots())
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: researchStatus == null
+                      ? const _TypingDots()
+                      : Row(
+                          children: [
+                            const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                            const SizedBox(width: 10),
+                            Flexible(child: Text(researchStatus!, style: muted?.copyWith(fontSize: 13))),
+                          ],
+                        ),
+                )
               else if (message.content.isNotEmpty)
                 MarkdownView(message.content),
+              if (message.citations.isNotEmpty) SourcesView(citations: message.citations),
               if (message.status == MessageStatus.error)
                 Container(
                   margin: const EdgeInsets.only(top: 6),

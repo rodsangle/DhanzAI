@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import func, or_, select
 
-from app.api.deps import CurrentUser, DbDep, OrchestratorDep, SettingsDep, get_sessionmaker, parse_uuid
+from app.api.deps import CurrentUser, DbDep, KnowledgeDep, OrchestratorDep, SettingsDep, get_sessionmaker, parse_uuid
 from app.core import rate_limit
 from app.db.base import utcnow
 from app.models import Conversation, Message
@@ -129,11 +129,12 @@ async def send_message(
     db: DbDep,
     settings: SettingsDep,
     orchestrator: OrchestratorDep,
+    knowledge: KnowledgeDep,
 ) -> StreamingResponse:
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_send(db, settings, user, conv, body)
-    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn))
+    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn, knowledge))
 
 
 @router.post("/{conversation_id}/regenerate", summary="Regenerate the last reply (Server-Sent Events)")
@@ -145,8 +146,9 @@ async def regenerate(
     db: DbDep,
     settings: SettingsDep,
     orchestrator: OrchestratorDep,
+    knowledge: KnowledgeDep,
 ) -> StreamingResponse:
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_regenerate(db, settings, user, conv, body)
-    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn))
+    return _sse(chat_service.run_turn(get_sessionmaker(request), orchestrator, settings, turn, knowledge))

@@ -40,6 +40,21 @@ class Settings(BaseSettings):
     ollama_base_url: str | None = None
     ollama_models: str = "llama3.1"
 
+    # Web research (Phase 2). Configure one search provider; "none" disables web search
+    # (Dhanz can still read links the user pastes).
+    search_provider: Literal["none", "brave", "tavily", "searxng"] = "none"
+    brave_api_key: str | None = None
+    tavily_api_key: str | None = None
+    searxng_url: str | None = None
+    research_max_results: int = Field(default=6, ge=1, le=20)
+    research_max_pages: int = Field(default=4, ge=1, le=10)
+    fetch_user_agent: str = "DhanzAI-Research/0.2 (+https://github.com/rodsangle/videotomp3)"
+
+    # Knowledge library embeddings; "none" falls back to keyword search.
+    embedding_provider: Literal["none", "openai", "gemini", "ollama"] = "none"
+    embedding_model: str | None = None
+    rate_limit_ingest_per_minute: int = 20
+
     default_routing_policy: Literal["balanced", "cheapest", "best", "local_first"] = "balanced"
     default_temperature: float = 0.7
     default_max_tokens: int = Field(default=2048, ge=64, le=32000)

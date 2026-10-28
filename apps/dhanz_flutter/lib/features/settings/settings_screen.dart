@@ -8,6 +8,7 @@ import '../../core/config.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
+import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
 
@@ -36,29 +37,29 @@ class SettingsScreen extends ConsumerWidget {
     String? displayName,
     String? preferredModel,
     String? routingPolicy,
+    bool? autoIndexWeb,
   }) {
     return _guard(context, () async {
       final user = await ref
           .read(apiClientProvider)
-          .updateMe(displayName: displayName, preferredModel: preferredModel, routingPolicy: routingPolicy);
+          .updateMe(
+            displayName: displayName,
+            preferredModel: preferredModel,
+            routingPolicy: routingPolicy,
+            autoIndexWeb: autoIndexWeb,
+          );
       ref.read(authControllerProvider.notifier).updateUser(user);
     });
   }
 
   Future<void> _editName(BuildContext context, WidgetRef ref, User user) async {
-    final controller = TextEditingController(text: user.displayName);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Your name'),
-        content: TextField(controller: controller, autofocus: true, maxLength: 100),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('Save')),
-        ],
-      ),
+    final name = await showTextPrompt(
+      context,
+      title: 'Your name',
+      confirmLabel: 'Save',
+      initialText: user.displayName,
+      maxLength: 100,
     );
-    controller.dispose();
     if (name != null && name.trim().isNotEmpty && context.mounted) {
       await _updateUser(context, ref, displayName: name.trim());
     }
@@ -94,38 +95,19 @@ class SettingsScreen extends ConsumerWidget {
   });
 
   Future<void> _deleteAccount(BuildContext context, WidgetRef ref) async {
-    final password = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete account?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Your account and all conversations will be permanently deleted. This cannot be undone.'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'Confirm with your password'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete forever'),
-          ),
-        ],
+    final password = await showTextPrompt(
+      context,
+      title: 'Delete account?',
+      confirmLabel: 'Delete forever',
+      destructive: true,
+      obscureText: true,
+      label: 'Confirm with your password',
+      message: const Text(
+        'Your account, conversations and knowledge library will be permanently deleted. This cannot be undone.',
       ),
     );
-    final pw = password.text;
-    password.dispose();
-    if (confirmed == true && context.mounted) {
-      await _guard(context, () => ref.read(authControllerProvider.notifier).deleteAccount(pw));
+    if (password != null && password.isNotEmpty && context.mounted) {
+      await _guard(context, () => ref.read(authControllerProvider.notifier).deleteAccount(password));
     }
   }
 
@@ -211,6 +193,31 @@ class SettingsScreen extends ConsumerWidget {
                       RadioListTile<String>(value: e.key, title: Text(e.value.$1), subtitle: Text(e.value.$2)),
                   ],
                 ),
+              ),
+              section('Web research & knowledge'),
+              ListTile(
+                leading: Icon(
+                  (ref.watch(serverInfoProvider).value?.features.webSearch ?? false) ? Icons.public : Icons.public_off,
+                ),
+                title: const Text('Web search'),
+                subtitle: Text(
+                  (ref.watch(serverInfoProvider).value?.features.webSearch ?? false)
+                      ? 'Available. Choose Auto, Always or Off from the globe button in the chat.'
+                      : 'Not configured on this server. Dhanz can still read links you paste.',
+                ),
+              ),
+              SwitchListTile(
+                secondary: const Icon(Icons.bookmark_add_outlined),
+                title: const Text('Save researched pages to my library'),
+                subtitle: const Text('Pages Dhanz reads for you become searchable in your knowledge library'),
+                value: user.autoIndexWeb,
+                onChanged: (v) => _updateUser(context, ref, autoIndexWeb: v),
+              ),
+              ListTile(
+                leading: const Icon(Icons.local_library_outlined),
+                title: const Text('Knowledge library'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/library'),
               ),
               section('Privacy & data'),
               ListTile(
