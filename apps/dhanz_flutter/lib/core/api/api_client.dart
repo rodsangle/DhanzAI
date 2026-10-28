@@ -1,0 +1,291 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../../models/models.dart';
+import '../config.dart';
+import '../storage/secure_store.dart';
+import 'sse.dart';
+
+class ApiException implements Exception {
+  ApiException(this.statusCode, this.message);
+
+  final int statusCode;
+  final String message;
+
+  bool get isUnauthorized => statusCode == 401;
+
+  @override
+  String toString() => message;
+}
+
+typedef ClientFactory = http.Client Function();
+
+/// HTTP client for the DHANZ AI backend.
+///
+/// Attaches the access token, transparently refreshes it once on a 401, and
+/// calls [onSessionExpired] when the refresh token is no longer valid.
+class ApiClient {
+  ApiClient({required this.store, required this.baseUrl, ClientFactory? clientFactory})
+    : _clientFactory = clientFactory ?? http.Client.new {
+    _client = _clientFactory();
+  }
+
+  final SecureStore store;
+  String baseUrl;
+  final ClientFactory _clientFactory;
+  late final http.Client _client;
+  void Function()? onSessionExpired;
+  Future<bool>? _refreshing;
+
+  Uri _uri(String path, [Map<String, String>? query]) =>
+      Uri.parse('${baseUrl.replaceAll(RegExp(r'/+$'), '')}${AppConfig.apiPrefix}$path')
+          .replace(queryParameters: query?.isEmpty ?? true ? null : query);
+
+  Future<Map<String, String>> _headers({bool auth = true}) async {
+    final headers = {'Content-Type': 'application/json', 'Accept': 'application/json'};
+    if (auth) {
+      final token = await store.read(StoreKeys.accessToken);
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
+
+  // ---- auth --------------------------------------------------------------
+
+  Future<AuthTokens> register(String email, String password, String displayName) async {
+    final body = await _json(
+      'POST',
+      '/auth/register',
+      body: {'email': email, 'password': password, 'display_name': displayName},
+      auth: false,
+    );
+    return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
+  }
+
+  Future<AuthTokens> login(String email, String password) async {
+    final body = await _json('POST', '/auth/login', body: {'email': email, 'password': password}, auth: false);
+    return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
+  }
+
+  Future<void> logout() async {
+    final refresh = await store.read(StoreKeys.refreshToken);
+    if (refresh != null) {
+      try {
+        await _json('POST', '/auth/logout', body: {'refresh_token': refresh}, auth: false);
+      } on Exception {
+        // Best effort: local sign-out must succeed even when offline.
+      }
+    }
+    await clearTokens();
+  }
+
+  Future<void> clearTokens() async {
+    await store.write(StoreKeys.accessToken, null);
+    await store.write(StoreKeys.refreshToken, null);
+  }
+
+  Future<bool> hasSession() async => await store.read(StoreKeys.refreshToken) != null;
+
+  Future<AuthTokens> _saveTokens(AuthTokens t) async {
+    await store.write(StoreKeys.accessToken, t.accessToken);
+    await store.write(StoreKeys.refreshToken, t.refreshToken);
+    return t;
+  }
+
+  /// Single-flight refresh so parallel 401s trigger only one rotation.
+  Future<bool> _refresh() {
+    return _refreshing ??= () async {
+      try {
+        final refresh = await store.read(StoreKeys.refreshToken);
+        if (refresh == null) return false;
+        final res = await _client.post(
+          _uri('/auth/refresh'),
+          headers: await _headers(auth: false),
+          body: jsonEncode({'refresh_token': refresh}),
+        );
+        if (res.statusCode != 200) {
+          await clearTokens();
+          onSessionExpired?.call();
+          return false;
+        }
+        await _saveTokens(AuthTokens.fromJson(jsonDecode(res.body) as Map<String, dynamic>));
+        return true;
+      } finally {
+        _refreshing = null;
+      }
+    }();
+  }
+
+  // ---- generic request helpers -----------------------------------------
+
+  Future<http.Response> _send(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool auth = true,
+    bool retry = true,
+  }) async {
+    final req = http.Request(method, _uri(path, query))..headers.addAll(await _headers(auth: auth));
+    if (body != null) req.body = jsonEncode(body);
+    final http.Response res;
+    try {
+      res = await http.Response.fromStream(await _client.send(req));
+    } on http.ClientException catch (e) {
+      throw ApiException(0, 'Cannot reach the DHANZ AI server at $baseUrl (${e.message}).');
+    }
+    if (res.statusCode == 401 && auth && retry && await _refresh()) {
+      return _send(method, path, body: body, query: query, auth: auth, retry: false);
+    }
+    return res;
+  }
+
+  Future<Object?> _json(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    bool auth = true,
+  }) async {
+    final res = await _send(method, path, body: body, query: query, auth: auth);
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.body.isEmpty) return null;
+    return jsonDecode(utf8.decode(res.bodyBytes));
+  }
+
+  static String _errorMessage(int status, String body) {
+    try {
+      final detail = (jsonDecode(body) as Map<String, dynamic>)['detail'];
+      if (detail is String) return detail;
+      if (detail is List && detail.isNotEmpty) {
+        final first = detail.first as Map<String, dynamic>;
+        final field = (first['loc'] as List<dynamic>?)?.last;
+        return field == null ? '${first['msg']}' : '$field: ${first['msg']}';
+      }
+    } on Object {
+      // fall through
+    }
+    return 'Request failed ($status)';
+  }
+
+  // ---- users & models ----------------------------------------------------
+
+  Future<User> me() async => User.fromJson(await _json('GET', '/users/me') as Map<String, dynamic>);
+
+  Future<User> updateMe({String? displayName, String? preferredModel, String? routingPolicy}) async {
+    final body = <String, Object?>{
+      'display_name': ?displayName,
+      'preferred_model': ?preferredModel,
+      'routing_policy': ?routingPolicy,
+    };
+    return User.fromJson(await _json('PATCH', '/users/me', body: body) as Map<String, dynamic>);
+  }
+
+  Future<String> exportMyData() async {
+    final res = await _send('GET', '/users/me/export');
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return const JsonEncoder.withIndent('  ').convert(jsonDecode(utf8.decode(res.bodyBytes)));
+  }
+
+  Future<void> deleteAccount(String password) async {
+    await _json('DELETE', '/users/me', body: {'password': password});
+    await clearTokens();
+  }
+
+  Future<List<AiModel>> models() async {
+    final body = await _json('GET', '/models') as Map<String, dynamic>;
+    return [for (final m in body['models'] as List<dynamic>) AiModel.fromJson(m as Map<String, dynamic>)];
+  }
+
+  // ---- conversations -----------------------------------------------------
+
+  Future<List<ConversationSummary>> conversations({String? query}) async {
+    final body = await _json(
+      'GET',
+      '/conversations',
+      query: {if (query != null && query.isNotEmpty) 'q': query},
+    ) as Map<String, dynamic>;
+    return [for (final c in body['items'] as List<dynamic>) ConversationSummary.fromJson(c as Map<String, dynamic>)];
+  }
+
+  Future<ConversationSummary> createConversation() async =>
+      ConversationSummary.fromJson(await _json('POST', '/conversations', body: {}) as Map<String, dynamic>);
+
+  Future<ConversationDetail> conversation(String id) async =>
+      ConversationDetail.fromJson(await _json('GET', '/conversations/$id') as Map<String, dynamic>);
+
+  Future<ConversationSummary> updateConversation(String id, {String? title, bool? pinned}) async {
+    final body = <String, Object?>{'title': ?title, 'pinned': ?pinned};
+    return ConversationSummary.fromJson(await _json('PATCH', '/conversations/$id', body: body) as Map<String, dynamic>);
+  }
+
+  Future<void> deleteConversation(String id) => _json('DELETE', '/conversations/$id');
+
+  Future<String> exportConversation(String id, {String format = 'markdown'}) async {
+    final res = await _send('GET', '/conversations/$id/export', query: {'format': format});
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return utf8.decode(res.bodyBytes);
+  }
+
+  // ---- streaming chat ----------------------------------------------------
+
+  /// Opens a streaming chat request. Cancel the returned [ChatStream] to stop generation.
+  Future<ChatStream> streamChat(
+    String conversationId, {
+    String? content,
+    String? editMessageId,
+    String? modelKey,
+    bool regenerate = false,
+  }) async {
+    final parts = modelKey?.split(':');
+    final body = <String, Object?>{
+      'content': ?content,
+      'edit_message_id': ?editMessageId,
+      if (parts != null && parts.length >= 2) 'provider': parts.first,
+      if (parts != null && parts.length >= 2) 'model': parts.sublist(1).join(':'),
+    };
+    final path = '/conversations/$conversationId/${regenerate ? 'regenerate' : 'messages'}';
+
+    Future<http.StreamedResponse> open(http.Client client) async {
+      final req = http.Request('POST', _uri(path))
+        ..headers.addAll(await _headers())
+        ..headers['Accept'] = 'text/event-stream'
+        ..body = jsonEncode(body);
+      try {
+        return await client.send(req);
+      } on http.ClientException catch (e) {
+        client.close();
+        throw ApiException(0, 'Cannot reach the DHANZ AI server at $baseUrl (${e.message}).');
+      }
+    }
+
+    // A dedicated client per stream: closing it aborts the connection, which the
+    // server records as a stopped reply.
+    var client = _clientFactory();
+    var res = await open(client);
+    if (res.statusCode == 401 && await _refresh()) {
+      client.close();
+      client = _clientFactory();
+      res = await open(client);
+    }
+    if (res.statusCode != 200) {
+      final text = await res.stream.bytesToString();
+      client.close();
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, text));
+    }
+    return ChatStream(decodeSse(res.stream), client);
+  }
+
+  void close() => _client.close();
+}
+
+class ChatStream {
+  ChatStream(this.events, this._client);
+
+  final Stream<ChatEvent> events;
+  final http.Client _client;
+
+  void cancel() => _client.close();
+}

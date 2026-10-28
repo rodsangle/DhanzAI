@@ -1,0 +1,15 @@
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["S101", "B008", "UP042"]
+
+[lint.isort]
+known-first-party = ["app", "dhanz_ai"]
+known-third-party = ["alembic"]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106", "S108"]
+"backend/alembic/**" = ["E501"]
+"ai_engine/dhanz_ai/prompts.py" = ["E501"]

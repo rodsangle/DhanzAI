@@ -1,0 +1,5 @@
+-r requirements.txt
+-e ../ai_engine
+pytest>=8
+pytest-asyncio>=0.23
+ruff>=0.5
