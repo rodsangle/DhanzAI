@@ -170,6 +170,20 @@ class KnowledgeChunk(Base):
     document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
 
 
+class Device(Base):
+    """A phone/tablet that receives push notifications for a user."""
+
+    __tablename__ = "devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    platform: Mapped[str] = mapped_column(String(20))  # android | ios
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    app_version: Mapped[str | None] = mapped_column(String(40))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -186,6 +200,7 @@ __all__ = [
     "AuditLog",
     "Base",
     "Conversation",
+    "Device",
     "KnowledgeChunk",
     "KnowledgeDocument",
     "Memory",

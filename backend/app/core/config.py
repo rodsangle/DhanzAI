@@ -73,6 +73,21 @@ class Settings(BaseSettings):
     stt_api_key: str | None = None  # defaults to OPENAI_API_KEY
     max_audio_mb: int = Field(default=20, ge=1, le=25)
 
+    # Push notifications (Phase 4): "your answer is ready" when a reply finishes while the app is closed.
+    # Android: Firebase Cloud Messaging service-account JSON (inline or file path).
+    fcm_service_account_json: str | None = None
+    fcm_service_account_file: str | None = None
+    # iOS: APNs token-based auth (.p8 key from the Apple Developer account).
+    apns_team_id: str | None = None
+    apns_key_id: str | None = None
+    apns_private_key: str | None = None
+    apns_private_key_file: str | None = None
+    apns_bundle_id: str | None = None
+    apns_use_sandbox: bool = False
+
+    # App updates (Phase 4): JSON manifest written by the release workflow (latest.json).
+    update_manifest_file: str | None = None
+
     default_routing_policy: Literal["balanced", "cheapest", "best", "local_first"] = "balanced"
     default_temperature: float = 0.7
     default_max_tokens: int = Field(default=2048, ge=64, le=32000)

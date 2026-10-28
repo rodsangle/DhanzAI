@@ -158,6 +158,28 @@ def _sse(events: AsyncIterator[dict]) -> StreamingResponse:
     )
 
 
+def _start_and_stream(request: Request, orchestrator, settings, knowledge, turn) -> StreamingResponse:
+    """Run the reply as a background task and stream it. Disconnecting does not stop it."""
+    turns = request.app.state.turns
+    handle = turns.start(
+        chat_service.run_turn(
+            get_sessionmaker(request), orchestrator, settings, turn, knowledge, request.app.state.files
+        ),
+        message_id=turn.assistant_message_id,
+        user_id=turn.user_id,
+        conversation_id=turn.conversation_id,
+    )
+    return _sse(turns.subscribe(handle))
+
+
+@router.post("/{conversation_id}/stop", status_code=status.HTTP_202_ACCEPTED)
+async def stop_reply(conversation_id: str, request: Request, user: CurrentUser, db: DbDep) -> dict:
+    """Stop the reply being generated; the partial text is kept and marked "stopped"."""
+    conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
+    message_id = await chat_service.request_stop(db, conv, request.app.state.turns)
+    return {"stopping": str(message_id) if message_id else None}
+
+
 @router.post("/{conversation_id}/messages", summary="Send a message and stream the reply (Server-Sent Events)")
 async def send_message(
     conversation_id: str,
@@ -172,11 +194,7 @@ async def send_message(
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_send(db, settings, user, conv, body)
-    return _sse(
-        chat_service.run_turn(
-            get_sessionmaker(request), orchestrator, settings, turn, knowledge, request.app.state.files
-        )
-    )
+    return _start_and_stream(request, orchestrator, settings, knowledge, turn)
 
 
 @router.post("/{conversation_id}/regenerate", summary="Regenerate the last reply (Server-Sent Events)")
@@ -193,8 +211,4 @@ async def regenerate(
     rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_regenerate(db, settings, user, conv, body)
-    return _sse(
-        chat_service.run_turn(
-            get_sessionmaker(request), orchestrator, settings, turn, knowledge, request.app.state.files
-        )
-    )
+    return _start_and_stream(request, orchestrator, settings, knowledge, turn)

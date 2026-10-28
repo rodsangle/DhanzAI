@@ -58,5 +58,6 @@ async def list_models(
             malware_scanning=request.app.state.files.scanner is not None,
             vision=any(Capability.VISION in m.capabilities for m in orchestrator.available_models()),
             max_upload_mb=settings.max_upload_mb,
+            push_notifications=request.app.state.push.enabled,
         ),
     )

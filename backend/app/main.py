@@ -6,13 +6,27 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import auth, conversations, files, memories, meta, projects, realtime, users, voice
+from app.api.routes import (
+    auth,
+    conversations,
+    devices,
+    files,
+    memories,
+    meta,
+    projects,
+    realtime,
+    updates,
+    users,
+    voice,
+)
 from app.api.routes import knowledge as knowledge_routes
 from app.core.config import Settings, get_settings
 from app.db.session import make_engine, make_sessionmaker
 from app.services.files_service import build_files_runtime
 from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
+from app.services.push import Notification, PushService, build_push
 from app.services.stt import SpeechToText, build_stt
+from app.services.turns import TurnHandle, TurnManager
 from dhanz_ai import AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider, Orchestrator
 
 
@@ -27,11 +41,32 @@ def build_orchestrator(settings: Settings) -> Orchestrator:
     )
 
 
+def _notify_finished(app: FastAPI):
+    async def notify(handle: TurnHandle) -> None:
+        """Nobody was watching when the reply finished (app closed/backgrounded): send a push."""
+        final = handle.final_event or {}
+        if final.get("type") != "done" or not app.state.push.enabled:
+            return
+        # Deliberately generic text: notifications can show on a locked screen.
+        await app.state.push.notify_user(
+            app.state.sessionmaker,
+            handle.user_id,
+            Notification(
+                title="Dhanz finished your answer",
+                body="Tap to read it.",
+                data={"conversation_id": str(handle.conversation_id), "message_id": str(handle.message_id)},
+            ),
+        )
+
+    return notify
+
+
 def create_app(
     settings: Settings | None = None,
     orchestrator: Orchestrator | None = None,
     knowledge: KnowledgeRuntime | None = None,
     stt: SpeechToText | None = None,
+    push: PushService | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
@@ -45,18 +80,22 @@ def create_app(
         app.state.knowledge = knowledge or build_knowledge_runtime(settings)
         app.state.files = build_files_runtime(settings)
         app.state.stt = stt if stt is not None else build_stt(settings)
+        app.state.push = push if push is not None else build_push(settings)
+        app.state.turns = TurnManager(on_unattended_finish=_notify_finished(app))
         yield
+        await app.state.turns.shutdown()
         await wait_for_background_indexing()
         for provider in app.state.orchestrator.providers.values():
             await provider.aclose()
         await app.state.knowledge.aclose()
         if app.state.stt is not None:
             await app.state.stt.aclose()
+        await app.state.push.aclose()
         await engine.dispose()
 
     app = FastAPI(
         title="DHANZ AI API",
-        version="0.3.0",
+        version="0.4.0",
         description="Backend for the DHANZ AI assistant. Your World. Your Knowledge. Your AI.",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
@@ -93,6 +132,8 @@ def create_app(
         projects.router,
         memories.router,
         voice.router,
+        devices.router,
+        updates.router,
         realtime.router,
     ):
         app.include_router(router, prefix=settings.api_prefix)

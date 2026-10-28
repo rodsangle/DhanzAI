@@ -100,6 +100,7 @@ class Features(BaseModel):
     malware_scanning: bool = False
     vision: bool = False
     max_upload_mb: int = 20
+    push_notifications: bool = False
 
 
 class ModelsResponse(BaseModel):
@@ -278,3 +279,27 @@ class MemoryOut(ORM):
 
 class TranscriptionOut(BaseModel):
     text: str
+
+
+# --- devices & updates ----------------------------------------------------
+
+
+class DeviceRegister(BaseModel):
+    platform: Literal["android", "ios"]
+    token: str = Field(min_length=10, max_length=512)
+    app_version: str | None = Field(default=None, max_length=40)
+
+
+class DeviceUnregister(BaseModel):
+    token: str = Field(min_length=10, max_length=512)
+
+
+class UpdateInfo(BaseModel):
+    platform: str
+    current_version: str
+    latest_version: str | None
+    update_available: bool
+    mandatory: bool = False
+    url: str | None = None
+    sha256: str | None = None
+    notes: str | None = None

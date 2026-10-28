@@ -7,6 +7,7 @@ import base64
 import dataclasses
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
@@ -154,7 +155,7 @@ def _routing(user: User, settings: Settings, provider: str | None, model: str | 
 
 def _ensure_not_streaming(messages: list[Message]) -> None:
     cutoff = utcnow() - timedelta(seconds=STREAM_LOCK_SECONDS)
-    if any(m.status == "streaming" and m.created_at > cutoff for m in messages):
+    if any(m.status in ("streaming", "stopping") and m.created_at > cutoff for m in messages):
         raise HTTPException(status.HTTP_409_CONFLICT, "A reply is still being generated in this conversation")
 
 
@@ -423,6 +424,30 @@ async def _research(
     out.notes = " ".join(notes) or None
 
 
+STOP_POLL_SECONDS = 1.0
+
+
+async def _stop_requested(maker: async_sessionmaker[AsyncSession], message_id: uuid.UUID) -> bool:
+    async with maker() as db:
+        return await db.scalar(select(Message.status).where(Message.id == message_id)) == "stopping"
+
+
+async def request_stop(db: AsyncSession, conv: Conversation, turns) -> uuid.UUID | None:
+    """Stop the reply being generated in this conversation, wherever it runs. Returns its id."""
+    msg = await db.scalar(
+        select(Message)
+        .where(Message.conversation_id == conv.id, Message.status == "streaming")
+        .order_by(Message.position.desc())
+        .limit(1)
+    )
+    if msg is None:
+        return None
+    if not turns.cancel(msg.id):  # not running in this worker: flag it for the worker that is
+        msg.status = "stopping"
+        await db.commit()
+    return msg.id
+
+
 async def run_turn(
     maker: async_sessionmaker[AsyncSession],
     orchestrator: Orchestrator,
@@ -480,7 +505,17 @@ async def run_turn(
             routing = dataclasses.replace(routing, required=routing.required | {Capability.VISION})
         messages = [ChatMessage("system", system), *history]
         params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
-        async for rc in orchestrator.stream_chat(messages, routing, params):
+        stream = orchestrator.stream_chat(messages, routing, params)
+        stopped = False
+        last_check = time.monotonic()
+        async for rc in stream:
+            # Stop requests may arrive at another server worker: they flag the row, we notice here.
+            if time.monotonic() - last_check > STOP_POLL_SECONDS:
+                last_check = time.monotonic()
+                if await _stop_requested(maker, turn.assistant_message_id):
+                    stopped = True
+                    await stream.aclose()
+                    break
             if (rc.model.provider, rc.model.model) != (provider, model):
                 provider, model = rc.model.provider, rc.model.model
                 yield {"type": "model", "provider": provider, "model": model}
@@ -489,7 +524,7 @@ async def run_turn(
                 yield {"type": "delta", "text": rc.chunk.text}
             if rc.chunk.done:
                 input_tokens, output_tokens = rc.chunk.input_tokens, rc.chunk.output_tokens
-        outcome = "complete"
+        outcome = "stopped" if stopped else "complete"
     except NoModelAvailableError as exc:
         outcome, error = "error", str(exc)
     except ProviderError as exc:
@@ -515,5 +550,7 @@ async def run_turn(
     message = result.model_dump(mode="json") if result else None
     if outcome == "complete":
         yield {"type": "done", "message": message}
+    elif outcome == "stopped":
+        yield {"type": "stopped", "message": message}
     else:
         yield {"type": "error", "detail": error, "message": message}
