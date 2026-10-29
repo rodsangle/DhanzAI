@@ -1,5 +1,5 @@
 fastapi>=0.115,<1
-uvicorn[standard]>=0.30
+uvicorn[standard]>=0.54.0
 sqlalchemy[asyncio]>=2.0.30
 asyncpg>=0.32.0
 aiosqlite>=0.20
