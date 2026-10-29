@@ -4,8 +4,8 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 
-def make_engine(database_url: str) -> AsyncEngine:
-    kwargs: dict = {"pool_pre_ping": True}
+def make_engine(database_url: str, *, pool_size: int = 10, max_overflow: int = 20) -> AsyncEngine:
+    kwargs: dict = {"pool_pre_ping": True, "pool_size": pool_size, "max_overflow": max_overflow}
     if database_url.startswith("sqlite"):
         kwargs = {"connect_args": {"check_same_thread": False}}
     engine = create_async_engine(database_url, **kwargs)

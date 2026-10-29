@@ -63,6 +63,7 @@ class PreparedTurn:
     project_instructions: str | None = None
     memories: list[str] = field(default_factory=list)
     saved_memory: str | None = None  # stored from a "remember that …" message in this turn
+    temporary_memory_request: bool = False  # "remember that …" in a temporary chat (not saved)
     memory_off_request: bool = False  # user asked to remember something while memory is off
 
 
@@ -96,7 +97,7 @@ async def _turn_context(db: AsyncSession, user: User, conv: Conversation) -> dic
         project = await db.get(Project, conv.project_id)
         if project is not None:
             ctx["project_instructions"] = project.instructions
-    if user.memory_enabled:
+    if user.memory_enabled and not conv.temporary:  # temporary chats neither use nor create memories
         rows = await db.scalars(select(Memory).where(Memory.user_id == user.id).order_by(Memory.created_at))
         ctx["memories"] = [m.content for m in rows]
     return ctx
@@ -192,9 +193,11 @@ async def prepare_send(
         await db.flush()
     docs = await _attachments(db, settings, user, attachment_ids)
 
-    saved_memory, memory_off_request = None, False
+    saved_memory, memory_off_request, temporary_memory_request = None, False, False
     remember = _REMEMBER.match(req.content)
-    if remember:
+    if remember and conv.temporary:
+        temporary_memory_request = True
+    elif remember:
         if user.memory_enabled:
             saved_memory = remember.group(1).strip()
             db.add(Memory(user_id=user.id, content=saved_memory[:1000], source="chat"))
@@ -228,10 +231,11 @@ async def prepare_send(
         user.id,
         req.content,
         req.web,
-        user.auto_index_web,
+        user.auto_index_web and not conv.temporary,
         attachment_ids=[d.id for d in docs],
         saved_memory=saved_memory,
         memory_off_request=memory_off_request,
+        temporary_memory_request=temporary_memory_request,
         **await _turn_context(db, user, conv),
     )
 
@@ -266,7 +270,7 @@ async def prepare_regenerate(
         user.id,
         last_user.content,
         req.web,
-        user.auto_index_web,
+        user.auto_index_web and not conv.temporary,
         attachment_ids=existing,
         **await _turn_context(db, user, conv),
     )
@@ -365,6 +369,11 @@ async def _research(
     notes: list[str] = []
     if turn.saved_memory:
         notes.append(f"You saved this to the user's memory as they asked: “{turn.saved_memory}”. Confirm it briefly.")
+    if turn.temporary_memory_request:
+        notes.append(
+            "The user asked you to remember something, but this is a temporary chat, so nothing was saved. Tell them "
+            "to ask again in a normal chat."
+        )
     if turn.memory_off_request:
         notes.append(
             "The user asked you to remember something, but memory is turned off, so nothing was saved. Tell them they "

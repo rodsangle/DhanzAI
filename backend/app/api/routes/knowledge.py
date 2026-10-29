@@ -56,7 +56,7 @@ async def add_document(
     body: AddDocumentRequest, user: CurrentUser, db: DbDep, settings: SettingsDep, knowledge: KnowledgeDep
 ) -> KnowledgeDocument:
     """Read a public web page (respecting robots.txt and access controls) and add it to the library."""
-    rate_limit.enforce(f"ingest:{user.id}", settings.rate_limit_ingest_per_minute)
+    await rate_limit.enforce(f"ingest:{user.id}", settings.rate_limit_ingest_per_minute)
     try:
         page = await knowledge.fetcher.fetch(body.url)
     except FetchError as exc:

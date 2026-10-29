@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import jwt
@@ -33,7 +35,9 @@ def password_needs_rehash(password_hash: str) -> bool:
     return _hasher.check_needs_rehash(password_hash)
 
 
-def create_access_token(settings: Settings, user_id: uuid.UUID, role: str) -> tuple[str, int]:
+def create_access_token(
+    settings: Settings, user_id: uuid.UUID, role: str, session_id: uuid.UUID | None = None
+) -> tuple[str, int]:
     now = datetime.now(UTC)
     ttl = timedelta(minutes=settings.access_token_ttl_minutes)
     payload = {
@@ -44,6 +48,8 @@ def create_access_token(settings: Settings, user_id: uuid.UUID, role: str) -> tu
         "exp": now + ttl,
         "jti": uuid.uuid4().hex,
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)  # the refresh-token family: revoking it ends this token too
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm), int(ttl.total_seconds())
 
 
@@ -51,7 +57,13 @@ class InvalidTokenError(Exception):
     pass
 
 
-def decode_access_token(settings: Settings, token: str) -> uuid.UUID:
+@dataclass(frozen=True)
+class AccessClaims:
+    user_id: uuid.UUID
+    session_id: uuid.UUID | None
+
+
+def decode_access_token(settings: Settings, token: str) -> AccessClaims:
     try:
         payload = jwt.decode(
             token,
@@ -64,7 +76,8 @@ def decode_access_token(settings: Settings, token: str) -> uuid.UUID:
     if payload.get("type") != "access":
         raise InvalidTokenError("wrong token type")
     try:
-        return uuid.UUID(payload["sub"])
+        sid = payload.get("sid")
+        return AccessClaims(uuid.UUID(payload["sub"]), uuid.UUID(sid) if sid else None)
     except ValueError as exc:
         raise InvalidTokenError("bad subject") from exc
 
@@ -76,3 +89,17 @@ def new_refresh_token() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def new_reset_code() -> str:
+    """Password-reset code typed by the user: 10 characters, ~50 bits, unambiguous alphabet."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(10))
+
+
+def normalize_reset_code(code: str) -> str:
+    return "".join(ch for ch in code.upper() if ch.isalnum())
+
+
+def same_hash(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())

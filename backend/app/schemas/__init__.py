@@ -18,6 +18,12 @@ class ORM(BaseModel):
 # --- auth -----------------------------------------------------------------
 
 
+def _check_strength(v: str) -> str:
+    if v.isdigit() or v.isalpha() or len(set(v)) < 5:
+        raise ValueError("password must mix letters with digits or symbols")
+    return v
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
@@ -34,9 +40,46 @@ class RegisterRequest(BaseModel):
     @field_validator("password")
     @classmethod
     def _strength(cls, v: str) -> str:
-        if v.isdigit() or v.isalpha() or len(set(v)) < 5:
-            raise ValueError("password must mix letters with digits or symbols")
-        return v
+        return _check_strength(v)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _strength(cls, v: str) -> str:
+        return _check_strength(v)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=20)
+    new_password: str = Field(min_length=10, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _strength(cls, v: str) -> str:
+        return _check_strength(v)
+
+
+class AuthOptions(BaseModel):
+    registration_open: bool
+    password_reset: bool
+
+
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    user_agent: str | None
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+    current: bool
 
 
 class LoginRequest(BaseModel):
@@ -57,6 +100,7 @@ class UserOut(ORM):
     routing_policy: str
     auto_index_web: bool
     memory_enabled: bool
+    retention_days: int | None = None
     created_at: datetime
 
 
@@ -74,6 +118,9 @@ class UserUpdate(BaseModel):
     routing_policy: RoutingPolicyName | None = None
     auto_index_web: bool | None = None
     memory_enabled: bool | None = None
+    retention_days: Literal[0, 7, 30, 90, 365] | None = Field(
+        default=None, description="Auto-delete conversations idle this many days; 0 keeps them forever"
+    )
 
 
 class DeleteAccountRequest(BaseModel):
@@ -131,6 +178,7 @@ class MessageOut(ORM):
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     project_id: uuid.UUID | None = None
+    temporary: bool = False
 
 
 class ConversationUpdate(BaseModel):
@@ -144,6 +192,7 @@ class ConversationOut(ORM):
     title: str
     pinned: bool
     project_id: uuid.UUID | None = None
+    temporary: bool = False
     created_at: datetime
     updated_at: datetime
 

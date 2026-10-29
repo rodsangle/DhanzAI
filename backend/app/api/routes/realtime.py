@@ -65,7 +65,7 @@ async def chat_socket(ws: WebSocket) -> None:
 async def _handle(ws: WebSocket, frame, user_id, request_id, settings, maker, orchestrator) -> None:
     if not isinstance(frame, dict) or frame.get("type") not in ("send", "regenerate"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown frame type")
-    rate_limit.enforce(f"chat:{user_id}", settings.rate_limit_chat_per_minute)
+    await rate_limit.enforce(f"chat:{user_id}", settings.rate_limit_chat_per_minute)
     try:
         conversation_id = uuid.UUID(str(frame.get("conversation_id")))
     except ValueError:

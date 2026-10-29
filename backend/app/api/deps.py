@@ -9,8 +9,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
-from app.core.security import InvalidTokenError, decode_access_token
+from app.core.security import AccessClaims, InvalidTokenError, decode_access_token
 from app.models import User
+from app.services.auth_service import session_active
 from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import Orchestrator
 
@@ -50,28 +51,54 @@ _UNAUTHORIZED = HTTPException(
 )
 
 
-async def user_from_token(db: AsyncSession, settings: Settings, token: str) -> User:
+async def claims_and_user(db: AsyncSession, settings: Settings, token: str) -> tuple[AccessClaims, User]:
     try:
-        user_id = decode_access_token(settings, token)
+        claims = decode_access_token(settings, token)
     except InvalidTokenError:
         raise _UNAUTHORIZED from None
-    user = await db.get(User, user_id)
+    user = await db.get(User, claims.user_id)
     if user is None or not user.is_active:
         raise _UNAUTHORIZED
-    return user
+    # Signing out a session (or "sign out everywhere", a password change) takes effect at once,
+    # not only when the 15-minute access token expires.
+    if claims.session_id is not None and not await session_active(db, claims.session_id):
+        raise _UNAUTHORIZED
+    return claims, user
+
+
+async def user_from_token(db: AsyncSession, settings: Settings, token: str) -> User:
+    return (await claims_and_user(db, settings, token))[1]
 
 
 async def get_current_user(
+    request: Request,
     db: DbDep,
     settings: SettingsDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> User:
     if credentials is None:
         raise _UNAUTHORIZED
-    return await user_from_token(db, settings, credentials.credentials)
+    claims, user = await claims_and_user(db, settings, credentials.credentials)
+    request.state.session_id = claims.session_id
+    request.state.user_id = user.id  # for access logs
+    return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def current_session(request: Request) -> uuid.UUID | None:
+    """The refresh-token family of the request's access token (call after CurrentUser)."""
+    return getattr(request.state, "session_id", None)
+
+
+async def get_admin(user: CurrentUser) -> User:
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")
+    return user
+
+
+AdminUser = Annotated[User, Depends(get_admin)]
 
 
 def parse_uuid(value: str) -> uuid.UUID:

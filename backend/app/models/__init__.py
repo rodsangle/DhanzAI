@@ -26,6 +26,8 @@ class User(Base):
     auto_index_web: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     # Long-term memory is opt-in: nothing is remembered unless the user turns it on.
     memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # Delete conversations not touched for this many days (None = keep until the user deletes them).
+    retention_days: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
@@ -57,6 +59,8 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(String(200), default="New conversation")
     pinned: Mapped[bool] = mapped_column(Boolean, default=False)
     project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"), index=True)
+    # Temporary chats: no memory, no library auto-indexing, deleted automatically after TEMPORARY_CHAT_HOURS.
+    temporary: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
@@ -89,7 +93,7 @@ class Message(Base):
     citations: Mapped[list | None] = mapped_column(JSON)
     # Files attached to a user message: [{id, filename, kind, mime_type}]
     attachments: Mapped[list | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
@@ -184,6 +188,20 @@ class Device(Base):
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class PasswordResetToken(Base):
+    """One-time code emailed for a password reset; only its SHA-256 is stored."""
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -203,6 +221,7 @@ __all__ = [
     "Device",
     "KnowledgeChunk",
     "KnowledgeDocument",
+    "PasswordResetToken",
     "Memory",
     "Message",
     "Project",

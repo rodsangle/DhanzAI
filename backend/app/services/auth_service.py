@@ -26,13 +26,14 @@ async def issue_tokens(
     family_id: uuid.UUID | None = None,
 ) -> TokenResponse:
     """Create an access token and a new refresh token. Caller commits."""
-    access, expires_in = create_access_token(settings, user.id, user.role)
+    family_id = family_id or uuid.uuid4()
+    access, expires_in = create_access_token(settings, user.id, user.role, family_id)
     refresh = new_refresh_token()
     db.add(
         RefreshToken(
             user_id=user.id,
             token_hash=hash_token(refresh),
-            family_id=family_id or uuid.uuid4(),
+            family_id=family_id,
             expires_at=utcnow() + timedelta(days=settings.refresh_token_ttl_days),
             user_agent=(user_agent or "")[:300] or None,
         )
@@ -68,6 +69,33 @@ async def revoke_family(db: AsyncSession, family_id: uuid.UUID) -> None:
         .where(RefreshToken.family_id == family_id, RefreshToken.revoked_at.is_(None))
         .values(revoked_at=utcnow())
     )
+
+
+async def session_active(db: AsyncSession, family_id: uuid.UUID) -> bool:
+    """A session is alive while its family has an unrevoked, unexpired refresh token."""
+    row = await db.scalar(
+        select(RefreshToken.id)
+        .where(
+            RefreshToken.family_id == family_id,
+            RefreshToken.revoked_at.is_(None),
+            RefreshToken.expires_at > utcnow(),
+        )
+        .limit(1)
+    )
+    return row is not None
+
+
+async def revoke_user_sessions(db: AsyncSession, user_id: uuid.UUID, *, keep: uuid.UUID | None = None) -> int:
+    """Sign the user out everywhere (except session [keep]). Returns the number of sessions ended."""
+    query = (
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    )
+    if keep is not None:
+        query = query.where(RefreshToken.family_id != keep)
+    result = await db.execute(query)
+    return result.rowcount or 0
 
 
 async def revoke_token(db: AsyncSession, raw_token: str) -> uuid.UUID | None:

@@ -28,7 +28,7 @@ async def transcribe(
     stt = request.app.state.stt
     if stt is None:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Speech-to-text is not configured on this server.")
-    rate_limit.enforce(f"voice:{user.id}", settings.rate_limit_chat_per_minute)
+    await rate_limit.enforce(f"voice:{user.id}", settings.rate_limit_chat_per_minute)
     mime = (audio.content_type or "application/octet-stream").split(";")[0].lower()
     if mime not in AUDIO_TYPES:
         raise HTTPException(415, f"Unsupported audio type: {mime}")

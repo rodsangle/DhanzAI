@@ -63,6 +63,7 @@ async def create_conversation(body: ConversationCreate, user: CurrentUser, db: D
         user_id=user.id,
         title=(body.title or "").strip() or chat_service.DEFAULT_TITLE,
         project_id=body.project_id,
+        temporary=body.temporary,
     )
     db.add(conv)
     await db.commit()
@@ -191,7 +192,7 @@ async def send_message(
     orchestrator: OrchestratorDep,
     knowledge: KnowledgeDep,
 ) -> StreamingResponse:
-    rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
+    await rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_send(db, settings, user, conv, body)
     return _start_and_stream(request, orchestrator, settings, knowledge, turn)
@@ -208,7 +209,7 @@ async def regenerate(
     orchestrator: OrchestratorDep,
     knowledge: KnowledgeDep,
 ) -> StreamingResponse:
-    rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
+    await rate_limit.enforce(f"chat:{user.id}", settings.rate_limit_chat_per_minute)
     conv = await chat_service.get_owned_conversation(db, user, parse_uuid(conversation_id))
     turn = await chat_service.prepare_regenerate(db, settings, user, conv, body)
     return _start_and_stream(request, orchestrator, settings, knowledge, turn)

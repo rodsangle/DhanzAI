@@ -88,6 +88,34 @@ class Settings(BaseSettings):
     # App updates (Phase 4): JSON manifest written by the release workflow (latest.json).
     update_manifest_file: str | None = None
 
+    # ---- Production readiness (Phase 5) ----
+    log_format: Literal["text", "json"] = "text"
+    # Prometheus metrics at GET /metrics, only when a token is set (send it as a Bearer token).
+    metrics_token: str | None = None
+    # Shared rate limits across API replicas; without it each process counts on its own.
+    redis_url: str | None = None
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=20, ge=0, le=200)
+    # JSON request bodies above this size are refused (uploads have MAX_UPLOAD_MB / MAX_AUDIO_MB).
+    max_request_kb: int = Field(default=512, ge=16, le=10_240)
+    # Set to false for a private server: only the very first account (the admin) can register.
+    allow_registration: bool = True
+    # Per-account protection against password guessing (on top of the per-IP limit).
+    login_lockout_attempts: int = Field(default=5, ge=1, le=100)
+    login_lockout_minutes: int = Field(default=15, ge=1, le=1440)
+    # Password reset by email (a one-time code typed into the app). Disabled without SMTP_HOST.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    password_reset_ttl_minutes: int = Field(default=30, ge=5, le=1440)
+    # Privacy & maintenance: background clean-up job.
+    maintenance_interval_minutes: int = Field(default=60, ge=0, le=1440)  # 0 = off
+    audit_log_retention_days: int = Field(default=365, ge=7, le=3650)
+    temporary_chat_hours: int = Field(default=24, ge=1, le=720)
+
     default_routing_policy: Literal["balanced", "cheapest", "best", "local_first"] = "balanced"
     default_temperature: float = 0.7
     default_max_tokens: int = Field(default=2048, ge=64, le=32000)

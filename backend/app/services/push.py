@@ -19,6 +19,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.core.observability import PUSH_SENT
 from app.models import Device
 
 log = logging.getLogger(__name__)
@@ -157,10 +158,13 @@ class PushService:
             try:
                 await sender.send(device.token, notification)
                 delivered += 1
+                PUSH_SENT.labels(device.platform, "delivered").inc()
             except InvalidToken:
                 invalid.append(device.id)
+                PUSH_SENT.labels(device.platform, "invalid_token").inc()
             except httpx.HTTPError as exc:
                 log.warning("Push to %s device failed: %s", device.platform, exc)
+                PUSH_SENT.labels(device.platform, "failed").inc()
         if invalid:
             async with maker() as db:
                 await db.execute(delete(Device).where(Device.id.in_(invalid)))

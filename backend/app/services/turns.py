@@ -14,6 +14,8 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
+from app.core.observability import ACTIVE_REPLIES, record_reply
+
 log = logging.getLogger(__name__)
 
 Finished = Callable[["TurnHandle"], Awaitable[None]]
@@ -49,6 +51,7 @@ class TurnManager:
         handle = TurnHandle(message_id, user_id, conversation_id)
         self._turns[message_id] = handle
         handle.task = asyncio.create_task(self._run(handle, events))
+        ACTIVE_REPLIES.inc()
         return handle
 
     async def _run(self, handle: TurnHandle, events: AsyncIterator[dict]) -> None:
@@ -66,6 +69,8 @@ class TurnManager:
             handle.done = True
             handle.changed.set()
             self._turns.pop(handle.message_id, None)
+            ACTIVE_REPLIES.dec()
+            record_reply(handle.final_event)
         if handle.subscribers == 0 and self._on_unattended_finish is not None:
             try:
                 await self._on_unattended_finish(handle)

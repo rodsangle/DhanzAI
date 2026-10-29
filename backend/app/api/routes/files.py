@@ -29,7 +29,7 @@ async def upload_file(
 ) -> KnowledgeDocument:
     """Upload a document or image. It is scanned (if a scanner is configured), its text is
     extracted and indexed, and it can then be attached to messages or found in the library."""
-    rate_limit.enforce(f"upload:{user.id}", settings.rate_limit_upload_per_minute)
+    await rate_limit.enforce(f"upload:{user.id}", settings.rate_limit_upload_per_minute)
     pid = None
     if project_id:
         pid = parse_uuid(project_id)

@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   redis:
-    # Reserved for Phase 2+ background jobs and shared rate limiting; not yet used by the API.
+    # Shared rate limits (and per-account login lockout) across API replicas.
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     restart: unless-stopped
@@ -32,11 +32,14 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dhanz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-dhanz}
       STORAGE_DIR: /srv/data/uploads
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - uploads:/srv/data
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     ports:
       - "${API_PORT:-8000}:8000"
     restart: unless-stopped
