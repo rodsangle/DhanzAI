@@ -1,0 +1,24 @@
+# Caddy obtains and renews the TLS certificate for DHANZ_DOMAIN automatically.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DHANZ_DOMAIN} {
+	encode zstd gzip
+
+	# Metrics are for your monitoring system only (it must send METRICS_TOKEN). Uncomment to hide
+	# them from the internet completely and scrape the api container directly instead.
+	# respond /metrics 404
+
+	reverse_proxy api:8000 {
+		# Streaming replies (Server-Sent Events) must reach the app as they are generated.
+		flush_interval -1
+		transport http {
+			read_timeout 10m
+		}
+	}
+
+	header {
+		-Server
+	}
+}

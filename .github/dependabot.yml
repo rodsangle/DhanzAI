@@ -1,0 +1,21 @@
+# Weekly dependency update pull requests (security updates arrive as soon as they are published).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend
+    schedule: { interval: weekly }
+    groups:
+      python-minor:
+        update-types: [minor, patch]
+  - package-ecosystem: pub
+    directory: /apps/dhanz_flutter
+    schedule: { interval: weekly }
+    groups:
+      dart-minor:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /backend
+    schedule: { interval: weekly }

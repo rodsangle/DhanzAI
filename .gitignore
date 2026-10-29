@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+*.db
+
+# Secrets
+.env
+*.jks
+*.keystore
+key.properties
+*.p12
+*.mobileprovision
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Test coverage data
+.coverage
+.coverage.*
+htmlcov/
+
+# Production deployment: secrets and database backups stay on the server
+deploy/.env
+deploy/backups/

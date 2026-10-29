@@ -1,0 +1,9 @@
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.db
+**/.env
+.git
+apps
+*.zip
+docs
