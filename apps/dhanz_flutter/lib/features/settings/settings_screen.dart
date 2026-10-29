@@ -252,6 +252,12 @@ class SettingsScreen extends ConsumerWidget {
               ),
               section('Personalisation'),
               ListTile(
+                leading: const Icon(Icons.alarm),
+                title: const Text('Reminders'),
+                subtitle: const Text('Ask Dhanz "remind me to …" or add them yourself'),
+                onTap: () => context.go('/reminders'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.psychology_outlined),
                 title: const Text('Memory'),
                 subtitle: Text(user.memoryEnabled ? 'On — Dhanz uses what you asked it to remember' : 'Off'),

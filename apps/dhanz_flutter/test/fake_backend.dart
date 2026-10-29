@@ -45,6 +45,11 @@ class FakeBackend {
     },
   ];
   static const resetCode = 'ABCDE-23456';
+
+  /// Tool activity the next reply reports (as the real server does after running tools).
+  List<Map<String, dynamic>> toolActivity = [];
+  final reminders = <Map<String, dynamic>>[];
+  int calendarDownloads = 0;
   String? resetRequestedFor;
   Map<String, dynamic> updateInfo = {
     'platform': 'windows',
@@ -140,6 +145,50 @@ class FakeBackend {
       return json({'detail': 'Not authenticated'}, 401);
     }
 
+    if (path == '/reminders' && req.method == 'GET') {
+      final all = req.url.queryParameters['include_done'] == 'true';
+      return json([
+        for (final r in reminders)
+          if (all || r['done_at'] == null) r,
+      ]);
+    }
+    if (path == '/reminders' && req.method == 'POST') {
+      final r = {
+        'id': _id(),
+        'text': body['text'],
+        'due_at': body['due_at'],
+        'duration_minutes': null,
+        'location': null,
+        'conversation_id': null,
+        'notified_at': null,
+        'done_at': null,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      reminders.add(r);
+      return json(r, 201);
+    }
+    final reminderMatch = RegExp(r'^/reminders/([^/]+)(/calendar\.ics)?$').firstMatch(path);
+    if (reminderMatch != null) {
+      final r = reminders.where((x) => x['id'] == reminderMatch.group(1)).firstOrNull;
+      if (r == null) return json({'detail': 'Reminder not found'}, 404);
+      if (reminderMatch.group(2) != null) {
+        calendarDownloads++;
+        return http.StreamedResponse(
+          Stream.value(utf8.encode('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n')),
+          200,
+          headers: {'content-type': 'text/calendar'},
+        );
+      }
+      if (req.method == 'DELETE') {
+        reminders.remove(r);
+        return json(null, 204);
+      }
+      if (body.containsKey('done')) {
+        r['done_at'] = body['done'] == true ? DateTime.now().toUtc().toIso8601String() : null;
+      }
+      r['done_at'] = body['done'] == true ? DateTime.now().toUtc().toIso8601String() : null;
+      return json(r);
+    }
     if (path == '/users/me/password') {
       if (passwords[_user['email']] != body['current_password']) {
         return json({'detail': 'Current password is incorrect'}, 403);
@@ -402,6 +451,9 @@ class FakeBackend {
     }
     final remember = RegExp(r'^remember that (.+?)\.?$', caseSensitive: false).firstMatch(content);
     final assistant = _message('assistant', reply, model: 'echo-1');
+    final activity = toolActivity;
+    toolActivity = [];
+    if (activity.isNotEmpty) assistant['tool_activity'] = activity;
     if (research) assistant['citations'] = [source];
     (conv['messages'] as List<Object>).addAll([user, assistant]);
     if (dropAfterMeta) {
@@ -439,6 +491,13 @@ class FakeBackend {
       ],
       if (remember != null) ev('memory', {'action': 'saved', 'content': remember.group(1)}),
       ev('model', {'provider': 'echo', 'model': 'echo-1'}),
+      if (activity.isNotEmpty) ...[
+        ev('tool', {
+          'stage': 'running',
+          'labels': ['Setting a reminder'],
+        }),
+        ev('tool', {'stage': 'done', 'activity': activity}),
+      ],
       for (var i = 0; i < words.length; i++) ev('delta', {'text': i == 0 ? words[i] : ' ${words[i]}'}),
       ev('done', {'message': assistant}),
     ];

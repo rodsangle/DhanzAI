@@ -29,7 +29,7 @@ class FakePushBridge implements PushBridge {
   String? token = 'fcm-token-0001';
   bool allow = true;
   final refreshes = StreamController<String>.broadcast();
-  final taps = StreamController<String>.broadcast();
+  final taps = StreamController<Map<String, String>>.broadcast();
 
   @override
   String get platform => 'android';
@@ -44,10 +44,10 @@ class FakePushBridge implements PushBridge {
   Stream<String> get tokenRefreshes => refreshes.stream;
 
   @override
-  Stream<String> get openedConversations => taps.stream;
+  Stream<Map<String, String>> get notificationTaps => taps.stream;
 
   @override
-  Future<String?> initialConversation() async => null;
+  Future<Map<String, String>?> initialNotification() async => null;
 }
 
 class FakeDesktop extends NoDesktopShell {

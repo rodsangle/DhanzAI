@@ -60,7 +60,7 @@ class _NativeDesktopShell with WindowListener, TrayListener implements DesktopSh
   Future<void> setMinimizeToTray(bool value) async => _minimizeToTray = value;
 
   @override
-  Stream<String> get openedConversations => _opened.stream;
+  Stream<String> get openedRoutes => _opened.stream;
 
   Future<void> _showWindow() async {
     await windowManager.show();
@@ -79,7 +79,17 @@ class _NativeDesktopShell with WindowListener, TrayListener implements DesktopSh
     final notification = LocalNotification(title: 'Dhanz finished your answer', body: title);
     notification.onClick = () {
       unawaited(_showWindow());
-      _opened.add(conversationId);
+      _opened.add('/chat/$conversationId');
+    };
+    await notification.show();
+  }
+
+  @override
+  Future<void> notifyReminder(String text) async {
+    final notification = LocalNotification(title: 'Reminder', body: text);
+    notification.onClick = () {
+      unawaited(_showWindow());
+      _opened.add('/reminders');
     };
     await notification.show();
   }

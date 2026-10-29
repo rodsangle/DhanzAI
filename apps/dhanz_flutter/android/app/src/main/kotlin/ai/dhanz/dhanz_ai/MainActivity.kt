@@ -24,12 +24,12 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
     private var pendingPermission: MethodChannel.Result? = null
-    private var launchConversation: String? = null
+    private var launchNotification: Map<String, String>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createNotificationChannel()
-        launchConversation = intent?.getStringExtra(EXTRA_CONVERSATION)
+        launchNotification = intent?.let(::notificationData)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -40,9 +40,9 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "requestPermission" -> requestPermission(result)
                 "getToken" -> getToken(result)
-                "initialConversation" -> {
-                    result.success(launchConversation)
-                    launchConversation = null
+                "initialNotification" -> {
+                    result.success(launchNotification)
+                    launchNotification = null
                 }
                 else -> result.notImplemented()
             }
@@ -57,9 +57,13 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        intent.getStringExtra(EXTRA_CONVERSATION)?.let {
-            channel?.invokeMethod("onNotificationTap", mapOf("conversation_id" to it))
-        }
+        notificationData(intent)?.let { channel?.invokeMethod("onNotificationTap", it) }
+    }
+
+    /** The notification's data keys we route on (FCM puts message data in the launch intent's extras). */
+    private fun notificationData(intent: Intent): Map<String, String>? {
+        val data = NOTIFICATION_KEYS.mapNotNull { key -> intent.getStringExtra(key)?.let { key to it } }.toMap()
+        return data.ifEmpty { null }
     }
 
     private fun getToken(result: MethodChannel.Result) {
@@ -106,6 +110,8 @@ class MainActivity : FlutterActivity() {
         const val CHANNEL = "ai.dhanz/push"
         const val REPLIES_CHANNEL = "dhanz_replies" // must match the backend (app/services/push.py)
         const val EXTRA_CONVERSATION = "conversation_id"
+        const val EXTRA_REMINDER = "reminder_id"
+        val NOTIFICATION_KEYS = listOf(EXTRA_CONVERSATION, EXTRA_REMINDER)
         private const val PERMISSION_REQUEST = 4242
 
         /** Set while the Flutter UI is running, so the messaging service can forward new tokens. */

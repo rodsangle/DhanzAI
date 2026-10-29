@@ -13,6 +13,7 @@ import 'core/providers.dart';
 import 'core/storage/secure_store.dart';
 import 'core/theme.dart';
 import 'features/chat/chat_controller.dart';
+import 'features/reminders/reminder_watcher.dart';
 import 'router.dart';
 
 Future<void> main() async {
@@ -49,7 +50,10 @@ class _PersistedTray implements DesktopShell {
       _shell.notifyReplyReady(conversationId: conversationId, title: title);
 
   @override
-  Stream<String> get openedConversations => _shell.openedConversations;
+  Future<void> notifyReminder(String text) => _shell.notifyReminder(text);
+
+  @override
+  Stream<String> get openedRoutes => _shell.openedRoutes;
 }
 
 class DhanzApp extends ConsumerStatefulWidget {
@@ -60,26 +64,35 @@ class DhanzApp extends ConsumerStatefulWidget {
 }
 
 class _DhanzAppState extends ConsumerState<DhanzApp> {
-  final _subs = <StreamSubscription<String>>[];
+  final _subs = <StreamSubscription<Object>>[];
   late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
     // Notification taps (phone push or desktop notification) open the finished conversation.
-    _subs.add(ref.read(desktopShellProvider).openedConversations.listen(_openConversation));
+    _subs.add(ref.read(desktopShellProvider).openedRoutes.listen(_open));
     final push = ref.read(pushBridgeProvider);
     if (push != null) {
-      _subs.add(push.openedConversations.listen(_openConversation));
-      unawaited(push.initialConversation().then((id) => id == null ? null : _openConversation(id)));
+      _subs.add(push.notificationTaps.listen(_openNotification));
+      unawaited(push.initialNotification().then((data) => data == null ? null : _openNotification(data)));
     }
     // Back from the background: pick up replies that finished while the app was suspended.
     _lifecycle = AppLifecycleListener(onResume: () => unawaited(ref.read(chatControllerProvider.notifier).refresh()));
   }
 
-  void _openConversation(String id) {
-    ref.read(routerProvider).go('/chat/$id');
-    unawaited(ref.read(chatControllerProvider.notifier).refresh());
+  void _openNotification(Map<String, String> data) {
+    final conversation = data['conversation_id'];
+    if (conversation != null) {
+      _open('/chat/$conversation');
+    } else if (data.containsKey('reminder_id')) {
+      _open('/reminders');
+    }
+  }
+
+  void _open(String location) {
+    ref.read(routerProvider).go(location);
+    if (location.startsWith('/chat/')) unawaited(ref.read(chatControllerProvider.notifier).refresh());
   }
 
   @override
@@ -94,6 +107,7 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
   @override
   Widget build(BuildContext context) {
     ref.listen(pushControllerProvider, (_, _) {}); // keeps push registration alive while signed in
+    ref.listen(reminderWatcherProvider, (_, _) {}); // desktop: due reminders as system notifications
     return MaterialApp.router(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,

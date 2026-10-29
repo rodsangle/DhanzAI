@@ -15,8 +15,8 @@ import 'app_version.dart';
 ///
 /// The native code lives in `android/app/src/main/kotlin/.../MainActivity.kt` and
 /// `ios/Runner/AppDelegate.swift` and talks to Dart over the `ai.dhanz/push` channel:
-///   Dart → native: `requestPermission` → bool, `getToken` → String?, `initialConversation` → String?
-///   native → Dart: `onToken(String)`, `onNotificationTap({"conversation_id": ...})`
+///   Dart → native: `requestPermission` → bool, `getToken` → String?, `initialNotification` → Map?
+///   native → Dart: `onToken(String)`, `onNotificationTap({"conversation_id"?: ..., "reminder_id"?: ...})`
 abstract class PushBridge {
   /// "android" or "ios", as the server expects.
   String get platform;
@@ -26,12 +26,17 @@ abstract class PushBridge {
   Future<String?> getToken();
   Stream<String> get tokenRefreshes;
 
-  /// Conversations opened by tapping a notification.
-  Stream<String> get openedConversations;
+  /// Data of notifications the user tapped (conversation_id or reminder_id).
+  Stream<Map<String, String>> get notificationTaps;
 
-  /// The conversation whose notification launched the app, if any.
-  Future<String?> initialConversation();
+  /// The data of the notification that launched the app, if any.
+  Future<Map<String, String>?> initialNotification();
 }
+
+Map<String, String> _stringMap(Object? raw) => {
+  for (final e in (raw as Map<Object?, Object?>? ?? const {}).entries)
+    if (e.key is String && e.value is String) e.key! as String: e.value! as String,
+};
 
 class MethodChannelPushBridge implements PushBridge {
   MethodChannelPushBridge(this.platform) {
@@ -40,8 +45,7 @@ class MethodChannelPushBridge implements PushBridge {
         case 'onToken':
           if (call.arguments is String) _tokens.add(call.arguments as String);
         case 'onNotificationTap':
-          final id = (call.arguments as Map<Object?, Object?>?)?['conversation_id'];
-          if (id is String) _opened.add(id);
+          _opened.add(_stringMap(call.arguments));
       }
       return null;
     });
@@ -52,7 +56,7 @@ class MethodChannelPushBridge implements PushBridge {
   @override
   final String platform;
   final _tokens = StreamController<String>.broadcast();
-  final _opened = StreamController<String>.broadcast();
+  final _opened = StreamController<Map<String, String>>.broadcast();
 
   @override
   Future<bool> requestPermission() async => await _channel.invokeMethod<bool>('requestPermission') ?? false;
@@ -71,10 +75,13 @@ class MethodChannelPushBridge implements PushBridge {
   Stream<String> get tokenRefreshes => _tokens.stream;
 
   @override
-  Stream<String> get openedConversations => _opened.stream;
+  Stream<Map<String, String>> get notificationTaps => _opened.stream;
 
   @override
-  Future<String?> initialConversation() => _channel.invokeMethod<String>('initialConversation');
+  Future<Map<String, String>?> initialNotification() async {
+    final data = _stringMap(await _channel.invokeMethod<Object?>('initialNotification'));
+    return data.isEmpty ? null : data;
+  }
 }
 
 /// Null on platforms without push (desktop, tests). `main()` provides the real bridge on phones.

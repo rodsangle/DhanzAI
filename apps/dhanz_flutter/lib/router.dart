@@ -13,6 +13,7 @@ import 'features/memory/memory_screen.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'features/onboarding/welcome_screen.dart';
 import 'features/projects/projects_screen.dart';
+import 'features/reminders/reminders_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/voice/voice_screen.dart';
 
@@ -61,6 +62,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
       GoRoute(path: '/security', builder: (context, state) => const SecurityScreen()),
+      GoRoute(path: '/reminders', builder: (context, state) => const RemindersScreen()),
       GoRoute(
         path: '/admin',
         redirect: (context, state) => ref.read(authControllerProvider).value?.isAdmin == true ? null : '/settings',

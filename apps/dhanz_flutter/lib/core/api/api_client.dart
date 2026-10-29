@@ -427,6 +427,34 @@ class ApiClient {
     return (jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>)['text'] as String;
   }
 
+  // ---- reminders -------------------------------------------------------------
+
+  Future<List<Reminder>> reminders({bool includeDone = false}) async => [
+    for (final r in await _json('GET', '/reminders', query: {if (includeDone) 'include_done': 'true'}) as List<dynamic>)
+      Reminder.fromJson(r as Map<String, dynamic>),
+  ];
+
+  Future<Reminder> createReminder(String text, DateTime dueAt) async => Reminder.fromJson(
+    await _json('POST', '/reminders', body: {'text': text, 'due_at': clientTimeNow(dueAt)}) as Map<String, dynamic>,
+  );
+
+  Future<Reminder> updateReminder(String id, {bool? done, DateTime? dueAt, String? text}) async => Reminder.fromJson(
+    await _json(
+      'PATCH',
+      '/reminders/$id',
+      body: {'done': ?done, 'text': ?text, if (dueAt != null) 'due_at': clientTimeNow(dueAt)},
+    ) as Map<String, dynamic>,
+  );
+
+  Future<void> deleteReminder(String id) => _json('DELETE', '/reminders/$id');
+
+  /// The reminder as an .ics file for calendar apps.
+  Future<Uint8List> reminderCalendarFile(String id) async {
+    final res = await _send('GET', '/reminders/$id/calendar.ics');
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return res.bodyBytes;
+  }
+
   // ---- devices & updates ---------------------------------------------------
 
   /// Registers this phone for "your answer is ready" notifications. [platform] is android or ios.
@@ -462,6 +490,7 @@ class ApiClient {
       'edit_message_id': ?editMessageId,
       'web': ?web,
       if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
+      'client_time': clientTimeNow(),
       if (parts != null && parts.length >= 2) 'provider': parts.first,
       if (parts != null && parts.length >= 2) 'model': parts.sublist(1).join(':'),
     };

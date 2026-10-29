@@ -414,6 +414,15 @@ class ChatController extends Notifier<ChatState> {
           default:
             break;
         }
+      case 'tool':
+        if (d['stage'] == 'running') {
+          final labels = (d['labels'] as List<dynamic>? ?? const []).cast<String>();
+          state = state.copyWith(researchStatus: () => labels.isEmpty ? 'Working…' : '${labels.join(', ')}…');
+        } else {
+          final added = ToolActivity.listFrom(d['activity']);
+          _updateLast((m) => m.copyWith(toolActivity: [...m.toolActivity, ...added]));
+          state = state.copyWith(researchStatus: () => null);
+        }
       case 'memory':
         state = state.copyWith(notice: () => 'Saved to memory: “${d['content']}”');
         ref.invalidate(memoriesProvider);

@@ -20,14 +20,16 @@ class DhanzMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val notification = message.notification ?: return
-        val conversationId = message.data[MainActivity.EXTRA_CONVERSATION]
+        val key = message.data[MainActivity.EXTRA_CONVERSATION] ?: message.data[MainActivity.EXTRA_REMINDER]
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            conversationId?.let { putExtra(MainActivity.EXTRA_CONVERSATION, it) }
+            for (name in MainActivity.NOTIFICATION_KEYS) {
+                message.data[name]?.let { putExtra(name, it) }
+            }
         }
         val pending = PendingIntent.getActivity(
             this,
-            conversationId.hashCode(),
+            key.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -40,7 +42,7 @@ class DhanzMessagingService : FirebaseMessagingService() {
             .build()
         if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
             try {
-                NotificationManagerCompat.from(this).notify(conversationId.hashCode(), built)
+                NotificationManagerCompat.from(this).notify(key.hashCode(), built)
             } catch (_: SecurityException) {
                 // permission revoked between the check and the call
             }

@@ -6,6 +6,7 @@ import '../../widgets/dhanz_logo.dart';
 import 'attachment_chip.dart';
 import 'markdown_view.dart';
 import 'sources_view.dart';
+import 'tool_activity_view.dart';
 
 class MessageTile extends StatelessWidget {
   const MessageTile({
@@ -116,6 +117,19 @@ class MessageTile extends StatelessWidget {
                 )
               else if (message.content.isNotEmpty)
                 MarkdownView(message.content),
+              // A tool step after some text ("One moment… Calculating").
+              if (message.content.isNotEmpty && streaming && researchStatus != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    children: [
+                      const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                      const SizedBox(width: 10),
+                      Flexible(child: Text(researchStatus!, style: muted?.copyWith(fontSize: 13))),
+                    ],
+                  ),
+                ),
+              if (message.toolActivity.isNotEmpty) ToolActivityView(activity: message.toolActivity),
               if (message.citations.isNotEmpty) SourcesView(citations: message.citations),
               if (message.status == MessageStatus.error)
                 Container(

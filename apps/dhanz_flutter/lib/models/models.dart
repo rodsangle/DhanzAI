@@ -267,6 +267,7 @@ class ChatMessage {
     this.error,
     this.citations = const [],
     this.attachments = const [],
+    this.toolActivity = const [],
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) => ChatMessage(
@@ -282,6 +283,7 @@ class ChatMessage {
     error: j['error'] as String?,
     citations: Citation.listFrom(j['citations']),
     attachments: Attachment.listFrom(j['attachments']),
+    toolActivity: ToolActivity.listFrom(j['tool_activity']),
   );
 
   final String id;
@@ -298,6 +300,9 @@ class ChatMessage {
   /// Files attached to a user message.
   final List<Attachment> attachments;
 
+  /// Tools Dhanz used for this reply (calculator, reminders, …).
+  final List<ToolActivity> toolActivity;
+
   bool get isUser => role == 'user';
 
   ChatMessage copyWith({
@@ -307,6 +312,7 @@ class ChatMessage {
     String? model,
     String? error,
     List<Citation>? citations,
+    List<ToolActivity>? toolActivity,
   }) => ChatMessage(
     id: id,
     role: role,
@@ -317,7 +323,77 @@ class ChatMessage {
     error: error ?? this.error,
     citations: citations ?? this.citations,
     attachments: attachments,
+    toolActivity: toolActivity ?? this.toolActivity,
   );
+}
+
+/// One tool call made while answering, as shown under the reply.
+class ToolActivity {
+  const ToolActivity({required this.tool, required this.summary, this.error = false, this.action});
+
+  factory ToolActivity.fromJson(Map<String, dynamic> j) => ToolActivity(
+    tool: j['tool'] as String,
+    summary: j['summary'] as String? ?? '',
+    error: j['error'] as bool? ?? false,
+    action: j['action'] as Map<String, dynamic>?,
+  );
+
+  static List<ToolActivity> listFrom(Object? raw) => [
+    for (final a in raw as List<dynamic>? ?? const []) ToolActivity.fromJson(a as Map<String, dynamic>),
+  ];
+
+  final String tool;
+  final String summary;
+  final bool error;
+
+  /// Something the app can offer: {"type": "reminder", "id", ...} or {"type": "email", "mailto", ...}.
+  final Map<String, dynamic>? action;
+}
+
+class Reminder {
+  const Reminder({
+    required this.id,
+    required this.text,
+    required this.dueAt,
+    this.durationMinutes,
+    this.location,
+    this.conversationId,
+    this.notifiedAt,
+    this.doneAt,
+  });
+
+  factory Reminder.fromJson(Map<String, dynamic> j) => Reminder(
+    id: j['id'] as String,
+    text: j['text'] as String,
+    dueAt: _date(j['due_at']),
+    durationMinutes: j['duration_minutes'] as int?,
+    location: j['location'] as String?,
+    conversationId: j['conversation_id'] as String?,
+    notifiedAt: j['notified_at'] == null ? null : _date(j['notified_at']),
+    doneAt: j['done_at'] == null ? null : _date(j['done_at']),
+  );
+
+  final String id;
+  final String text;
+  final DateTime dueAt;
+  final int? durationMinutes;
+  final String? location;
+  final String? conversationId;
+  final DateTime? notifiedAt;
+  final DateTime? doneAt;
+
+  bool get done => doneAt != null;
+}
+
+/// The device's current time as ISO 8601 with its UTC offset (e.g. 2026-10-29T14:05:00+02:00),
+/// so Dhanz can resolve "tomorrow at 9" in the user's own time zone.
+String clientTimeNow([DateTime? at]) {
+  final now = at ?? DateTime.now();
+  final offset = now.timeZoneOffset;
+  final sign = offset.isNegative ? '-' : '+';
+  final hours = offset.inHours.abs().toString().padLeft(2, '0');
+  final minutes = (offset.inMinutes.abs() % 60).toString().padLeft(2, '0');
+  return '${now.toIso8601String().split('.').first}$sign$hours:$minutes';
 }
 
 class Citation {

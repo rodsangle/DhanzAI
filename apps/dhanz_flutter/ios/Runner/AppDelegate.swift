@@ -26,7 +26,7 @@ final class DhanzPushPlugin: NSObject, FlutterPlugin, UNUserNotificationCenterDe
   private let channel: FlutterMethodChannel
   private var token: String?
   private var tokenWaiters: [FlutterResult] = []
-  private var pendingConversation: String?
+  private var pendingNotification: [String: String]?
   private var dartReady = false
 
   init(channel: FlutterMethodChannel) {
@@ -57,10 +57,10 @@ final class DhanzPushPlugin: NSObject, FlutterPlugin, UNUserNotificationCenterDe
         tokenWaiters.append(result)
         UIApplication.shared.registerForRemoteNotifications()
       }
-    case "initialConversation":
+    case "initialNotification":
       dartReady = true
-      result(pendingConversation)
-      pendingConversation = nil
+      result(pendingNotification)
+      pendingNotification = nil
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -95,11 +95,16 @@ final class DhanzPushPlugin: NSObject, FlutterPlugin, UNUserNotificationCenterDe
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
-    if let id = response.notification.request.content.userInfo["conversation_id"] as? String {
+    let userInfo = response.notification.request.content.userInfo
+    var data: [String: String] = [:]
+    for key in ["conversation_id", "reminder_id"] {
+      if let value = userInfo[key] as? String { data[key] = value }
+    }
+    if !data.isEmpty {
       if dartReady {
-        channel.invokeMethod("onNotificationTap", arguments: ["conversation_id": id])
+        channel.invokeMethod("onNotificationTap", arguments: data)
       } else {
-        pendingConversation = id // the tap launched the app; Dart asks for it once it starts
+        pendingNotification = data // the tap launched the app; Dart asks for it once it starts
       }
     }
     completionHandler()

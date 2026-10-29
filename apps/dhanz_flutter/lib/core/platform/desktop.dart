@@ -13,8 +13,11 @@ abstract class DesktopShell {
   /// Shows a system notification unless the window is focused. Clicking it opens [conversationId].
   Future<void> notifyReplyReady({required String conversationId, required String title});
 
-  /// Conversations opened by clicking a notification.
-  Stream<String> get openedConversations;
+  /// Shows a reminder that is due (always, even when the window is focused).
+  Future<void> notifyReminder(String text);
+
+  /// App locations (e.g. `/chat/<id>`, `/reminders`) opened by clicking a notification.
+  Stream<String> get openedRoutes;
 }
 
 /// Phones, the web and tests.
@@ -29,7 +32,10 @@ class NoDesktopShell implements DesktopShell {
   Future<void> notifyReplyReady({required String conversationId, required String title}) async {}
 
   @override
-  Stream<String> get openedConversations => const Stream.empty();
+  Future<void> notifyReminder(String text) async {}
+
+  @override
+  Stream<String> get openedRoutes => const Stream.empty();
 }
 
 /// Sets up the desktop shell when running on a desktop OS; returns null elsewhere.
