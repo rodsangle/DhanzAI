@@ -10,6 +10,11 @@ updates:
   - package-ecosystem: pub
     directory: /apps/dhanz_flutter
     schedule: { interval: weekly }
+    ignore:
+      # 0.6+ is a rewrite on native build hooks (different API, extra system libraries for builds
+      # and tests). Upgrade deliberately, not via Dependabot; see apps/dhanz_flutter/lib/core/platform/desktop_io.dart.
+      - dependency-name: tray_manager
+        versions: [">=0.6.0"]
     groups:
       dart-minor:
         update-types: [minor, patch]
