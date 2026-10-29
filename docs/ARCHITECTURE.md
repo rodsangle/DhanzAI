@@ -61,6 +61,8 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `services/chat_service.py` | Turn preparation (send / edit-and-resend / regenerate), research phase, history building, streaming + persistence |
 | `services/files_service.py`, `storage.py`, `scanner.py` | Uploads: validate → ClamAV scan (optional) → extract text → store bytes under a random key → chunk/index |
 | `services/stt.py` | Speech-to-text through an OpenAI-compatible `/audio/transcriptions` endpoint |
+| `services/turns.py` | Runs each reply as a background task that outlives the connection; live subscribers replay its events; notifies when nobody was watching at the end |
+| `services/push.py` | Push notifications: FCM HTTP v1 (service-account JWT) and APNs token auth (ES256, HTTP/2); dead device tokens are removed |
 | `services/export.py` | Markdown, text and PDF (fpdf2 + bundled DejaVu fonts) conversation exports |
 | `services/knowledge_service.py` | Knowledge runtime (search provider, fetcher, embedder), library ingestion, hybrid retrieval (pgvector `<=>` on PostgreSQL), background auto-indexing |
 | `api/routes/*` | REST endpoints, SSE streaming, WebSocket endpoint |
@@ -84,7 +86,10 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `POST /voice/transcribe` | Speech-to-text for the voice assistant |
 | `POST /conversations/{id}/messages` | Send (or edit-and-resend) and stream the reply as SSE; `web: true\|false\|null` controls research |
 | `POST /conversations/{id}/regenerate` | Regenerate the last reply as SSE |
+| `POST /conversations/{id}/stop` | Stop the reply being generated (keeps the partial text as `stopped`) |
 | `WS /ws/chat` | Same chat protocol over WebSocket (auth frame first) |
+| `POST /devices`, `POST /devices/unregister` | Register / remove this phone's push token |
+| `GET /app/updates?platform=&version=` | Is a newer app version available (from the release `latest.json`)? No auth needed |
 
 `POST /conversations/{id}/messages` also takes `attachment_ids`; conversations take an optional
 `project_id`; exports take `format=markdown|txt|pdf`.
@@ -102,9 +107,19 @@ Both SSE and WebSocket emit the same JSON events:
 3. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
 4. `delta` — `text` (append-only)
 5. `done` — final saved `message` (content, tokens, model, `citations`) **or** `error` — `detail` + saved message
+   **or** `stopped` — the reply was stopped; saved partial `message`
 
 The assistant row is created as `streaming` before the model is called and finalised as
-`complete`, `error` or `stopped` (client disconnected). Partial output is never lost.
+`complete`, `error` or `stopped`. Partial output is never lost.
+
+**Replies run in the background (Phase 4).** A reply is a server task (`services/turns.py`), not
+part of the HTTP request: if the connection drops (phone locked, app switched, network change)
+the reply still finishes and is saved. The app then follows it by reloading the conversation while
+its last message is `streaming`, and on Android/iOS a push notification ("Dhanz finished your
+answer", with no question or answer text) is sent if no client was watching when it finished.
+Stopping is explicit: `POST /conversations/{id}/stop` cancels the task when it runs in the same
+worker, otherwise marks the row `stopping`, which the worker running it checks every second.
+Replies in progress when the server shuts down are saved as `stopped`.
 
 ## 4. AI engine (`ai_engine/dhanz_ai`)
 
@@ -156,15 +171,19 @@ users 1──* audit_logs (user_id SET NULL on delete)
   on delete), `memories`, `users.memory_enabled`, `messages.attachments`, and file columns on
   `knowledge_documents` (`kind = "file"`, type, size, storage key, scan status, extraction notes).
   File bytes live in `STORAGE_DIR` (a Docker volume), are removed when the document or account is deleted.
+  Phase 4 added `devices` (push token, platform, app version; unique token, cascades with the user).
 
 ## 6. Flutter app (`apps/dhanz_flutter/lib`)
 
 | Path | Responsibility |
 |---|---|
-| `core/api/api_client.dart` | REST client, single-flight token refresh on 401, SSE chat streams (one HTTP client per stream so *Stop* aborts the request) |
+| `core/api/api_client.dart` | REST client, single-flight token refresh on 401, SSE chat streams (one HTTP client per stream); *Stop* is an explicit API call |
+| `core/platform/push.dart` | Push bridge (`ai.dhanz/push` method channel → `MainActivity.kt` / `AppDelegate.swift`) and device registration |
+| `core/platform/desktop*.dart` | Windows/macOS/Linux tray icon, minimize to tray, desktop notifications |
+| `core/platform/updates.dart`, `installer_io.dart` | Update check and banner; Windows installer download with SHA-256 verification |
 | `core/storage/secure_store.dart` | Tokens/settings in Keychain / Android Keystore / Windows DPAPI |
 | `features/auth` | Auth state (`AsyncNotifier`), sign-in / registration screen with server URL override |
-| `features/chat` | Chat state machine, Markdown + highlighted code, composer, model picker |
+| `features/chat` | Chat state machine (follows replies still generating on the server), Markdown + highlighted code, composer, model picker, drag-and-drop attachments |
 | `features/conversations` | History panel: search, rename, pin, export, delete |
 | `features/chat/sources_view.dart` | Numbered, clickable source cards with site and dates |
 | `features/library` | Knowledge library: add page, list, preview, search, remove |

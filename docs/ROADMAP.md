@@ -44,7 +44,7 @@ features that work.
 | LangGraph research flow | ⬜ | The pipeline is a plain async function; a graph adds value once tools need approvals (Phase 3) |
 | Approximate-nearest-neighbour (HNSW) index | ⬜ | Exact vector search per user is fast at personal-library scale; add an index per embedding model when libraries get large |
 
-## Phase 3 — Advanced assistant (this milestone)
+## Phase 3 — Advanced assistant
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -62,11 +62,21 @@ features that work.
 | Background / always-on wake word | ⬜ | Deliberately not done: the microphone is only used while the Voice screen is open, as Android and iOS require |
 | Tools (calculator, unit conversion, email drafting, calendar, reminders) | ⬜ | Moved to Phase 3b: needs provider tool-calling and an approval step for any external action |
 
-## Phase 4 — Platform distribution
+## Phase 4 — Platform distribution (this milestone)
 
-🟡 Windows installer (Inno Setup script + CI) — ⬜ code signing, ⬜ auto-update, ⬜ system tray /
-minimize-to-tray, ⬜ drag-and-drop, ⬜ desktop notifications · ⬜ push notifications (FCM/APNs) ·
-🟡 Android signing via secrets · 🟡 iOS signing via secrets · ⬜ store listings.
+| Feature | Status | Notes |
+|---|---|---|
+| Replies survive leaving the app | ✅ | Each reply runs as a server task, not tied to the connection; the app follows it again on return or reconnect |
+| Explicit Stop | ✅ | `POST /conversations/{id}/stop`; works across server workers (database flag checked every second) |
+| Push notifications when an answer is ready (Android FCM, iOS APNs) | 🟡 | Server side tested against mocked FCM/APNs; native code written but **not compiled or run on a device in this milestone** (no Android SDK/Xcode in the build environment). Needs a Firebase project and an APNs key; notification text never contains the question or answer |
+| Windows/macOS/Linux: system tray, minimize to tray, desktop notifications | 🟡 | `window_manager`, `tray_manager`, `local_notifier`; Dart side tested; not yet tried on a real Windows desktop |
+| Drag-and-drop files into the chat (desktop) | ✅ | Same upload checks as the attach button |
+| In-app updates | 🟡 | Backend `GET /app/updates` + release manifest `latest.json`. Windows downloads the installer, checks SHA-256, runs it silently and restarts; other platforms open the download/store page. Not exercised end-to-end against a real release yet |
+| Windows code signing | 🟡 | Release workflow signs the exe and installer when `WINDOWS_CERT_PFX_BASE64` is set; needs a purchased certificate |
+| Android / iOS release signing | 🟡 | Via secrets (since Phase 1) |
+| macOS build | 🟡 | Unsigned `.app` zip from CI; signing and notarization not set up |
+| Store listings (Play, App Store, Microsoft Store) | ⬜ | Needs developer accounts, privacy forms and screenshots |
+| Linux packages | ⬜ | The app runs on Linux (`flutter build linux`) but is not packaged |
 
 ## Phase 5 — Production readiness
 

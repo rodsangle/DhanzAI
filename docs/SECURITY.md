@@ -1,6 +1,6 @@
 # Security and privacy
 
-## What is implemented (Phase 1)
+## What is implemented
 
 | Area | Implementation |
 |---|---|
@@ -24,6 +24,9 @@
 | Voice | Audio is recorded only while the Voice screen is open, uploaded for transcription, and the temporary file is deleted from the device; nothing is recorded in the background |
 | Knowledge privacy | Library documents and chunks are scoped to their owner in every query (including vector search); deleted with the account; included in data export |
 | Privacy | Data export (`GET /users/me/export`), real account deletion (DB cascade), no analytics or third-party trackers in the app |
+| Push notifications (Phase 4) | Notification text is generic ("Dhanz finished your answer") so nothing private appears on a locked screen; the payload carries only conversation/message IDs, which are useless without the user's session. Device tokens belong to one account at a time, are removed on sign-out and when FCM/APNs report them invalid. FCM service-account and APNs keys stay on the server |
+| App updates (Phase 4) | Only `https://` download URLs from the server's manifest are offered; the Windows installer is verified against the SHA-256 in the manifest before it runs, and a mismatching download is deleted. Release builds can be Authenticode-signed |
+| Background replies (Phase 4) | Replies continue after a disconnect but are still bound to the user who started them; only the conversation owner can stop them |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
 
 ## Known limitations (to address before a public launch)
@@ -46,6 +49,11 @@
   `scan` profile for any multi-user deployment.
 * Uploaded files are stored unencrypted on the server volume; use encrypted disks/volumes.
 * Voice recordings are sent to the configured speech-to-text provider (OpenAI or your own Whisper server).
+* Push notifications pass through Google (FCM) and Apple (APNs). They only contain a generic
+  text and IDs.
+* The update manifest's checksum protects against corrupted or swapped downloads, but the
+  manifest itself is trusted because it comes over TLS from your server. Code signing (Windows
+  certificate, Apple notarization) is the stronger guarantee; set it up before a public release.
 
 ## Operating securely
 

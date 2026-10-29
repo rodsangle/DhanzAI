@@ -33,6 +33,12 @@ code and images (vision models), compare documents, exact spreadsheet statistics
 malware scanning, project workspaces with standing instructions, opt-in long-term memory, a
 voice assistant (speech-to-text, spoken replies, hands-free mode, "Hey Dhanz"), and PDF export.
 
+**Phase 4 — platform distribution:** answers keep generating when you leave the app and a
+push notification (Android FCM / iOS APNs) says when they are ready; explicit Stop that works across
+server workers; Windows system tray, minimize-to-tray, desktop notifications and drag-and-drop;
+in-app updates with checksum-verified Windows installers; signed release builds when certificates
+are provided. The native push code has not yet been run on real devices; see the roadmap.
+
 Tools (calendar, reminders, email drafting, calculators), OCR for scanned PDFs and Google/Apple
 sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
 of every feature.

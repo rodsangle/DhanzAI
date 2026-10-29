@@ -66,6 +66,14 @@ CLAMAV_HOST=clamav                  # with: docker compose --profile scan up -d
 Uploaded files are stored in the `uploads` Docker volume. Text-to-speech uses the voices installed
 on each device. The apps ask for microphone permission the first time the Voice screen is used.
 
+### Push notifications and app updates (optional)
+
+* **Push** ("your answer is ready" on phones): set `FCM_SERVICE_ACCOUNT_FILE` (Android) and/or the
+  `APNS_*` variables (iOS) from `.env.example`. The apps also need Firebase / the Push capability;
+  step-by-step in [RELEASE.md](RELEASE.md#push-notifications). Without them everything works,
+  answers simply are not announced.
+* **Updates**: copy `latest.json` from a GitHub release to the server and set `UPDATE_MANIFEST_FILE`.
+
 ### Using local models (Ollama)
 
 Install [Ollama](https://ollama.com), run `ollama pull llama3.1`, then set
@@ -106,6 +114,10 @@ flutter build windows --release --dart-define=DHANZ_API_URL=https://api.example.
 
 Run `dist\dhanz-ai-0.1.0-windows-setup.exe`. Uninstall from *Settings → Apps*. Unsigned
 installers trigger a SmartScreen warning; sign with an Authenticode certificate for distribution.
+
+The Windows app has a tray icon (Settings → *Keep running in the system tray*), shows a desktop
+notification when an answer finishes while the window is in the background, accepts files dragged
+onto the chat, and offers new versions from the update banner.
 
 ### Android
 

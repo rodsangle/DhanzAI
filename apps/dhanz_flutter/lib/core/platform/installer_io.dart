@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 /// Downloads the Windows installer, checks its SHA-256 against the release manifest, then runs it
-/// silently (Inno Setup closes and restarts the app) and exits.
+/// silently (Inno Setup closes the app, installs, and starts the new version) and exits.
 Future<void> installWindowsUpdate(
   Uri url,
   String sha256Hex, {
@@ -13,11 +13,7 @@ Future<void> installWindowsUpdate(
   void Function(double progress)? onProgress,
 }) async {
   final file = await downloadVerified(url, sha256Hex, client: client, onProgress: onProgress);
-  await Process.start(file.path, const [
-    '/SILENT',
-    '/CLOSEAPPLICATIONS',
-    '/RESTARTAPPLICATIONS',
-  ], mode: ProcessStartMode.detached);
+  await Process.start(file.path, const ['/SILENT', '/CLOSEAPPLICATIONS'], mode: ProcessStartMode.detached);
   exit(0);
 }
 

@@ -6,8 +6,9 @@
   build number must increase for every store upload).
 * Backend/API version: `backend/app/main.py` (`FastAPI(version=...)`).
 * Tag releases `vMAJOR.MINOR.PATCH` (pre-releases: `v0.2.0-beta.1`). Pushing a tag runs
-  `.github/workflows/release.yml`, which builds Android, Windows and iOS and attaches the
-  artifacts to a GitHub Release.
+  `.github/workflows/release.yml`, which builds Android, Windows, iOS and macOS and attaches the
+  artifacts to a GitHub Release. Tagged builds get their version from the tag (`v0.4.0` → `0.4.0`,
+  build number = workflow run number), so the in-app update check compares real versions.
 
 ## CI configuration (GitHub → Settings → Secrets and variables → Actions)
 
@@ -20,9 +21,57 @@
 | `IOS_PROVISIONING_PROFILE_BASE64` | secret | App Store or Ad Hoc provisioning profile |
 | `IOS_EXPORT_OPTIONS_PLIST_BASE64` | secret | `ExportOptions.plist` matching the profile (method, teamID, provisioningProfiles) |
 | `IOS_KEYCHAIN_PASSWORD` | secret | Any random string for the temporary CI keychain |
+| `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | secrets | Authenticode code-signing certificate (`.pfx`, base64) for `dhanz_ai.exe` and the installer |
+| `DHANZ_GOOGLE_SERVICES_JSON` | secret | Contents of `google-services.json` from your Firebase project; enables Android push |
 
 Without signing secrets the workflow still succeeds, producing a debug-signed APK/AAB (not
 accepted by Google Play) and an unsigned iOS `Runner.app` zip (not installable on devices).
+
+Without `WINDOWS_CERT_PFX_BASE64` the Windows build is unsigned (SmartScreen warns on first run);
+without `DHANZ_GOOGLE_SERVICES_JSON` the Android app has no push notifications.
+
+## In-app updates
+
+Each tagged release also publishes `latest.json`:
+
+```json
+{"version": "0.4.0", "notes": "DHANZ AI v0.4.0",
+ "platforms": {"windows": {"url": "https://github.com/…/dhanz-ai-0.4.0-windows-setup.exe", "sha256": "…"},
+               "android": {"url": "https://github.com/…/dhanz-ai-v0.4.0.apk", "sha256": "…"}}}
+```
+
+Copy it to the server and set `UPDATE_MANIFEST_FILE` to its path (in Docker, put it in the
+`/srv/data` volume). Add `"minimum_version": "0.3.0"` to force older apps to update (the banner
+then cannot be dismissed). Apps call `GET /api/v1/app/updates`:
+
+* **Windows** downloads the installer, checks the SHA-256, runs it with `/SILENT /CLOSEAPPLICATIONS`
+  and the new version starts automatically.
+* **Android** opens the APK link. Remove the `android` entry if you distribute through Google Play.
+* **iOS / macOS**: iOS updates come from the App Store/TestFlight (no entry is generated); macOS
+  opens the download page.
+
+## Push notifications
+
+The server notifies a phone when an answer finishes while the app is not open.
+
+**Android (Firebase Cloud Messaging)**
+1. Create a Firebase project, add an Android app with package `ai.dhanz.dhanz_ai`, download
+   `google-services.json` and put it in `apps/dhanz_flutter/android/app/` (git-ignored) or in the
+   `DHANZ_GOOGLE_SERVICES_JSON` secret. The Gradle build applies the Google Services plugin only
+   when this file exists.
+2. Firebase console → Project settings → Service accounts → *Generate new private key*. Give the
+   JSON to the server as `FCM_SERVICE_ACCOUNT_FILE` (or `FCM_SERVICE_ACCOUNT_JSON`).
+
+**iOS (Apple Push Notification service)**
+1. In Xcode open `ios/Runner.xcworkspace` → Runner target → *Signing & Capabilities* → add
+   **Push Notifications** (this creates the `aps-environment` entitlement; the provisioning profile
+   must include it).
+2. developer.apple.com → Keys → create a key with *Apple Push Notifications service*. Configure the
+   server with `APNS_TEAM_ID`, `APNS_KEY_ID`, `APNS_PRIVATE_KEY_FILE` (the `.p8`) and
+   `APNS_BUNDLE_ID=ai.dhanz.dhanzAi`. Use `APNS_USE_SANDBOX=true` for builds installed from Xcode.
+
+`GET /api/v1/models` reports `features.push_notifications`; the app only asks for notification
+permission when the server has push configured.
 
 ### Creating the Android upload keystore
 
@@ -58,16 +107,23 @@ keyPassword=...
 **Android**
 - [ ] Release keystore used (not debug); `versionCode` increased
 - [ ] Tested on a physical device and the minimum supported Android version
+- [ ] Push: leave the app during a long answer → notification arrives → tapping it opens the answer
 - [ ] Play Console: privacy policy URL, Data safety form (account data, conversations sent to AI providers), content rating, target API level requirement met
 
 **iOS**
 - [ ] Bundle ID, Team and provisioning profile correct; build number increased
 - [ ] App Privacy details in App Store Connect; privacy policy URL; account deletion available in-app (it is: Settings → Delete account)
 - [ ] TestFlight build smoke-tested on iPhone and iPad
+- [ ] Push capability enabled; notification received with the production APNs environment
 
 **Windows**
 - [ ] Installer installs, launches, creates Start Menu entry/desktop shortcut and uninstalls cleanly on Windows 10 and 11
 - [ ] (Recommended) installer and exe signed with an Authenticode certificate
+- [ ] Tray icon, minimize to tray, desktop notification and drag-and-drop checked
+- [ ] Update from the previous release through the in-app banner works (installer verified, app restarts)
+
+**Updates**
+- [ ] `latest.json` from the release copied to the server's `UPDATE_MANIFEST_FILE`
 
 **After release**
 - [ ] GitHub Release published with artifacts and notes

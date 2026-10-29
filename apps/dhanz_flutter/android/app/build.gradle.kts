@@ -6,6 +6,13 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Push notifications need a Firebase project: put its google-services.json in android/app/
+// (or let CI write it from the DHANZ_GOOGLE_SERVICES_JSON secret). Without it the app builds
+// and runs normally, just without notifications. See docs/RELEASE.md.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Release signing: android/key.properties (local) or DHANZ_ANDROID_* env vars (CI). Never commit either.
 val keystoreProperties = Properties().apply {
     val file = rootProject.file("key.properties")
@@ -68,4 +75,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:34.4.0"))
+    implementation("com.google.firebase:firebase-messaging")
+    implementation("androidx.core:core-ktx:1.16.0")
 }

@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Firebase config for push notifications (project specific; CI writes it from a secret)
+app/google-services.json

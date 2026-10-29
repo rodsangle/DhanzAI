@@ -31,6 +31,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 PrivilegesRequiredOverridesAllowed=dialog
+; In-app updates run this installer with /SILENT /CLOSEAPPLICATIONS: close a running copy first.
+CloseApplications=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -48,3 +50,5 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; After an in-app (silent) update, start the new version again.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent

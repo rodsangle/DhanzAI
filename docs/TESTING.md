@@ -93,3 +93,29 @@ Requires `SEARCH_PROVIDER` configured.
 7. Microphone button in the chat bar → speak → the transcript appears, Dhanz answers aloud;
    enable *Hands-free* and *Require "Hey Dhanz"* and check both behaviours.
 8. Conversation menu → *Save as PDF* → the PDF opens with the conversation, code and sources.
+
+Phase 4 tests: `backend/tests/test_phase4.py` covers replies that keep going after the client
+disconnects, Stop (same worker and via the database flag), the "answer ready" push sent only when
+nobody was watching, FCM and APNs request signing with generated keys (`httpx.MockTransport`),
+removal of dead device tokens, device registration and the update check. The Dart side
+(`apps/dhanz_flutter/test/phase4_test.dart`) covers following a reply after the connection drops,
+Stop through the API, resuming an opened conversation, push registration/refresh/opt-out/sign-out
+with a fake platform bridge, the update banner and the installer checksum check.
+
+The native push code (`MainActivity.kt`, `DhanzMessagingService.kt`, `AppDelegate.swift`) and the
+desktop tray/notification calls are not covered by automated tests; use the checklist below.
+
+## Manual verification checklist (Phase 4)
+
+1. Windows: Settings → *Keep running in the system tray* → close the window → the tray icon stays;
+   left-click restores the window; right-click → *Quit DHANZ AI* exits.
+2. Ask a long question, then minimise or hide the window → a desktop notification appears when the
+   answer is done; clicking it opens that conversation.
+3. Drag a PDF from Explorer onto the chat → it is attached like the paperclip would.
+4. Phone: ask a long question, lock the screen → a notification "Dhanz finished your answer"
+   arrives (with Firebase/APNs configured); tapping it opens the full answer.
+5. Turn on airplane mode mid-answer, then off → the answer still appears complete.
+6. Press *Stop* mid-answer → the partial text is kept as *Stopped* (also from a second device).
+7. Settings → notifications off → no more notifications; sign out → the device is unregistered.
+8. Put a `latest.json` with a higher version on the server → the update banner appears; on Windows
+   *Update* downloads, verifies and installs, then the new version starts.
