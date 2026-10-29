@@ -20,3 +20,12 @@ key.properties
 .DS_Store
 .idea/
 .vscode/
+
+# Test coverage data
+.coverage
+.coverage.*
+htmlcov/
+
+# Production deployment: secrets and database backups stay on the server
+deploy/.env
+deploy/backups/
