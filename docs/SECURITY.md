@@ -15,7 +15,7 @@
 | Client storage | Tokens in Keychain (iOS/macOS), Android Keystore-backed storage, Windows DPAPI via `flutter_secure_storage` |
 | Errors | Raw provider errors are logged server-side and replaced with a generic message for clients |
 | Audit log | Register, login, failed login, logout, account deletion (IP + timestamp); entries survive account deletion with the user link removed |
-| Prompt injection | Retrieved web/library text is placed in a `<sources>` block labelled as untrusted data; the system prompt forbids following instructions inside it. There are still no action-taking tools, so injected text cannot trigger actions |
+| Prompt injection | Retrieved web/library text is placed in a `<sources>` block labelled as untrusted data; the system prompt forbids following instructions inside it. Dhanz's tools have no effect outside DHANZ AI (see below), which limits what injected text could achieve |
 | Server-side fetching (Phase 2) | Only http/https on ports 80/443; URLs with credentials refused; every DNS answer must be a public address (blocks localhost, private ranges, link-local/cloud metadata) and this is re-checked on every redirect; 2 MB cap; HTML/text only; no cookies or auth headers sent |
 | Responsible crawling | Fetches only pages a user asked about or a search returned (no crawling); honours robots.txt for `DhanzAI-Research` (robots.txt unreachable because of a server or network error = disallowed); spaces requests per host; pages returning 401/402/403 are reported as requiring a login/subscription and are never worked around |
 | File uploads (Phase 3) | Size cap (`MAX_UPLOAD_MB`); type decided by content signatures, not the filename; Office files checked for zip bombs and encryption; legacy binary Office formats refused; filenames sanitised; bytes stored under random keys outside the web root; optional ClamAV scanning that fails closed; downloads only as `application/octet-stream` attachments with `nosniff`; parsing runs off the event loop and errors are contained |
@@ -33,6 +33,7 @@
 | Administration (Phase 5) | Role checked from the database on every admin request; admins cannot demote or deactivate themselves; every admin change is audit-logged; first account on a new server is the administrator, `ALLOW_REGISTRATION=false` closes sign-up |
 | Request limits & headers (Phase 5) | JSON bodies capped (`MAX_REQUEST_KB`), uploads by their own limits, before the body is read; production adds `Content-Security-Policy: default-src 'none'` and `Cross-Origin-Resource-Policy` |
 | Supply chain (Phase 5) | CI runs `pip-audit` and CodeQL; Dependabot proposes updates; release images carry build provenance and an SBOM |
+| Assistant tools | Tool arguments come from the model and are validated like any user input (the calculator parses arithmetic only — no code execution; time zones, dates and units are checked). Tools act only on the user's own data: reminders are scoped to the user, and email drafts are handed to the user's email app — Dhanz cannot send anything. Worst case for a prompt injection through a web page or document: an unwanted reminder or a draft the user sees before deciding to send it |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
 
 ## Known limitations (to address before a public launch)
@@ -54,6 +55,7 @@
   `scan` profile for any multi-user deployment.
 * Uploaded files are stored unencrypted on the server volume; use encrypted disks/volumes.
 * Voice recordings are sent to the configured speech-to-text provider (OpenAI or your own Whisper server).
+* Reminder notifications show the reminder text, which can appear on a locked screen.
 * Push notifications pass through Google (FCM) and Apple (APNs). They only contain a generic
   text and IDs.
 * The update manifest's checksum protects against corrupted or swapped downloads, but the

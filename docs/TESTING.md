@@ -159,3 +159,17 @@ measure the limiter.
    account → it is signed out immediately.
 7. `curl -H "Authorization: Bearer $METRICS_TOKEN" https://<server>/metrics` shows `dhanz_*` metrics;
    every response has an `X-Request-ID` that appears in the JSON logs.
+
+## Manual verification checklist (assistant tools)
+
+Use a model with function calling (any OpenAI, Claude or Gemini model, or e.g. `llama3.1`/`qwen3` on Ollama).
+
+1. "What is 17.5% of 2,340 plus 12 squared?" → a *Calculating* step, a result chip, the exact answer.
+2. "How many cups is 750 ml?", "Convert 72 °F to Celsius" → conversion chips.
+3. "What time is it in Tokyo?", "How many working days until 24 December?" → time/date chips.
+4. "Remind me to call the bank tomorrow at 10" → reminder card with the right local time;
+   *Add to calendar* saves an `.ics` that your calendar app imports; Settings → *Reminders* lists it;
+   at 10:00 a notification arrives (phone push, or desktop notification while the app runs).
+5. "Write an email to bob@example.com asking to move lunch to Friday" → draft card;
+   *Open in email app* opens your mail app with recipient, subject and text filled in; nothing is sent.
+6. With an Ollama model without tool support (e.g. `llava`) the same questions are answered without tools.

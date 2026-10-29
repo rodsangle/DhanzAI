@@ -45,8 +45,11 @@ auto-deletion of old conversations and temporary chats, an administration screen
 JSON logs and Prometheus metrics, coverage gates, dependency audit, CodeQL, a signed server
 image and a one-command HTTPS deployment with nightly backups ([docs/DEPLOY.md](docs/DEPLOY.md)).
 
-Tools (calendar, reminders, email drafting, calculators), OCR for scanned PDFs and Google/Apple
-sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
+**Assistant tools:** Dhanz can calculate exactly, convert units, tell the time anywhere and do date
+maths, set reminders (with notifications and *Add to calendar*), and draft emails you open and
+send from your own email app — using each AI provider's native function calling.
+
+OCR for scanned PDFs and Google/Apple sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
 of every feature.
 
 ## Quick start

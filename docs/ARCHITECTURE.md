@@ -59,6 +59,8 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `core/observability.py` | Request IDs, JSON logging, Prometheus metrics, request-size limits (pure ASGI middleware, streaming-safe) |
 | `services/maintenance.py` | Hourly clean-up: conversation retention, temporary chats, expired sessions/reset codes, old audit entries |
 | `services/mailer.py` | SMTP for password-reset codes |
+| `services/assistant_tools.py` | Tools Dhanz can call: calculator, units, world time, date maths, reminders, email drafts |
+| `services/reminders.py` | Due-reminder delivery (claimed once across workers) and `.ics` export |
 | `cli.py` | `python -m app.cli promote|demote|set-password|maintenance` |
 | `models/` | `users`, `refresh_tokens`, `conversations`, `messages`, `audit_logs` |
 | `services/auth_service.py` | Token issue, rotation, reuse detection (revokes the whole session family) |
@@ -99,6 +101,7 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `POST /users/me/password` | Change password (other devices are signed out) |
 | `GET /users/me/sessions`, `DELETE /users/me/sessions/{id}`, `POST /users/me/sessions/revoke-others` | Signed-in devices |
 | `GET /admin/stats`, `GET /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/audit` | Administration (role `admin`) |
+| `GET/POST /reminders`, `PATCH/DELETE /reminders/{id}`, `GET /reminders/{id}/calendar.ics` | Reminders and calendar export |
 | `GET /metrics` (no prefix) | Prometheus metrics, only with `METRICS_TOKEN` |
 
 `POST /conversations/{id}/messages` also takes `attachment_ids`; conversations take an optional
@@ -114,9 +117,11 @@ Both SSE and WebSocket emit the same JSON events:
 2. `research` (zero or more) — `stage`: `searching` (`query`), `reading` (`urls`), `done`,
    `sources` (numbered citations), `reading_files` (attachments), `unavailable` (no search provider) or `error`;
    `memory` — something the user asked Dhanz to remember was saved
-3. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
-4. `delta` — `text` (append-only)
-5. `done` — final saved `message` (content, tokens, model, `citations`) **or** `error` — `detail` + saved message
+3. `tool` (zero or more) — `stage: "running"` with `labels` (e.g. "Calculating") while tools run, then
+   `stage: "done"` with `activity` ([{tool, summary, error, action}]; `action` is a reminder or an email draft)
+4. `model` — `provider`, `model` actually used (emitted again if a fallback happens before output)
+5. `delta` — `text` (append-only)
+6. `done` — final saved `message` (content, tokens, model, `citations`, `tool_activity`) **or** `error` — `detail` + saved message
    **or** `stopped` — the reply was stopped; saved partial `message`
 
 The assistant row is created as `streaming` before the model is called and finalised as
@@ -145,6 +150,17 @@ Replies in progress when the server shuts down are saved as `stopped`.
 * `prompts.py` — Dhanz's identity and rules: separate facts from estimates, never fabricate
   sources or claim actions that did not happen, treat external content as untrusted data, state
   plainly when there is no web access; with sources, cite them as `[n]` and flag conflicts.
+
+### Tool calling
+
+`Orchestrator.stream_chat(..., tools, run_tool)` offers tools only to models with
+`Capability.TOOLS`. Each provider adapter translates `ToolSpec`/`ToolCall`/`ToolResult` to its own
+wire format (OpenAI `tool_calls`, Anthropic `tool_use`/`tool_result` blocks, Gemini
+`functionCall`/`functionResponse` with thought signatures echoed back, Ollama `tool_calls`). When the
+model asks for tools, the orchestrator runs them, appends the results and calls the same model
+again, up to 5 rounds, then emits a single `done` chunk with summed token counts. A failing tool
+becomes an error result the model can explain. The backend's `ToolBox` validates every argument
+(the model is untrusted input) and records what happened for the app.
 
 ### Research flow (Phase 2)
 

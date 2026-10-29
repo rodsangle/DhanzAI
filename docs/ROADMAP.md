@@ -60,7 +60,7 @@ features that work.
 | Opt-in long-term memory | ✅ | Off by default; "Remember that …" in chat or manual entries; view, edit, delete, delete all, disable; included in data export |
 | Voice assistant | ✅ | Record → server speech-to-text (OpenAI-compatible, e.g. Whisper) → answer → device text-to-speech; voice picker and speed; automatic end-of-speech detection; hands-free loop; optional "Hey Dhanz" wake phrase |
 | Background / always-on wake word | ⬜ | Deliberately not done: the microphone is only used while the Voice screen is open, as Android and iOS require |
-| Tools (calculator, unit conversion, email drafting, calendar, reminders) | ⬜ | Moved to Phase 3b: needs provider tool-calling and an approval step for any external action |
+| Tools (calculator, unit conversion, email drafting, calendar, reminders) | ✅ | Delivered in the "Assistant tools" milestone below |
 
 ## Phase 4 — Platform distribution
 
@@ -78,7 +78,7 @@ features that work.
 | Store listings (Play, App Store, Microsoft Store) | ⬜ | Needs developer accounts, privacy forms and screenshots |
 | Linux packages | ⬜ | The app runs on Linux (`flutter build linux`) but is not packaged |
 
-## Phase 5 — Production readiness (this milestone)
+## Phase 5 — Production readiness
 
 | Area | Feature | Status | Notes |
 |---|---|---|---|
@@ -102,4 +102,21 @@ features that work.
 | Pipelines | Coverage gates, dependency audit, CodeQL, Dependabot | ✅ | |
 | Pipelines | Signed-provenance container image on GHCR, production compose with automatic HTTPS and nightly backups | ✅ | `deploy/` — see DEPLOY.md |
 | Offline | Offline history cache, on-device models | ⬜ | |
-| Tools | Calculator, unit conversion, calendar, reminders, email drafting | ⬜ | Still open from Phase 3b |
+| Tools | Calculator, unit conversion, calendar, reminders, email drafting | ✅ | See below |
+
+## Assistant tools (this milestone, originally Phase 3b)
+
+Dhanz calls tools through each provider's native function calling (OpenAI and compatible APIs,
+Anthropic, Gemini, and Ollama models that support tools). Models without function calling answer
+as before.
+
+| Tool | Status | Notes |
+|---|---|---|
+| Calculator | ✅ | Exact, safe evaluator (no code execution): arithmetic, powers, roots, logs, trigonometry |
+| Unit conversion | ✅ | Length, mass, volume (incl. cooking), area, speed, time, data, energy, pressure, power, temperature |
+| World time and date arithmetic | ✅ | Any IANA time zone; days/weekdays between dates; adding days, months, years |
+| Reminders | ✅ | "Remind me to … tomorrow at 9" resolved in the user's time zone (the app sends its UTC offset); push notification when due (desktop: system notification while the app runs); Reminders screen |
+| Calendar | 🟡 | Reminders/events export as `.ics` (*Add to calendar*) for any calendar app. No direct Google/Outlook calendar access (would need OAuth sign-in to those services) |
+| Email drafting | ✅ | Draft card with *Open in email app* and *Copy*; Dhanz never sends email — the user reviews and sends it from their own app |
+| Approval for external actions | ✅ | No tool acts outside DHANZ AI; anything leaving the app is a button the user presses |
+| Native tool-calling verified against live provider APIs | 🟡 | Wire formats are tested against recorded examples, not against the live services in this milestone |
