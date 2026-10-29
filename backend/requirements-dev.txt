@@ -2,7 +2,7 @@
 -e ../ai_engine
 -e ../knowledge_engine
 pytest>=8
-pytest-asyncio>=0.23
+pytest-asyncio>=1.4.1
 ruff>=0.5
 pytest-cov>=7.1.0
 fakeredis>=2.23
