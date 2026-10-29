@@ -70,11 +70,13 @@ def test_login_rate_limited(settings, provider):
     assert codes == [401, 401, 401, 429]
 
 
-def test_production_requires_strong_secret():
+def test_production_requires_strong_secret(monkeypatch):
     import pytest
 
+    # CI exports a real JWT_SECRET; this test is about the built-in default.
+    monkeypatch.delenv("JWT_SECRET", raising=False)
     with pytest.raises(ValueError):
-        Settings(app_env="production", database_url="postgresql+asyncpg://u:p@h/db")
+        Settings(_env_file=None, app_env="production", database_url="postgresql+asyncpg://u:p@h/db")
     with pytest.raises(ValueError):
         Settings(app_env="production", jwt_secret="x" * 40, database_url="sqlite+aiosqlite:///x.db")
     Settings(app_env="production", jwt_secret="x" * 40, database_url="postgresql+asyncpg://u:p@h/db")
