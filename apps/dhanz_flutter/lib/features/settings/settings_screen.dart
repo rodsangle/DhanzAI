@@ -5,6 +5,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/config.dart';
+import '../../core/platform/app_version.dart';
+import '../../core/platform/desktop.dart';
+import '../../core/platform/push.dart';
+import '../../core/platform/updates.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
@@ -117,6 +121,10 @@ class SettingsScreen extends ConsumerWidget {
     final user = ref.watch(authControllerProvider).value;
     final themeMode = ref.watch(themeModeProvider);
     final models = ref.watch(modelsProvider);
+    final push = ref.watch(pushControllerProvider);
+    final isDesktop = ref.watch(desktopShellProvider) is! NoDesktopShell;
+    final update = ref.watch(updateControllerProvider);
+    final version = ref.watch(appVersionProvider).value;
     if (user == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     Widget section(String title) => Padding(
@@ -159,6 +167,27 @@ class SettingsScreen extends ConsumerWidget {
                   onSelectionChanged: (s) => ref.read(themeModeProvider.notifier).set(s.first),
                 ),
               ),
+              if (push.supported || isDesktop) section('Notifications & window'),
+              if (push.supported)
+                SwitchListTile(
+                  secondary: const Icon(Icons.notifications_outlined),
+                  title: const Text('Notify me when an answer is ready'),
+                  subtitle: Text(
+                    push.error ??
+                        'Long answers keep generating if you leave the app. The notification never shows '
+                            'your question or the answer.',
+                  ),
+                  value: push.enabled,
+                  onChanged: ref.read(pushControllerProvider.notifier).setEnabled,
+                ),
+              if (isDesktop)
+                SwitchListTile(
+                  secondary: const Icon(Icons.minimize),
+                  title: const Text('Keep running in the system tray'),
+                  subtitle: const Text('Closing the window hides it; you get a notification when an answer is ready.'),
+                  value: ref.watch(minimizeToTrayProvider),
+                  onChanged: ref.read(minimizeToTrayProvider.notifier).set,
+                ),
               section('AI model'),
               models.when(
                 loading: () => const ListTile(title: Text('Loading models…')),
@@ -258,6 +287,24 @@ class SettingsScreen extends ConsumerWidget {
                 leading: const Icon(Icons.dns_outlined),
                 title: const Text('Server'),
                 subtitle: Text(ref.watch(apiClientProvider).baseUrl),
+              ),
+              ListTile(
+                leading: const Icon(Icons.system_update_alt),
+                title: Text(version == null ? 'App version' : 'App version $version'),
+                subtitle: Text(
+                  update.info == null
+                      ? 'Checks for updates when the app starts'
+                      : update.info!.updateAvailable
+                      ? 'Version ${update.info!.latestVersion} is available'
+                      : 'You have the latest version',
+                ),
+                trailing: update.info?.updateAvailable ?? false
+                    ? FilledButton(
+                        onPressed: ref.read(updateControllerProvider.notifier).install,
+                        child: const Text('Update'),
+                      )
+                    : null,
+                onTap: ref.read(updateControllerProvider.notifier).check,
               ),
               ListTile(
                 leading: const Icon(Icons.logout),

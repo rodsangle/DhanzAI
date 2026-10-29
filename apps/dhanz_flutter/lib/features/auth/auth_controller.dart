@@ -48,6 +48,17 @@ class AuthController extends AsyncNotifier<User?> {
   void updateUser(User user) => state = AsyncData(user);
 
   Future<void> logout() async {
+    // Stop "answer ready" notifications to this phone for the account being signed out.
+    final store = ref.read(secureStoreProvider);
+    final pushToken = await store.read(StoreKeys.pushToken);
+    if (pushToken != null) {
+      try {
+        await _api.unregisterDevice(pushToken);
+      } on ApiException {
+        // signing out must still work offline
+      }
+      await store.write(StoreKeys.pushToken, null);
+    }
     await _api.logout();
     state = const AsyncData(null);
   }

@@ -22,6 +22,18 @@ class FakeBackend {
   String transcript = 'Hey Dhanz, what is the capital of France?';
   final chatBodies = <Map<String, dynamic>>[];
 
+  /// Simulates the connection dropping right after the reply started: the reply stays "streaming"
+  /// on the server until the test finishes it.
+  bool dropAfterMeta = false;
+  bool pushNotifications = false;
+  final devices = <String, Map<String, dynamic>>{};
+  Map<String, dynamic> updateInfo = {
+    'platform': 'windows',
+    'current_version': '0.0.0',
+    'latest_version': null,
+    'update_available': false,
+  };
+
   static const source = {
     'n': 1,
     'title': '2nm chips arrive',
@@ -88,6 +100,7 @@ class FakeBackend {
       return json(_tokensFor(_user));
     }
     if (path == '/auth/logout') return json(null, 204);
+    if (path == '/app/updates') return json({...updateInfo, 'current_version': req.url.queryParameters['version']});
 
     if (req.headers['Authorization'] != 'Bearer $validAccess') {
       return json({'detail': 'Not authenticated'}, 401);
@@ -160,7 +173,13 @@ class FakeBackend {
           },
         ],
         'default_policy': 'balanced',
-        'features': {'web_search': true, 'semantic_search': false, 'speech_to_text': true, 'vision': true},
+        'features': {
+          'web_search': true,
+          'semantic_search': false,
+          'speech_to_text': true,
+          'vision': true,
+          'push_notifications': pushNotifications,
+        },
         'greeting': "Hello! I'm Dhanz, your personal AI assistant. How can I help you today?",
       });
     }
@@ -174,10 +193,28 @@ class FakeBackend {
       final items = conversations.values.map((c) => {...c}..remove('messages')).toList();
       return json({'items': items, 'total': items.length});
     }
-    final match = RegExp(r'^/conversations/([^/]+)(/messages|/regenerate)?$').firstMatch(path);
+    if (path == '/devices') {
+      devices[body['token'] as String] = body;
+      return json(null, 204);
+    }
+    if (path == '/devices/unregister') {
+      devices.remove(body['token']);
+      return json(null, 204);
+    }
+    final match = RegExp(r'^/conversations/([^/]+)(/messages|/regenerate|/stop)?$').firstMatch(path);
     if (match != null) {
       final c = conversations[match.group(1)];
       if (c == null) return json({'detail': 'Conversation not found'}, 404);
+      if (match.group(2) == '/stop') {
+        final running = (c['messages'] as List<Object>).cast<Map<String, dynamic>>().where(
+          (m) => m['status'] == 'streaming',
+        );
+        final id = running.isEmpty ? null : running.last['id'];
+        for (final m in running) {
+          m['status'] = 'stopped';
+        }
+        return json({'stopping': id}, 202);
+      }
       if (match.group(2) == '/messages') {
         chatBodies.add(body);
         return _stream(
@@ -232,6 +269,19 @@ class FakeBackend {
     };
   }
 
+  /// The server finished the reply that [dropAfterMeta] left running.
+  void finishRunningReplies() {
+    for (final c in conversations.values) {
+      for (final m in (c['messages'] as List<Object>).cast<Map<String, dynamic>>()) {
+        if (m['status'] == 'streaming') {
+          m
+            ..['status'] = 'complete'
+            ..['content'] = reply;
+        }
+      }
+    }
+  }
+
   Map<String, dynamic> _message(String role, String content, {String? model}) => {
     'id': _id(),
     'role': role,
@@ -266,6 +316,22 @@ class FakeBackend {
     final assistant = _message('assistant', reply, model: 'echo-1');
     if (research) assistant['citations'] = [source];
     (conv['messages'] as List<Object>).addAll([user, assistant]);
+    if (dropAfterMeta) {
+      assistant
+        ..['status'] = 'streaming'
+        ..['content'] = '';
+      final controller = StreamController<List<int>>();
+      controller.add(
+        utf8.encode(
+          'event: meta\ndata: ${jsonEncode({'type': 'meta', 'conversation_id': conv['id'], 'assistant_message_id': assistant['id'], 'user_message': user})}\n\n',
+        ),
+      );
+      Timer.run(() {
+        controller.addError(http.ClientException('Connection closed'));
+        unawaited(controller.close());
+      });
+      return http.StreamedResponse(controller.stream, 200, headers: {'content-type': 'text/event-stream'});
+    }
     conv['title'] = content;
     String ev(String type, Map<String, dynamic> data) =>
         'event: $type\ndata: ${jsonEncode({'type': type, ...data})}\n\n';

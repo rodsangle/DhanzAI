@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/platform/desktop.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../auth/auth_controller.dart';
@@ -95,8 +96,13 @@ class ChatState {
 
 /// State of the open chat: loads history, sends messages and applies streamed deltas.
 class ChatController extends Notifier<ChatState> {
+  /// How often to check on a reply that is generating on the server without a live stream
+  /// (after the app was backgrounded, the connection dropped, or a stop was requested).
+  static Duration pollInterval = const Duration(seconds: 2);
+
   ChatStream? _active;
   StreamSubscription<ChatEvent>? _sub;
+  Timer? _poll;
   int _loadToken = 0;
 
   ApiClient get _api => ref.read(apiClientProvider);
@@ -123,10 +129,40 @@ class ChatController extends Notifier<ChatState> {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
       state = state.copyWith(title: detail.summary.title, messages: detail.messages, loading: false);
+      _followIfGenerating();
     } on ApiException catch (e) {
       if (token != _loadToken) return;
       state = state.copyWith(loading: false, error: () => e.message);
     }
+  }
+
+  /// Reloads the open conversation, e.g. when the app returns to the foreground or a push
+  /// notification says a reply is ready.
+  Future<void> refresh() async {
+    if (_active != null) return; // the live stream is already up to date
+    await _reload();
+    _followIfGenerating();
+  }
+
+  bool get _generatingOnServer =>
+      state.messages.isNotEmpty && !state.messages.last.isUser && state.messages.last.status == MessageStatus.streaming;
+
+  /// The reply keeps generating on the server without a live stream: check on it until it ends.
+  void _followIfGenerating() {
+    _poll?.cancel();
+    _poll = null;
+    if (!_generatingOnServer) return;
+    state = state.copyWith(streaming: true);
+    final id = state.conversationId;
+    _poll = Timer.periodic(pollInterval, (_) async {
+      if (id != state.conversationId || _active != null) return;
+      await _reload();
+      if (!_generatingOnServer && id == state.conversationId) {
+        _poll?.cancel();
+        _poll = null;
+        state = state.copyWith(streaming: false, researchStatus: () => null);
+      }
+    });
   }
 
   void selectModel(String? key) => state = state.copyWith(modelKey: () => key);
@@ -248,7 +284,8 @@ class ChatController extends Notifier<ChatState> {
   }
 
   /// Stops generation. The server keeps the partial reply with status "stopped".
-  void stop() {
+  Future<void> stop() async {
+    final id = state.conversationId;
     _stopLocal();
     state = state.copyWith(
       streaming: false,
@@ -258,9 +295,23 @@ class ChatController extends Notifier<ChatState> {
           m.status == MessageStatus.streaming ? m.copyWith(status: MessageStatus.stopped) : m,
       ],
     );
+    if (id == null) return;
+    try {
+      await _api.stopReply(id);
+    } on ApiException catch (e) {
+      state = state.copyWith(error: () => 'Could not stop the reply: ${e.message}');
+    }
+    // Pick up the saved partial text (it can take the server a moment to wind down).
+    if (id == state.conversationId) {
+      await _reload();
+      _followIfGenerating();
+    }
   }
 
+  /// Stops listening locally (the reply itself carries on generating on the server).
   void _stopLocal() {
+    _poll?.cancel();
+    _poll = null;
     unawaited(_sub?.cancel());
     _sub = null;
     _active?.cancel();
@@ -286,13 +337,21 @@ class ChatController extends Notifier<ChatState> {
     _sub = stream.events.listen(
       _apply,
       onError: (Object e) {
-        state = state.copyWith(streaming: false, error: () => 'Connection lost while streaming the reply.');
+        // The reply keeps generating on the server; follow it by polling instead.
+        _active?.cancel();
+        _active = null;
+        state = state.copyWith(notice: () => 'Connection lost. Dhanz is still writing; the answer will appear here.');
+        _followIfGenerating();
+        if (!_generatingOnServer) state = state.copyWith(streaming: false);
         if (!done.isCompleted) done.complete();
       },
       onDone: () {
         _active?.cancel();
         _active = null;
-        if (state.streaming) state = state.copyWith(streaming: false);
+        if (state.streaming) {
+          state = state.copyWith(streaming: false);
+          _followIfGenerating(); // the stream ended without a final event
+        }
         if (!done.isCompleted) done.complete();
       },
       cancelOnError: true,
@@ -344,7 +403,7 @@ class ChatController extends Notifier<ChatState> {
       case 'delta':
         if (state.researchStatus != null) state = state.copyWith(researchStatus: () => null);
         _updateLast((m) => m.copyWith(content: m.content + (d['text'] as String)));
-      case 'done' || 'error':
+      case 'done' || 'error' || 'stopped':
         state = state.copyWith(researchStatus: () => null);
         final msg = d['message'];
         if (msg is Map<String, dynamic>) {
@@ -355,6 +414,14 @@ class ChatController extends Notifier<ChatState> {
           streaming: false,
           error: () => event.type == 'error' ? (d['detail'] as String? ?? 'Something went wrong.') : null,
         );
+        final id = state.conversationId;
+        if (event.type == 'done' && id != null) {
+          unawaited(
+            ref
+                .read(desktopShellProvider)
+                .notifyReplyReady(conversationId: id, title: state.title ?? 'New conversation'),
+          );
+        }
     }
   }
 

@@ -1,20 +1,99 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 
 import 'core/config.dart';
+import 'core/platform/desktop.dart';
+import 'core/platform/push.dart';
+import 'core/platform/updates.dart';
 import 'core/providers.dart';
+import 'core/storage/secure_store.dart';
 import 'core/theme.dart';
+import 'features/chat/chat_controller.dart';
 import 'router.dart';
 
-void main() {
-  runApp(const ProviderScope(child: DhanzApp()));
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final store = FlutterSecureStore();
+  final overrides = <Override>[secureStoreProvider.overrideWithValue(store)];
+  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
+    final platform = defaultTargetPlatform == TargetPlatform.android ? 'android' : 'ios';
+    overrides.add(pushBridgeProvider.overrideWithValue(MethodChannelPushBridge(platform)));
+  }
+  final desktop = await createDesktopShell(minimizeToTray: await store.read(StoreKeys.minimizeToTray) == 'true');
+  if (desktop != null) overrides.add(desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)));
+  runApp(ProviderScope(overrides: overrides, child: const DhanzApp()));
 }
 
-class DhanzApp extends ConsumerWidget {
+/// Remembers the minimize-to-tray choice across restarts.
+class _PersistedTray implements DesktopShell {
+  _PersistedTray(this._shell, this._store);
+
+  final DesktopShell _shell;
+  final SecureStore _store;
+
+  @override
+  bool get minimizeToTray => _shell.minimizeToTray;
+
+  @override
+  Future<void> setMinimizeToTray(bool value) async {
+    await _shell.setMinimizeToTray(value);
+    await _store.write(StoreKeys.minimizeToTray, '$value');
+  }
+
+  @override
+  Future<void> notifyReplyReady({required String conversationId, required String title}) =>
+      _shell.notifyReplyReady(conversationId: conversationId, title: title);
+
+  @override
+  Stream<String> get openedConversations => _shell.openedConversations;
+}
+
+class DhanzApp extends ConsumerStatefulWidget {
   const DhanzApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DhanzApp> createState() => _DhanzAppState();
+}
+
+class _DhanzAppState extends ConsumerState<DhanzApp> {
+  final _subs = <StreamSubscription<String>>[];
+  late final AppLifecycleListener _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // Notification taps (phone push or desktop notification) open the finished conversation.
+    _subs.add(ref.read(desktopShellProvider).openedConversations.listen(_openConversation));
+    final push = ref.read(pushBridgeProvider);
+    if (push != null) {
+      _subs.add(push.openedConversations.listen(_openConversation));
+      unawaited(push.initialConversation().then((id) => id == null ? null : _openConversation(id)));
+    }
+    // Back from the background: pick up replies that finished while the app was suspended.
+    _lifecycle = AppLifecycleListener(onResume: () => unawaited(ref.read(chatControllerProvider.notifier).refresh()));
+  }
+
+  void _openConversation(String id) {
+    ref.read(routerProvider).go('/chat/$id');
+    unawaited(ref.read(chatControllerProvider.notifier).refresh());
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      unawaited(s.cancel());
+    }
+    _lifecycle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(pushControllerProvider, (_, _) {}); // keeps push registration alive while signed in
     return MaterialApp.router(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
@@ -22,6 +101,7 @@ class DhanzApp extends ConsumerWidget {
       darkTheme: dhanzDarkTheme,
       themeMode: ref.watch(themeModeProvider),
       routerConfig: ref.watch(routerProvider),
+      builder: (context, child) => UpdateBanner(child: child ?? const SizedBox.shrink()),
     );
   }
 }

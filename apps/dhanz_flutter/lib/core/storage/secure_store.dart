@@ -50,4 +50,7 @@ abstract final class StoreKeys {
   static const refreshToken = 'refresh_token';
   static const apiUrl = 'api_url';
   static const themeMode = 'theme_mode';
+  static const pushEnabled = 'push_enabled';
+  static const pushToken = 'push_token';
+  static const minimizeToTray = 'minimize_to_tray';
 }

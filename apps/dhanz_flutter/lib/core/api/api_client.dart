@@ -383,9 +383,26 @@ class ApiClient {
     return (jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>)['text'] as String;
   }
 
+  // ---- devices & updates ---------------------------------------------------
+
+  /// Registers this phone for "your answer is ready" notifications. [platform] is android or ios.
+  Future<void> registerDevice(String platform, String token, {String? appVersion}) =>
+      _json('POST', '/devices', body: {'platform': platform, 'token': token, 'app_version': ?appVersion});
+
+  Future<void> unregisterDevice(String token) => _json('POST', '/devices/unregister', body: {'token': token});
+
+  Future<UpdateInfo> checkForUpdate(String platform, String version) async => UpdateInfo.fromJson(
+    await _json('GET', '/app/updates', query: {'platform': platform, 'version': version}, auth: false)
+        as Map<String, dynamic>,
+  );
+
   // ---- streaming chat ----------------------------------------------------
 
-  /// Opens a streaming chat request. Cancel the returned [ChatStream] to stop generation.
+  /// Stops the reply being generated in [conversationId]. The partial text is kept as "stopped".
+  Future<void> stopReply(String conversationId) => _json('POST', '/conversations/$conversationId/stop');
+
+  /// Opens a streaming chat request. The reply keeps generating on the server if the connection
+  /// drops (use [stopReply] to stop it); cancelling the [ChatStream] only stops listening.
   Future<ChatStream> streamChat(
     String conversationId, {
     String? content,
@@ -419,8 +436,7 @@ class ApiClient {
       }
     }
 
-    // A dedicated client per stream: closing it aborts the connection, which the
-    // server records as a stopped reply.
+    // A dedicated client per stream, so it can be closed without affecting other requests.
     var client = _clientFactory();
     var res = await open(client);
     if (res.statusCode == 401 && await _refresh()) {

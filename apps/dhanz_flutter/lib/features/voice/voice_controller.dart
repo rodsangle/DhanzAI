@@ -318,7 +318,7 @@ class VoiceController extends Notifier<VoiceState> {
     _session++;
     _stopTimers();
     if (state.phase == VoicePhase.listening) await _recorder.cancel();
-    if (state.phase == VoicePhase.thinking) ref.read(chatControllerProvider.notifier).stop();
+    if (state.phase == VoicePhase.thinking) unawaited(ref.read(chatControllerProvider.notifier).stop());
     if (state.phase == VoicePhase.speaking) await _speaker.stop();
     state = state.copyWith(phase: VoicePhase.idle, handsFree: false, status: () => null, level: -160);
   }

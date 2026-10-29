@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -26,6 +29,15 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
+  bool _dragging = false;
+
+  /// Files dropped onto the chat (desktop) are attached to the next message.
+  Future<void> _dropped(DropDoneDetails details) async {
+    setState(() => _dragging = false);
+    final chat = ref.read(chatControllerProvider.notifier);
+    await Future.wait([for (final f in details.files) f.readAsBytes().then((b) => chat.attachFile(f.name, b))]);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -82,7 +94,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     });
 
-    final body = Column(
+    final column = Column(
       children: [
         Expanded(
           child: _MessageList(state: chat, onEdit: _edit, onSuggestion: _send),
@@ -109,6 +121,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
         ),
       ],
+    );
+    final body = DropTarget(
+      enable: !chat.streaming,
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: (d) => unawaited(_dropped(d)),
+      child: Stack(
+        children: [
+          column,
+          if (_dragging)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.file_upload_outlined, size: 48, color: Theme.of(context).colorScheme.secondary),
+                        const SizedBox(height: 8),
+                        const Text('Drop files to attach them'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
 
     // The list holds the server's latest title (auto-titled after the first message, or renamed).

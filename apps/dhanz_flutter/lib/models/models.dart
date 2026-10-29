@@ -151,7 +151,10 @@ class ChatMessage {
     id: j['id'] as String,
     role: j['role'] as String,
     content: j['content'] as String,
-    status: MessageStatus.values.asNameMap()[j['status']] ?? MessageStatus.complete,
+    // "stopping": a stop was requested and the server is still winding the reply down.
+    status: j['status'] == 'stopping'
+        ? MessageStatus.streaming
+        : MessageStatus.values.asNameMap()[j['status']] ?? MessageStatus.complete,
     provider: j['provider'] as String?,
     model: j['model'] as String?,
     error: j['error'] as String?,
@@ -247,6 +250,7 @@ class Features {
     this.speechToText = false,
     this.malwareScanning = false,
     this.vision = false,
+    this.pushNotifications = false,
     this.maxUploadMb = 20,
   });
 
@@ -256,6 +260,7 @@ class Features {
     speechToText: j?['speech_to_text'] as bool? ?? false,
     malwareScanning: j?['malware_scanning'] as bool? ?? false,
     vision: j?['vision'] as bool? ?? false,
+    pushNotifications: j?['push_notifications'] as bool? ?? false,
     maxUploadMb: j?['max_upload_mb'] as int? ?? 20,
   );
 
@@ -264,7 +269,39 @@ class Features {
   final bool speechToText;
   final bool malwareScanning;
   final bool vision;
+  final bool pushNotifications;
   final int maxUploadMb;
+}
+
+/// Result of `GET /app/updates`.
+class UpdateInfo {
+  const UpdateInfo({
+    required this.currentVersion,
+    required this.updateAvailable,
+    this.latestVersion,
+    this.mandatory = false,
+    this.url,
+    this.sha256,
+    this.notes,
+  });
+
+  factory UpdateInfo.fromJson(Map<String, dynamic> j) => UpdateInfo(
+    currentVersion: j['current_version'] as String,
+    latestVersion: j['latest_version'] as String?,
+    updateAvailable: j['update_available'] as bool? ?? false,
+    mandatory: j['mandatory'] as bool? ?? false,
+    url: j['url'] as String?,
+    sha256: j['sha256'] as String?,
+    notes: j['notes'] as String?,
+  );
+
+  final String currentVersion;
+  final String? latestVersion;
+  final bool updateAvailable;
+  final bool mandatory;
+  final String? url;
+  final String? sha256;
+  final String? notes;
 }
 
 class KnowledgeDocument {
