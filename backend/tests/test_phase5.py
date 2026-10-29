@@ -70,7 +70,10 @@ def db_run(settings, fn):
 def test_first_account_is_admin_and_registration_can_be_closed(settings, knowledge):
     settings.allow_registration = False
     with make_client(settings, knowledge) as client:
-        assert client.get("/api/v1/auth/options").json() == {"registration_open": True, "password_reset": False}
+        options = client.get("/api/v1/auth/options").json()
+        assert options["registration_open"] is True
+        assert options["password_reset"] is False
+        assert options["google_client_id"] is None and options["apple_sign_in"] is False
         admin = register(client, "owner@example.com")
         assert admin["user"]["role"] == "admin"
         assert client.get("/api/v1/auth/options").json()["registration_open"] is False
@@ -175,6 +178,9 @@ def test_password_reset_by_email_code(settings, knowledge):
     with make_client(settings, knowledge, mailer=mailer) as client:
         assert client.get("/api/v1/auth/options").json()["password_reset"] is True
         old = register(client, "ada@example.com")
+        client.get("/api/v1/health")  # let the background send of the verification email run
+        assert [m[1] for m in mailer.sent] == ["Confirm your email for DHANZ AI"]
+        mailer.sent.clear()
         request = "/api/v1/auth/password-reset/request"
         confirm = "/api/v1/auth/password-reset/confirm"
 

@@ -58,7 +58,9 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `core/rate_limit.py` | Sliding-window limits (auth per IP, chat/uploads per user, login lockout per account), shared through Redis when `REDIS_URL` is set |
 | `core/observability.py` | Request IDs, JSON logging, Prometheus metrics, request-size limits (pure ASGI middleware, streaming-safe) |
 | `services/maintenance.py` | Hourly clean-up: conversation retention, temporary chats, expired sessions/reset codes, old audit entries |
-| `services/mailer.py` | SMTP for password-reset codes |
+| `services/mailer.py` | SMTP for password-reset and email-verification codes |
+| `services/accounts.py`, `core/mfa.py` | Email codes, TOTP two-step verification (encrypted secrets, recovery codes), finishing a sign-in |
+| `services/oauth.py` | Verifies Google / Apple ID tokens against the providers' published keys |
 | `services/assistant_tools.py` | Tools Dhanz can call: calculator, units, world time, date maths, reminders, email drafts |
 | `services/reminders.py` | Due-reminder delivery (claimed once across workers) and `.ics` export |
 | `cli.py` | `python -m app.cli promote|demote|set-password|maintenance` |
@@ -78,7 +80,12 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | Method & path | Purpose |
 |---|---|
 | `GET /health`, `GET /health/ready` | Liveness; readiness (DB + at least one provider) |
-| `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` | Email/password auth with rotating refresh tokens |
+| `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` | Email/password auth with rotating refresh tokens. With two-step verification, login returns `{"mfa_required": true, "mfa_token"}` instead of tokens |
+| `POST /auth/mfa/verify` | Second sign-in step: authenticator or recovery code + `mfa_token` → tokens |
+| `POST /auth/oauth/{google,apple}` | Sign in or sign up with a provider ID token (`id_token`, optional `nonce`, `display_name`) |
+| `POST /users/me/email-verification`, `…/confirm` | Email a 6-digit code; confirm it |
+| `POST /users/me/mfa/setup`, `/enable`, `/disable`, `/recovery-codes` | Two-step verification management |
+| `GET /users/me/identities`, `DELETE /users/me/identities/{provider}` | Linked Google / Apple accounts |
 | `GET/PATCH/DELETE /users/me`, `GET /users/me/export` | Profile, model preferences, account deletion, data export |
 | `GET /models` | Models currently configured on the server, plus Dhanz's greeting |
 | `GET/POST /conversations`, `GET/PATCH/DELETE /conversations/{id}` | History, search (`?q=`), rename, pin, delete |
@@ -96,7 +103,7 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `WS /ws/chat` | Same chat protocol over WebSocket (auth frame first) |
 | `POST /devices`, `POST /devices/unregister` | Register / remove this phone's push token |
 | `GET /app/updates?platform=&version=` | Is a newer app version available (from the release `latest.json`)? No auth needed |
-| `GET /auth/options` | Is registration open, is password reset available (no auth) |
+| `GET /auth/options` | Registration open, password reset, email verification (required?), Google client ID, Apple sign-in (no auth) |
 | `POST /auth/password-reset/request`, `/auth/password-reset/confirm` | Email a one-time code; set a new password with it |
 | `POST /users/me/password` | Change password (other devices are signed out) |
 | `GET /users/me/sessions`, `DELETE /users/me/sessions/{id}`, `POST /users/me/sessions/revoke-others` | Signed-in devices |

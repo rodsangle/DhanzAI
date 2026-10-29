@@ -71,6 +71,60 @@ class PasswordResetConfirm(BaseModel):
 class AuthOptions(BaseModel):
     registration_open: bool
     password_reset: bool
+    # Codes are emailed to confirm new addresses; when required, chats stay locked until confirmed.
+    email_verification: bool = False
+    email_verification_required: bool = False
+    # The OAuth client ID apps request Google ID tokens for (Android "serverClientId"), or null.
+    google_client_id: str | None = None
+    apple_sign_in: bool = False
+
+
+class MfaChallenge(BaseModel):
+    """Returned instead of tokens when the account has two-factor authentication."""
+
+    mfa_required: Literal[True] = True
+    mfa_token: str
+    expires_in: int
+
+
+class MfaVerifyRequest(BaseModel):
+    mfa_token: str = Field(min_length=20, max_length=2000)
+    code: str = Field(min_length=6, max_length=20, description="Authenticator code or a recovery code")
+
+
+class OAuthSignInRequest(BaseModel):
+    id_token: str = Field(min_length=20, max_length=8192)
+    nonce: str | None = Field(default=None, max_length=200)
+    # Apple shares the user's name only with the app, on the very first sign-in.
+    display_name: str | None = Field(default=None, max_length=100)
+
+
+class EmailCodeConfirm(BaseModel):
+    code: str = Field(min_length=6, max_length=12)
+
+
+class MfaSetupRequest(BaseModel):
+    password: str | None = Field(default=None, max_length=128, description="Required when the account has one")
+
+
+class MfaSetupOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=20)
+
+
+class RecoveryCodesOut(BaseModel):
+    recovery_codes: list[str]
+
+
+class IdentityOut(ORM):
+    provider: str
+    email: str | None
+    created_at: datetime
+    last_used_at: datetime
 
 
 class SessionOut(BaseModel):
@@ -101,6 +155,9 @@ class UserOut(ORM):
     auto_index_web: bool
     memory_enabled: bool
     retention_days: int | None = None
+    email_verified: bool = True
+    mfa_enabled: bool = False
+    has_password: bool = True
     created_at: datetime
 
 
@@ -124,7 +181,10 @@ class UserUpdate(BaseModel):
 
 
 class DeleteAccountRequest(BaseModel):
-    password: str = Field(min_length=1, max_length=128)
+    # Accounts that sign in with Google/Apple only have no password: they retype their email instead.
+    password: str | None = Field(default=None, min_length=1, max_length=128)
+    confirm_email: str | None = Field(default=None, max_length=320)
+    mfa_code: str | None = Field(default=None, max_length=20)
 
 
 # --- models ---------------------------------------------------------------

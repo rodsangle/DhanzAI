@@ -49,8 +49,13 @@ image and a one-command HTTPS deployment with nightly backups ([docs/DEPLOY.md](
 maths, set reminders (with notifications and *Add to calendar*), and draft emails you open and
 send from your own email app — using each AI provider's native function calling.
 
-OCR for scanned PDFs and Google/Apple sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
-of every feature.
+**Public accounts:** email verification by code, two-step verification with any authenticator app
+(QR code, recovery codes), and *Continue with Google* (Android, iOS) / *Sign in with Apple* (iOS),
+all verified on the server. Next: Free / Plus / Pro subscriptions with Stripe and in-app purchases,
+usage limits and cost tracking, then the web administrator dashboard.
+
+OCR for scanned PDFs, subscriptions and the web dashboard are **not implemented yet** — see
+[docs/ROADMAP.md](docs/ROADMAP.md) for the exact status of every feature.
 
 ## Quick start
 

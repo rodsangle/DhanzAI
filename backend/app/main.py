@@ -5,12 +5,13 @@ import contextlib
 import hmac
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from prometheus_client import CONTENT_TYPE_LATEST
 
+from app.api.deps import require_verified_email
 from app.api.routes import (
     admin,
     auth,
@@ -40,6 +41,7 @@ from app.services.files_service import build_files_runtime
 from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
 from app.services.mailer import Mailer, build_mailer
 from app.services.maintenance import maintenance_loop
+from app.services.oauth import IdTokenVerifier
 from app.services.push import Notification, PushService, build_push
 from app.services.reminders import reminder_loop
 from app.services.stt import SpeechToText, build_stt
@@ -86,6 +88,7 @@ def create_app(
     push: PushService | None = None,
     mailer: Mailer | None = None,
     redis=None,
+    id_tokens: IdTokenVerifier | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, settings.log_format)
@@ -104,6 +107,7 @@ def create_app(
         app.state.push = push if push is not None else build_push(settings)
         app.state.turns = TurnManager(on_unattended_finish=_notify_finished(app))
         app.state.mailer = mailer if mailer is not None else build_mailer(settings)
+        app.state.id_tokens = id_tokens if id_tokens is not None else IdTokenVerifier(settings)
         redis_client = redis
         if redis_client is None and settings.redis_url:
             from redis.asyncio import Redis
@@ -135,11 +139,13 @@ def create_app(
         if app.state.stt is not None:
             await app.state.stt.aclose()
         await app.state.push.aclose()
+        if id_tokens is None:
+            await app.state.id_tokens.aclose()
         await engine.dispose()
 
     app = FastAPI(
         title="DHANZ AI API",
-        version="0.6.0",
+        version="0.7.0",
         description="Backend for the DHANZ AI assistant. Your World. Your Knowledge. Your AI.",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
@@ -192,6 +198,16 @@ def create_app(
             return Response(status_code=404)
         return Response(render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
+    # Routes that create or read the user's content: locked for unconfirmed emails when required.
+    content_routers = [
+        conversations.router,
+        knowledge_routes.router,
+        files.router,
+        projects.router,
+        memories.router,
+        voice.router,
+        reminders.router,
+    ]
     for router in (
         meta.router,
         auth.router,
@@ -208,7 +224,12 @@ def create_app(
         realtime.router,
         admin.router,
     ):
-        app.include_router(router, prefix=settings.api_prefix)
+        gated = any(router is r for r in content_routers)
+        app.include_router(
+            router,
+            prefix=settings.api_prefix,
+            dependencies=[Depends(require_verified_email)] if gated else None,
+        )
     return app
 
 

@@ -68,6 +68,26 @@ class InvalidTokenError(Exception):
     pass
 
 
+def create_mfa_token(settings: Settings, user_id: uuid.UUID, method: str) -> tuple[str, int]:
+    """Proof that the first sign-in factor (password, Google, Apple) succeeded; useless on its own."""
+    now = datetime.now(UTC)
+    ttl = timedelta(minutes=settings.mfa_challenge_minutes)
+    payload = {"sub": str(user_id), "type": "mfa", "amr": method, "iat": now, "exp": now + ttl}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm), int(ttl.total_seconds())
+
+
+def decode_mfa_token(settings: Settings, token: str) -> tuple[uuid.UUID, str]:
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm], options={"require": ["sub", "exp", "type"]}
+        )
+        if payload.get("type") != "mfa":
+            raise InvalidTokenError("wrong token type")
+        return uuid.UUID(payload["sub"]), str(payload.get("amr", "pwd"))
+    except (jwt.PyJWTError, ValueError) as exc:
+        raise InvalidTokenError(str(exc)) from exc
+
+
 @dataclass(frozen=True)
 class AccessClaims:
     user_id: uuid.UUID
@@ -106,6 +126,11 @@ def new_reset_code() -> str:
     """Password-reset code typed by the user: 10 characters, ~50 bits, unambiguous alphabet."""
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
     return "".join(secrets.choice(alphabet) for _ in range(10))
+
+
+def new_numeric_code(digits: int = 6) -> str:
+    """Short code typed from an email (email verification)."""
+    return "".join(secrets.choice("0123456789") for _ in range(digits))
 
 
 def normalize_reset_code(code: str) -> str:

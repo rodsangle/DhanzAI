@@ -68,11 +68,28 @@ class FakeBackend {
     'origin': 'web',
   };
 
+  // ---- public accounts: email codes, two-step verification, Google/Apple -------------------------
+  Map<String, dynamic> authOptions = {'registration_open': true, 'password_reset': true};
+  static const emailCode = '482913';
+  static const mfaCode = '123456';
+  static const recoveryCode = 'AAAA-BBBB-CCCC';
+  static const googleToken = 'google-id-token-abc';
+  final oauthBodies = <Map<String, dynamic>>[];
+  final identities = <Map<String, dynamic>>[];
+  Map<String, dynamic>? deleteBody;
+
   String _id() => 'id-${_ids++}';
 
-  Map<String, dynamic> get _user => users.values.first;
+  Map<String, dynamic>? _current;
+
+  Map<String, dynamic> get _user => _current ?? users.values.first;
+
+  Map<String, dynamic> _signIn(Map<String, dynamic> user) => user['mfa_enabled'] == true
+      ? {'mfa_required': true, 'mfa_token': 'mfa-${user['email']}', 'expires_in': 300}
+      : _tokensFor(user);
 
   Map<String, dynamic> _tokensFor(Map<String, dynamic> user) {
+    _current = user;
     validAccess = 'access-${_tokens++}';
     validRefresh = 'refresh-${_tokens++}';
     return {
@@ -120,7 +137,46 @@ class FakeBackend {
       if (user == null || passwords[user['email']] != body['password']) {
         return json({'detail': 'Invalid email or password'}, 401);
       }
+      return json(_signIn(user));
+    }
+    if (path == '/auth/options') return json(authOptions);
+    if (path == '/auth/mfa/verify') {
+      final email = (body['mfa_token'] as String).replaceFirst('mfa-', '');
+      final user = users[email];
+      final code = (body['code'] as String).toUpperCase();
+      if (user == null || (code != mfaCode && code != recoveryCode)) {
+        return json({'detail': 'That code is not correct. Check the time on your phone.'}, 401);
+      }
       return json(_tokensFor(user));
+    }
+    if (path.startsWith('/auth/oauth/')) {
+      oauthBodies.add(body);
+      final provider = path.split('/').last;
+      if (body['id_token'] != googleToken) return json({'detail': 'The sign-in token is not valid.'}, 401);
+      final user = users.putIfAbsent(
+        'ada@gmail.com',
+        () => {
+          'id': _id(),
+          'email': 'ada@gmail.com',
+          'display_name': body['display_name'] ?? 'Ada Lovelace',
+          'role': users.isEmpty ? 'admin' : 'user',
+          'routing_policy': 'balanced',
+          'preferred_model': null,
+          'email_verified': true,
+          'has_password': false,
+          'mfa_enabled': false,
+          'created_at': DateTime.now().toUtc().toIso8601String(),
+        },
+      );
+      if (!identities.any((i) => i['provider'] == provider)) {
+        identities.add({
+          'provider': provider,
+          'email': 'ada@gmail.com',
+          'created_at': '2026-10-29T10:00:00Z',
+          'last_used_at': '2026-10-29T10:00:00Z',
+        });
+      }
+      return json(_signIn(user));
     }
     if (path == '/auth/refresh') {
       if (body['refresh_token'] != validRefresh) return json({'detail': 'Session expired'}, 401);
@@ -198,6 +254,49 @@ class FakeBackend {
       return json(null, 204);
     }
     if (path == '/users/me/sessions') return json(sessions);
+    if (path == '/users/me/email-verification') return json({'detail': 'We sent a code.'}, 202);
+    if (path == '/users/me/email-verification/confirm') {
+      if (body['code'] != emailCode) {
+        return json({'detail': 'The code is invalid or has expired. Request a new one.'}, 400);
+      }
+      _user['email_verified'] = true;
+      return json(_user);
+    }
+    if (path == '/users/me/mfa/setup') {
+      if (_user['has_password'] != false && passwords[_user['email']] != body['password']) {
+        return json({'detail': 'Password is incorrect'}, 403);
+      }
+      return json({
+        'secret': 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+        'otpauth_uri': 'otpauth://totp/DHANZ%20AI%3Aada?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=DHANZ%20AI',
+      });
+    }
+    if (path == '/users/me/mfa/enable') {
+      if (body['code'] != mfaCode) return json({'detail': 'That code is not correct.'}, 400);
+      _user['mfa_enabled'] = true;
+      return json({
+        'recovery_codes': [recoveryCode, 'DDDD-EEEE-FFFF'],
+      });
+    }
+    if (path == '/users/me/mfa/disable') {
+      if (body['code'] != mfaCode) return json({'detail': 'That code is not correct'}, 403);
+      _user['mfa_enabled'] = false;
+      return json(_user);
+    }
+    if (path == '/users/me/identities') return json(identities);
+    if (path.startsWith('/users/me/identities/') && req.method == 'DELETE') {
+      if (_user['has_password'] == false && identities.length == 1) {
+        return json({'detail': 'This is your only way to sign in. Set a password first.'}, 409);
+      }
+      identities.removeWhere((i) => i['provider'] == path.split('/').last);
+      return json(null, 204);
+    }
+    if (path == '/users/me' && req.method == 'DELETE') {
+      deleteBody = body;
+      users.remove(_user['email']);
+      _current = null;
+      return json(null, 204);
+    }
     if (path == '/users/me/sessions/revoke-others') {
       final ended = sessions.where((x) => x['current'] != true).length;
       sessions.removeWhere((x) => x['current'] != true);

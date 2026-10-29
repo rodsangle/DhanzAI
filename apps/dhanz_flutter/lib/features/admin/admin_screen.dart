@@ -28,9 +28,16 @@ final adminUsersProvider = FutureProvider.autoDispose<List<AdminUser>>((ref) {
 class AdminScreen extends ConsumerWidget {
   const AdminScreen({super.key});
 
-  Future<void> _update(BuildContext context, WidgetRef ref, AdminUser u, {bool? isActive, String? role}) async {
+  Future<void> _update(
+    BuildContext context,
+    WidgetRef ref,
+    AdminUser u, {
+    bool? isActive,
+    String? role,
+    bool resetMfa = false,
+  }) async {
     try {
-      await ref.read(apiClientProvider).adminUpdateUser(u.id, isActive: isActive, role: role);
+      await ref.read(apiClientProvider).adminUpdateUser(u.id, isActive: isActive, role: role, resetMfa: resetMfa);
       ref
         ..invalidate(adminUsersProvider)
         ..invalidate(adminStatsProvider);
@@ -143,6 +150,7 @@ class AdminScreen extends ConsumerWidget {
                       title: Text(u.displayName),
                       subtitle: Text(
                         '${u.email} · ${u.conversations} chats · ${u.messages30d} messages in 30 days'
+                        '${u.mfaEnabled ? ' · 2-step on' : ''}'
                         '${u.isActive ? '' : ' · deactivated'}',
                       ),
                       trailing: u.id == me?.id
@@ -153,6 +161,7 @@ class AdminScreen extends ConsumerWidget {
                                 'deactivate' => _update(context, ref, u, isActive: false),
                                 'activate' => _update(context, ref, u, isActive: true),
                                 'admin' => _update(context, ref, u, role: 'admin'),
+                                'reset-mfa' => _update(context, ref, u, resetMfa: true),
                                 _ => _update(context, ref, u, role: 'user'),
                               },
                               itemBuilder: (_) => [
@@ -164,6 +173,12 @@ class AdminScreen extends ConsumerWidget {
                                   value: u.role == 'admin' ? 'user' : 'admin',
                                   child: Text(u.role == 'admin' ? 'Remove administrator' : 'Make administrator'),
                                 ),
+                                // For someone who lost their phone and recovery codes: check who they are first.
+                                if (u.mfaEnabled)
+                                  const PopupMenuItem(
+                                    value: 'reset-mfa',
+                                    child: Text('Turn off two-step verification'),
+                                  ),
                               ],
                             ),
                     ),

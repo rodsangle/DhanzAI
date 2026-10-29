@@ -6,13 +6,21 @@ import 'package:intl/intl.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
+import '../../widgets/text_prompt_dialog.dart';
+import '../auth/auth_controller.dart';
+import 'two_factor_dialogs.dart';
 
 /// Devices signed in to this account.
 final sessionsProvider = FutureProvider.autoDispose<List<SessionInfo>>(
   (ref) => ref.watch(apiClientProvider).sessions(),
 );
 
-/// Password and signed-in devices.
+/// Google / Apple accounts linked for sign-in.
+final identitiesProvider = FutureProvider.autoDispose<List<LinkedIdentity>>(
+  (ref) => ref.watch(apiClientProvider).identities(),
+);
+
+/// Email, two-step verification, password, linked accounts and signed-in devices.
 class SecurityScreen extends ConsumerWidget {
   const SecurityScreen({super.key});
 
@@ -25,6 +33,67 @@ class SecurityScreen extends ConsumerWidget {
     if (changed == true && context.mounted) {
       _snack(context, 'Password changed. Other devices have been signed out.');
       ref.invalidate(sessionsProvider);
+    }
+  }
+
+  Future<String?> _askCode(BuildContext context, String title, String confirmLabel, {bool destructive = false}) =>
+      showTextPrompt(
+        context,
+        title: title,
+        confirmLabel: confirmLabel,
+        destructive: destructive,
+        label: 'Code from your authenticator app',
+        help: const Text('A recovery code works too.'),
+        prefixIcon: Icons.pin_outlined,
+      );
+
+  Future<void> _enableMfa(BuildContext context, WidgetRef ref, User user) async {
+    final on = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => TwoFactorSetupDialog(hasPassword: user.hasPassword),
+    );
+    if (on == true && context.mounted) {
+      ref.read(authControllerProvider.notifier).updateUser(await ref.read(apiClientProvider).me());
+      ref.invalidate(sessionsProvider);
+      if (context.mounted) _snack(context, 'Two-step verification is on. Other devices were signed out.');
+    }
+  }
+
+  Future<void> _disableMfa(BuildContext context, WidgetRef ref) async {
+    final code = await _askCode(context, 'Turn off two-step verification?', 'Turn off', destructive: true);
+    if (code == null || code.trim().isEmpty || !context.mounted) return;
+    try {
+      ref.read(authControllerProvider.notifier).updateUser(await ref.read(apiClientProvider).mfaDisable(code.trim()));
+      if (context.mounted) _snack(context, 'Two-step verification is off.');
+    } on ApiException catch (e) {
+      if (context.mounted) _snack(context, e.message);
+    }
+  }
+
+  Future<void> _newRecoveryCodes(BuildContext context, WidgetRef ref) async {
+    final code = await _askCode(context, 'New recovery codes', 'Create');
+    if (code == null || code.trim().isEmpty || !context.mounted) return;
+    try {
+      final codes = await ref.read(apiClientProvider).newRecoveryCodes(code.trim());
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialog) => RecoveryCodesDialog(codes: codes, onDone: () => Navigator.pop(dialog)),
+      );
+    } on ApiException catch (e) {
+      if (context.mounted) _snack(context, e.message);
+    }
+  }
+
+  Future<void> _unlink(BuildContext context, WidgetRef ref, LinkedIdentity identity) async {
+    try {
+      await ref.read(apiClientProvider).unlinkIdentity(identity.provider);
+      ref.invalidate(identitiesProvider);
+      if (context.mounted) _snack(context, '${identity.providerName} is no longer linked.');
+    } on ApiException catch (e) {
+      if (context.mounted) _snack(context, e.message);
     }
   }
 
@@ -54,10 +123,13 @@ class SecurityScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final sessions = ref.watch(sessionsProvider);
+    final identities = ref.watch(identitiesProvider);
+    final user = ref.watch(authControllerProvider).value;
+    final options = ref.watch(authOptionsProvider).value ?? const AuthOptions();
     final format = DateFormat.yMMMd().add_jm();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Password & devices'),
+        title: const Text('Security'),
         leading: IconButton(
           tooltip: 'Back',
           icon: const Icon(Icons.arrow_back),
@@ -70,11 +142,70 @@ class SecurityScreen extends ConsumerWidget {
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: 16),
             children: [
-              ListTile(
-                leading: const Icon(Icons.password),
-                title: const Text('Change password'),
-                subtitle: const Text('Signs out your other devices'),
-                onTap: () => _changePassword(context, ref),
+              if (user != null && !user.emailVerified && options.emailVerification)
+                ListTile(
+                  leading: Icon(Icons.mark_email_unread_outlined, color: theme.colorScheme.error),
+                  title: const Text('Confirm your email'),
+                  subtitle: Text('Enter the code we sent to ${user.email}'),
+                  onTap: () => context.go('/verify-email'),
+                ),
+              if (user != null) ...[
+                SwitchListTile(
+                  secondary: const Icon(Icons.verified_user_outlined),
+                  title: const Text('Two-step verification'),
+                  subtitle: Text(
+                    user.mfaEnabled
+                        ? 'On: signing in also needs a code from your authenticator app'
+                        : 'Protect your account with a code from an authenticator app',
+                  ),
+                  value: user.mfaEnabled,
+                  onChanged: (on) => on ? _enableMfa(context, ref, user) : _disableMfa(context, ref),
+                ),
+                if (user.mfaEnabled)
+                  ListTile(
+                    leading: const Icon(Icons.key_outlined),
+                    title: const Text('New recovery codes'),
+                    subtitle: const Text('Replaces your saved codes'),
+                    onTap: () => _newRecoveryCodes(context, ref),
+                  ),
+                if (user.hasPassword)
+                  ListTile(
+                    leading: const Icon(Icons.password),
+                    title: const Text('Change password'),
+                    subtitle: const Text('Signs out your other devices'),
+                    onTap: () => _changePassword(context, ref),
+                  )
+                else
+                  const ListTile(
+                    leading: Icon(Icons.password),
+                    title: Text('No password'),
+                    subtitle: Text(
+                      'You sign in with Google or Apple. To add a password, use "Forgot your password?" '
+                      'on the sign-in screen.',
+                    ),
+                  ),
+              ],
+              ...identities.maybeWhen(
+                data: (list) => [
+                  if (list.isNotEmpty) ...[
+                    const Divider(height: 32),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Text('Linked accounts', style: theme.textTheme.titleMedium),
+                    ),
+                    for (final identity in list)
+                      ListTile(
+                        leading: Icon(identity.provider == 'apple' ? Icons.apple : Icons.account_circle_outlined),
+                        title: Text(identity.providerName),
+                        subtitle: identity.email == null ? null : Text(identity.email!),
+                        trailing: TextButton(
+                          onPressed: () => _unlink(context, ref, identity),
+                          child: const Text('Unlink'),
+                        ),
+                      ),
+                  ],
+                ],
+                orElse: () => const <Widget>[],
               ),
               const Divider(height: 32),
               Padding(

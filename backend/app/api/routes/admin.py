@@ -7,12 +7,12 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.api.deps import AdminUser, DbDep, parse_uuid
 from app.core import rate_limit
 from app.db.base import utcnow
-from app.models import AuditLog, Conversation, KnowledgeDocument, Message, User
+from app.models import AuditLog, Conversation, KnowledgeDocument, Message, MfaRecoveryCode, User
 from app.services import audit
 from app.services.auth_service import revoke_user_sessions
 
@@ -25,6 +25,8 @@ class AdminUserOut(BaseModel):
     display_name: str
     role: str
     is_active: bool
+    email_verified: bool = True
+    mfa_enabled: bool = False
     created_at: datetime
     conversations: int = 0
     messages_30d: int = 0
@@ -38,6 +40,8 @@ class AdminUserList(BaseModel):
 class AdminUserUpdate(BaseModel):
     is_active: bool | None = None
     role: str | None = Field(default=None, pattern="^(user|admin)$")
+    # For a user who lost their authenticator and recovery codes (after checking who they are).
+    reset_mfa: bool = False
 
 
 class ProviderUsage(BaseModel):
@@ -164,6 +168,8 @@ async def list_users(
                 display_name=u.display_name,
                 role=u.role,
                 is_active=u.is_active,
+                email_verified=u.email_verified,
+                mfa_enabled=u.mfa_enabled,
                 created_at=u.created_at,
                 conversations=convs.get(u.id, 0),
                 messages_30d=msgs.get(u.id, 0),
@@ -193,6 +199,12 @@ async def update_user(
         target.role = body.role
         changes["role"] = body.role
         await revoke_user_sessions(db, target.id)  # new tokens carry the new role
+    if body.reset_mfa and target.mfa_enabled:
+        target.mfa_secret = None
+        target.mfa_enabled_at = None
+        target.mfa_last_step = None
+        await db.execute(delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == target.id))
+        changes["mfa_reset"] = True
     if changes:
         target.updated_at = utcnow()
         audit.record(
@@ -209,6 +221,8 @@ async def update_user(
         display_name=target.display_name,
         role=target.role,
         is_active=target.is_active,
+        email_verified=target.email_verified,
+        mfa_enabled=target.mfa_enabled,
         created_at=target.created_at,
     )
 

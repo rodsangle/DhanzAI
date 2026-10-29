@@ -5,7 +5,20 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, false, true
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    false,
+    true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Embedding, UTCDateTime, utcnow
@@ -28,12 +41,32 @@ class User(Base):
     memory_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # Delete conversations not touched for this many days (None = keep until the user deletes them).
     retention_days: Mapped[int | None] = mapped_column(Integer)
+    # Set when the user proved they own the address (emailed code, or Google/Apple said so).
+    email_verified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Two-factor authentication: the TOTP secret, encrypted (see app.core.crypto). Set but not
+    # enabled while the user is still scanning the QR code.
+    mfa_secret: Mapped[str | None] = mapped_column(String(255))
+    mfa_enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    # Last accepted TOTP time step: a code cannot be used twice.
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
     conversations: Mapped[list[Conversation]] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
+
+    @property
+    def email_verified(self) -> bool:
+        return self.email_verified_at is not None
+
+    @property
+    def mfa_enabled(self) -> bool:
+        return self.mfa_enabled_at is not None
+
+    @property
+    def has_password(self) -> bool:
+        return self.password_hash is not None
 
 
 class RefreshToken(Base):
@@ -222,6 +255,48 @@ class PasswordResetToken(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class VerificationCode(Base):
+    """One-time code emailed to the user (purpose "email": confirm the address). Only its SHA-256 is stored."""
+
+    __tablename__ = "verification_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    purpose: Mapped[str] = mapped_column(String(20))
+    code_hash: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class MfaRecoveryCode(Base):
+    """Single-use backup code for signing in without the authenticator app (SHA-256 only)."""
+
+    __tablename__ = "mfa_recovery_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class OAuthIdentity(Base):
+    """A Google or Apple account linked to a DHANZ AI account (the provider's stable subject id)."""
+
+    __tablename__ = "oauth_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_identities_provider_subject"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    subject: Mapped[str] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(320))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_used_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -245,7 +320,10 @@ __all__ = [
     "Reminder",
     "Memory",
     "Message",
+    "MfaRecoveryCode",
+    "OAuthIdentity",
     "Project",
     "RefreshToken",
     "User",
+    "VerificationCode",
 ]

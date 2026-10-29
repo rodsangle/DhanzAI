@@ -22,8 +22,8 @@ features that work.
 | Markdown rendering + code syntax highlighting, copy buttons | ✅ | |
 | Logo and app icons (Android, iOS, Windows, macOS, web) | ✅ | `scripts/generate_icon.py` |
 | CI: lint, unit tests, Postgres e2e, Docker build, Flutter analyze/test | ✅ | |
-| Release builds: APK/AAB, Windows installer + zip, iOS (unsigned or signed IPA) | 🟡 | Workflows written; they have not been run on GitHub runners yet |
-| Google / Apple sign-in | ⬜ | Phase 5 (needs OAuth client IDs and Apple developer account) |
+| Release builds: APK/AAB, Windows installer + zip, iOS (unsigned or signed IPA) | ✅ | All four platforms built on GitHub runners (manual runs, Oct 2026); signing needs the secrets in RELEASE.md |
+| Google / Apple sign-in | 🟡 | See "Public platform" below: server-verified; Google on Android and iOS, Apple on iOS |
 | Projects / workspaces | ⬜ | Phase 3 |
 
 ## Phase 2 — Internet intelligence (this milestone)
@@ -89,7 +89,7 @@ features that work.
 | Security | Shared rate limits (Redis) | ✅ | `REDIS_URL`; falls back to per-process limits if Redis is down |
 | Security | Request size limits, extra headers (CSP, CORP) | ✅ | |
 | Security | Closed registration for private servers; first account is the administrator | ✅ | `ALLOW_REGISTRATION=false` |
-| Security | Email verification, MFA, Google/Apple sign-in | ⬜ | |
+| Security | Email verification, MFA, Google/Apple sign-in | ✅ | See "Public platform" below |
 | Security | Application-level encryption of message content | ⬜ | Rely on encrypted volumes; app-level encryption would disable server-side search |
 | Privacy | Auto-delete old conversations (7/30/90/365 days) | ✅ | Per user, in Settings |
 | Privacy | Temporary chats | ✅ | No memory, no library indexing, deleted after 24 h |
@@ -120,3 +120,60 @@ as before.
 | Email drafting | ✅ | Draft card with *Open in email app* and *Copy*; Dhanz never sends email — the user reviews and sends it from their own app |
 | Approval for external actions | ✅ | No tool acts outside DHANZ AI; anything leaving the app is a button the user presses |
 | Native tool-calling verified against live provider APIs | 🟡 | Wire formats are tested against recorded examples, not against the live services in this milestone |
+
+
+## Public platform
+
+The goal from here: a public service anyone can download and sign up for, with Free / Plus / Pro
+plans. Work is split into milestones; each is shipped and tested before the next starts.
+
+### Milestone A — public accounts (this milestone)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Email verification by 6-digit code | ✅ | Sent at sign-up when SMTP is configured. `REQUIRE_EMAIL_VERIFICATION=true` locks chats, files, library, projects, memory, voice and reminders until confirmed. Accounts that existed before were marked verified by the migration |
+| Two-step verification (TOTP authenticator apps) | ✅ | QR code + manual key; 10 single-use recovery codes; one code can't be reused; 5 wrong codes per 15 min per account; secrets encrypted at rest (AES-256-GCM, `DATA_ENCRYPTION_KEY`); turning it on signs out other devices; account deletion asks for a code |
+| Admin reset of a lost authenticator | ✅ | Admin screen → user menu; audited |
+| Sign in with Google | 🟡 | Server verifies the ID token (signature via Google's keys, audience, issuer, expiry, nonce). App: Android and iOS. **Web and desktop not yet** (web needs Google's own button; Windows has no Google SDK) |
+| Sign in with Apple | 🟡 | Server-verified like Google, including Apple's hashed nonce. App: iOS. **Android/web need a Services ID and a redirect page — not built yet** |
+| Linking and account safety | ✅ | Same verified email → same account. If an address was registered with a password but never confirmed, a Google/Apple sign-in for it removes that password and signs out its sessions (stops pre-registration takeover). Unlink refuses to remove the last way to sign in |
+| Bot protection on sign-up (CAPTCHA / app attestation) | ⬜ | Today: per-IP rate limits, per-account lockout, email verification. Cloudflare Turnstile (web) and Play Integrity / App Attest (phones) planned |
+
+### Milestone B — subscriptions and usage limits (next)
+
+| Feature | Status |
+|---|---|
+| Plans (Free / Plus / Pro) stored in the database: price, message quota, allowed models, upload/storage limits, features | ⬜ |
+| Per-user usage metering and quota enforcement (messages, tokens, uploads, research) with clear "limit reached" UI | ⬜ |
+| AI cost tracking per provider/model (price table maintained by the admin) and spending caps | ⬜ |
+| Stripe Checkout + customer portal, verified by signed webhooks (web and desktop) | ⬜ |
+| Google Play Billing and Apple StoreKit 2 purchases, verified server-side (RTDN / App Store Server Notifications) | ⬜ |
+| Entitlements derived only from verified payment events | ⬜ |
+
+Needs: a Stripe account, a Google Play developer account with a merchant profile, an Apple
+developer account with Paid Apps agreement.
+
+### Milestone C — administrator dashboard
+
+| Feature | Status |
+|---|---|
+| Web dashboard (Flutter web, admin role + two-step verification required) | ⬜ |
+| Users, active users, subscriptions, revenue and AI cost charts | 🟡 (counts and usage exist in the app's admin screen) |
+| Plan, quota, provider and model configuration without code changes | ⬜ |
+| Abuse reports from users, review queue, suspension with reason | 🟡 (deactivate/reactivate exists) |
+| Announcements shown in the apps | ⬜ |
+| Error and performance views (from the existing Prometheus metrics) | ⬜ |
+| Release management (publish `latest.json` from the dashboard) | ⬜ |
+| Support access to private chats | Deliberately not built: admins cannot read conversations. Any future support access must be user-granted, time-limited and audited |
+
+### Milestone D — launch readiness
+
+| Feature | Status |
+|---|---|
+| Web app build in CI and hosting (behind the same Caddy) | 🟡 (`flutter build web` compiles; not yet published) |
+| Content safety: provider moderation endpoints on input/output, refusal UI | ⬜ |
+| Prompt-injection defences for web pages and documents | 🟡 (fetched text is passed as quoted source material and tools need no approval because none act externally; formal tests to add) |
+| Privacy policy, terms of service, in-app links, store privacy forms | ⬜ (text must come from the operator / a lawyer) |
+| Store listings (Play, App Store, Microsoft Store) | ⬜ |
+| Object storage (S3-compatible) for uploads | ⬜ (local volume today) |
+| Background worker queue (Redis) for indexing and notifications | 🟡 (in-process tasks today) |
