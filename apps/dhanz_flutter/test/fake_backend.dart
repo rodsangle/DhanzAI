@@ -27,6 +27,25 @@ class FakeBackend {
   bool dropAfterMeta = false;
   bool pushNotifications = false;
   final devices = <String, Map<String, dynamic>>{};
+  final passwords = <String, String>{};
+  final sessions = <Map<String, dynamic>>[
+    {
+      'id': 'session-this',
+      'user_agent': 'DhanzAI Windows',
+      'created_at': '2026-10-01T10:00:00Z',
+      'last_used_at': '2026-10-29T10:00:00Z',
+      'current': true,
+    },
+    {
+      'id': 'session-phone',
+      'user_agent': 'Dart/3.10 (dart:io) android',
+      'created_at': '2026-10-02T10:00:00Z',
+      'last_used_at': '2026-10-28T10:00:00Z',
+      'current': false,
+    },
+  ];
+  static const resetCode = 'ABCDE-23456';
+  String? resetRequestedFor;
   Map<String, dynamic> updateInfo = {
     'platform': 'windows',
     'current_version': '0.0.0',
@@ -82,17 +101,20 @@ class FakeBackend {
         'id': _id(),
         'email': (body['email'] as String).toLowerCase(),
         'display_name': body['display_name'],
-        'role': 'user',
+        'role': users.isEmpty ? 'admin' : 'user', // the first account administers the server
         'routing_policy': 'balanced',
         'preferred_model': null,
         'created_at': DateTime.now().toUtc().toIso8601String(),
       };
       users[user['email'] as String] = user;
+      passwords[user['email'] as String] = body['password'] as String;
       return json(_tokensFor(user), 201);
     }
     if (path == '/auth/login') {
       final user = users[(body['email'] as String).toLowerCase()];
-      if (user == null) return json({'detail': 'Invalid email or password'}, 401);
+      if (user == null || passwords[user['email']] != body['password']) {
+        return json({'detail': 'Invalid email or password'}, 401);
+      }
       return json(_tokensFor(user));
     }
     if (path == '/auth/refresh') {
@@ -100,13 +122,77 @@ class FakeBackend {
       return json(_tokensFor(_user));
     }
     if (path == '/auth/logout') return json(null, 204);
+    if (path == '/auth/password-reset/request') {
+      resetRequestedFor = (body['email'] as String).toLowerCase();
+      return json({'detail': 'If an account exists for this email, a reset code has been sent.'}, 202);
+    }
+    if (path == '/auth/password-reset/confirm') {
+      final email = (body['email'] as String).toLowerCase();
+      if (body['code'] != resetCode || !users.containsKey(email)) {
+        return json({'detail': 'The code is invalid or has expired. Request a new one.'}, 400);
+      }
+      passwords[email] = body['new_password'] as String;
+      return json(null, 204);
+    }
     if (path == '/app/updates') return json({...updateInfo, 'current_version': req.url.queryParameters['version']});
 
     if (req.headers['Authorization'] != 'Bearer $validAccess') {
       return json({'detail': 'Not authenticated'}, 401);
     }
 
+    if (path == '/users/me/password') {
+      if (passwords[_user['email']] != body['current_password']) {
+        return json({'detail': 'Current password is incorrect'}, 403);
+      }
+      passwords[_user['email'] as String] = body['new_password'] as String;
+      sessions.removeWhere((x) => x['current'] != true);
+      return json(null, 204);
+    }
+    if (path == '/users/me/sessions') return json(sessions);
+    if (path == '/users/me/sessions/revoke-others') {
+      final ended = sessions.where((x) => x['current'] != true).length;
+      sessions.removeWhere((x) => x['current'] != true);
+      return json({'ended': ended});
+    }
+    if (path.startsWith('/users/me/sessions/') && req.method == 'DELETE') {
+      sessions.removeWhere((x) => x['id'] == path.split('/').last);
+      return json(null, 204);
+    }
+    if (path.startsWith('/admin/') && _user['role'] != 'admin') {
+      return json({'detail': 'Administrator access required'}, 403);
+    }
+    if (path == '/admin/stats') {
+      return json({
+        'users': users.length,
+        'active_users_7d': 1,
+        'conversations': conversations.length,
+        'messages_24h': chatBodies.length,
+        'replies_failed_24h': 0,
+        'documents': documents.length,
+        'usage_30d': [
+          {'provider': 'echo', 'replies': chatBodies.length, 'input_tokens': 1200, 'output_tokens': 3400},
+        ],
+      });
+    }
+    if (path == '/admin/users') {
+      final q = req.url.queryParameters['q']?.toLowerCase();
+      final items = [
+        for (final u in users.values)
+          if (q == null || (u['email'] as String).contains(q))
+            {...u, 'is_active': u['is_active'] ?? true, 'conversations': 0, 'messages_30d': 0},
+      ];
+      return json({'items': items, 'total': items.length});
+    }
+    if (path.startsWith('/admin/users/') && req.method == 'PATCH') {
+      final u = users.values.firstWhere((x) => x['id'] == path.split('/').last);
+      if (body.containsKey('is_active')) u['is_active'] = body['is_active'];
+      if (body.containsKey('role')) u['role'] = body['role'];
+      return json({...u, 'is_active': u['is_active'] ?? true});
+    }
     if (path == '/users/me' && req.method == 'PATCH') {
+      if (body.containsKey('retention_days')) {
+        _user['retention_days'] = body['retention_days'] == 0 ? null : body['retention_days'];
+      }
       if (body.containsKey('memory_enabled')) _user['memory_enabled'] = body['memory_enabled'];
       return json(_user);
     }
@@ -185,7 +271,9 @@ class FakeBackend {
     }
     if (path == '/conversations' && req.method == 'POST') {
       conversationBodies.add(body);
-      final c = _conversation()..['project_id'] = body['project_id'];
+      final c = _conversation()
+        ..['project_id'] = body['project_id']
+        ..['temporary'] = body['temporary'] ?? false;
       conversations[c['id'] as String] = c;
       return json(c, 201);
     }

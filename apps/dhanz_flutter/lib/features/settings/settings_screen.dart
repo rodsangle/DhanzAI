@@ -42,6 +42,7 @@ class SettingsScreen extends ConsumerWidget {
     String? preferredModel,
     String? routingPolicy,
     bool? autoIndexWeb,
+    int? retentionDays,
   }) {
     return _guard(context, () async {
       final user = await ref
@@ -50,6 +51,7 @@ class SettingsScreen extends ConsumerWidget {
             displayName: displayName,
             preferredModel: preferredModel,
             routingPolicy: routingPolicy,
+            retentionDays: retentionDays,
             autoIndexWeb: autoIndexWeb,
           );
       ref.read(authControllerProvider.notifier).updateUser(user);
@@ -271,6 +273,23 @@ class SettingsScreen extends ConsumerWidget {
               ),
               section('Privacy & data'),
               ListTile(
+                leading: const Icon(Icons.auto_delete_outlined),
+                title: const Text('Delete old conversations'),
+                subtitle: const Text('Conversations you have not used for this long are deleted automatically'),
+                trailing: DropdownButton<int>(
+                  value: user.retentionDays ?? 0,
+                  underline: const SizedBox.shrink(),
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text('Never')),
+                    DropdownMenuItem(value: 7, child: Text('After 7 days')),
+                    DropdownMenuItem(value: 30, child: Text('After 30 days')),
+                    DropdownMenuItem(value: 90, child: Text('After 90 days')),
+                    DropdownMenuItem(value: 365, child: Text('After a year')),
+                  ],
+                  onChanged: (v) => v == null ? null : _updateUser(context, ref, retentionDays: v),
+                ),
+              ),
+              ListTile(
                 leading: const Icon(Icons.download_outlined),
                 title: const Text('Export my data'),
                 subtitle: const Text('Your profile and every conversation as JSON'),
@@ -283,6 +302,19 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => _deleteAccount(context, ref),
               ),
               section('Account'),
+              ListTile(
+                leading: const Icon(Icons.lock_outline),
+                title: const Text('Password & devices'),
+                subtitle: const Text('Change your password, see and sign out devices'),
+                onTap: () => context.go('/security'),
+              ),
+              if (user.isAdmin)
+                ListTile(
+                  leading: const Icon(Icons.admin_panel_settings_outlined),
+                  title: const Text('Administration'),
+                  subtitle: const Text('Usage, accounts and server status'),
+                  onTap: () => context.go('/admin'),
+                ),
               ListTile(
                 leading: const Icon(Icons.dns_outlined),
                 title: const Text('Server'),

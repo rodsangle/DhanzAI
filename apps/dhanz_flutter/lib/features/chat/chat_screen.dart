@@ -96,6 +96,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final column = Column(
       children: [
+        if (chat.temporary)
+          Material(
+            color: Theme.of(context).colorScheme.secondaryContainer,
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.timer_outlined),
+              title: const Text('Temporary chat'),
+              subtitle: const Text('Not saved to memory or your library, and deleted automatically after a day.'),
+            ),
+          ),
         Expanded(
           child: _MessageList(state: chat, onEdit: _edit, onSuggestion: _send),
         ),
@@ -158,6 +168,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       automaticallyImplyLeading: !wide,
       title: Text(listed?.title ?? chat.title ?? AppConfig.appName, overflow: TextOverflow.ellipsis),
       actions: [
+        if (chat.conversationId == null)
+          IconButton(
+            tooltip: chat.temporary ? 'Temporary chat on' : 'Temporary chat',
+            isSelected: chat.temporary,
+            icon: const Icon(Icons.timer_outlined),
+            selectedIcon: const Icon(Icons.timer),
+            onPressed: () => ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary),
+          ),
         IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
         IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: () => context.go('/chat')),
       ],

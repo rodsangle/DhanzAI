@@ -39,6 +39,7 @@ class ChatState {
     this.attachments = const [],
     this.uploading = 0,
     this.notice,
+    this.temporary = false,
   });
 
   final String? conversationId;
@@ -65,6 +66,9 @@ class ChatState {
   /// One-off information for the user (e.g. "Saved to memory"), shown once then cleared.
   final String? notice;
 
+  /// Temporary chat: not remembered, not added to the library, deleted after a day.
+  final bool temporary;
+
   ChatState copyWith({
     String? conversationId,
     String? title,
@@ -78,6 +82,7 @@ class ChatState {
     List<KnowledgeDocument>? attachments,
     int? uploading,
     String? Function()? notice,
+    bool? temporary,
   }) => ChatState(
     conversationId: conversationId ?? this.conversationId,
     title: title ?? this.title,
@@ -91,6 +96,7 @@ class ChatState {
     attachments: attachments ?? this.attachments,
     uploading: uploading ?? this.uploading,
     notice: notice != null ? notice() : this.notice,
+    temporary: temporary ?? this.temporary,
   );
 }
 
@@ -128,7 +134,12 @@ class ChatController extends Notifier<ChatState> {
     try {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
-      state = state.copyWith(title: detail.summary.title, messages: detail.messages, loading: false);
+      state = state.copyWith(
+        title: detail.summary.title,
+        messages: detail.messages,
+        loading: false,
+        temporary: detail.summary.temporary,
+      );
       _followIfGenerating();
     } on ApiException catch (e) {
       if (token != _loadToken) return;
@@ -163,6 +174,11 @@ class ChatController extends Notifier<ChatState> {
         state = state.copyWith(streaming: false, researchStatus: () => null);
       }
     });
+  }
+
+  /// Only for a new chat: whether it is created as a temporary chat.
+  void setTemporary(bool value) {
+    if (state.conversationId == null) state = state.copyWith(temporary: value);
   }
 
   void selectModel(String? key) => state = state.copyWith(modelKey: () => key);
@@ -200,7 +216,10 @@ class ChatController extends Notifier<ChatState> {
     final attachments = state.attachments;
     try {
       if (id == null) {
-        final conv = await _api.createConversation(projectId: ref.read(selectedProjectProvider));
+        final conv = await _api.createConversation(
+          projectId: ref.read(selectedProjectProvider),
+          temporary: state.temporary,
+        );
         id = conv.id;
         _loadToken++;
         state = state.copyWith(conversationId: id, title: conv.title);

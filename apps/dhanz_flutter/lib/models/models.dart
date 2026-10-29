@@ -13,6 +13,7 @@ class User {
     this.preferredModel,
     this.autoIndexWeb = true,
     this.memoryEnabled = false,
+    this.retentionDays,
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -24,6 +25,7 @@ class User {
     preferredModel: j['preferred_model'] as String?,
     autoIndexWeb: j['auto_index_web'] as bool? ?? true,
     memoryEnabled: j['memory_enabled'] as bool? ?? false,
+    retentionDays: j['retention_days'] as int?,
   );
 
   final String id;
@@ -38,6 +40,121 @@ class User {
 
   /// Opt-in long-term memory.
   final bool memoryEnabled;
+
+  /// Conversations idle this many days are deleted automatically; null keeps them.
+  final int? retentionDays;
+
+  bool get isAdmin => role == 'admin';
+}
+
+/// A device signed in to the account.
+class SessionInfo {
+  const SessionInfo({
+    required this.id,
+    required this.createdAt,
+    required this.lastUsedAt,
+    required this.current,
+    this.userAgent,
+  });
+
+  factory SessionInfo.fromJson(Map<String, dynamic> j) => SessionInfo(
+    id: j['id'] as String,
+    userAgent: j['user_agent'] as String?,
+    createdAt: _date(j['created_at']),
+    lastUsedAt: _date(j['last_used_at']),
+    current: j['current'] as bool? ?? false,
+  );
+
+  final String id;
+  final String? userAgent;
+  final DateTime createdAt;
+  final DateTime lastUsedAt;
+  final bool current;
+
+  /// "Windows", "Android", … from the user agent, for display.
+  String get deviceName {
+    final ua = (userAgent ?? '').toLowerCase();
+    for (final (key, name) in const [
+      ('windows', 'Windows'),
+      ('android', 'Android'),
+      ('iphone', 'iPhone'),
+      ('ipad', 'iPad'),
+      ('ios', 'iPhone / iPad'),
+      ('mac', 'Mac'),
+      ('linux', 'Linux'),
+    ]) {
+      if (ua.contains(key)) return name;
+    }
+    return userAgent == null || userAgent!.isEmpty ? 'Unknown device' : userAgent!;
+  }
+}
+
+class AdminStats {
+  const AdminStats({
+    required this.users,
+    required this.activeUsers7d,
+    required this.conversations,
+    required this.messages24h,
+    required this.failedReplies24h,
+    required this.documents,
+    required this.usage,
+  });
+
+  factory AdminStats.fromJson(Map<String, dynamic> j) => AdminStats(
+    users: j['users'] as int,
+    activeUsers7d: j['active_users_7d'] as int,
+    conversations: j['conversations'] as int,
+    messages24h: j['messages_24h'] as int,
+    failedReplies24h: j['replies_failed_24h'] as int,
+    documents: j['documents'] as int,
+    usage: [
+      for (final u in j['usage_30d'] as List<dynamic>)
+        (
+          provider: (u as Map<String, dynamic>)['provider'] as String,
+          replies: u['replies'] as int,
+          inputTokens: u['input_tokens'] as int,
+          outputTokens: u['output_tokens'] as int,
+        ),
+    ],
+  );
+
+  final int users;
+  final int activeUsers7d;
+  final int conversations;
+  final int messages24h;
+  final int failedReplies24h;
+  final int documents;
+  final List<({String provider, int replies, int inputTokens, int outputTokens})> usage;
+}
+
+class AdminUser {
+  const AdminUser({
+    required this.id,
+    required this.email,
+    required this.displayName,
+    required this.role,
+    required this.isActive,
+    this.conversations = 0,
+    this.messages30d = 0,
+  });
+
+  factory AdminUser.fromJson(Map<String, dynamic> j) => AdminUser(
+    id: j['id'] as String,
+    email: j['email'] as String,
+    displayName: j['display_name'] as String,
+    role: j['role'] as String,
+    isActive: j['is_active'] as bool,
+    conversations: j['conversations'] as int? ?? 0,
+    messages30d: j['messages_30d'] as int? ?? 0,
+  );
+
+  final String id;
+  final String email;
+  final String displayName;
+  final String role;
+  final bool isActive;
+  final int conversations;
+  final int messages30d;
 }
 
 class AuthTokens {
@@ -61,6 +178,7 @@ class ConversationSummary {
     required this.pinned,
     required this.updatedAt,
     this.projectId,
+    this.temporary = false,
   });
 
   factory ConversationSummary.fromJson(Map<String, dynamic> j) => ConversationSummary(
@@ -69,6 +187,7 @@ class ConversationSummary {
     pinned: j['pinned'] as bool,
     updatedAt: _date(j['updated_at']),
     projectId: j['project_id'] as String?,
+    temporary: j['temporary'] as bool? ?? false,
   );
 
   final String id;
@@ -76,6 +195,9 @@ class ConversationSummary {
   final bool pinned;
   final DateTime updatedAt;
   final String? projectId;
+
+  /// Not remembered, not added to the library, deleted automatically after a day.
+  final bool temporary;
 }
 
 /// A file attached to a user message.

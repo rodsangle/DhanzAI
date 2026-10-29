@@ -205,7 +205,14 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
                             selected: c.id == currentId,
                             selectedTileColor: theme.colorScheme.surfaceContainerHighest,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            leading: Icon(c.pinned ? Icons.push_pin : Icons.chat_bubble_outline, size: 18),
+                            leading: Icon(
+                              c.pinned
+                                  ? Icons.push_pin
+                                  : c.temporary
+                                  ? Icons.timer_outlined
+                                  : Icons.chat_bubble_outline,
+                              size: 18,
+                            ),
                             title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                             onTap: () => _go('/chat/${c.id}'),
                             trailing: PopupMenuButton<String>(

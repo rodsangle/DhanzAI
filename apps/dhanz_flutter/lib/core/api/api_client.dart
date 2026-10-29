@@ -215,6 +215,7 @@ class ApiClient {
     String? routingPolicy,
     bool? autoIndexWeb,
     bool? memoryEnabled,
+    int? retentionDays,
   }) async {
     final body = <String, Object?>{
       'display_name': ?displayName,
@@ -222,9 +223,50 @@ class ApiClient {
       'routing_policy': ?routingPolicy,
       'auto_index_web': ?autoIndexWeb,
       'memory_enabled': ?memoryEnabled,
+      'retention_days': ?retentionDays, // 0 = keep forever
     };
     return User.fromJson(await _json('PATCH', '/users/me', body: body) as Map<String, dynamic>);
   }
+
+  // ---- account security ----------------------------------------------------
+
+  Future<void> changePassword(String currentPassword, String newPassword) =>
+      _json('POST', '/users/me/password', body: {'current_password': currentPassword, 'new_password': newPassword});
+
+  Future<List<SessionInfo>> sessions() async => [
+    for (final s in await _json('GET', '/users/me/sessions') as List<dynamic>)
+      SessionInfo.fromJson(s as Map<String, dynamic>),
+  ];
+
+  Future<void> revokeSession(String id) => _json('DELETE', '/users/me/sessions/$id');
+
+  Future<int> revokeOtherSessions() async =>
+      (await _json('POST', '/users/me/sessions/revoke-others') as Map<String, dynamic>)['ended'] as int;
+
+  /// Emails a one-time code (the answer is the same whether or not the account exists).
+  Future<void> requestPasswordReset(String email) =>
+      _json('POST', '/auth/password-reset/request', body: {'email': email}, auth: false);
+
+  Future<void> confirmPasswordReset(String email, String code, String newPassword) => _json(
+    'POST',
+    '/auth/password-reset/confirm',
+    body: {'email': email, 'code': code, 'new_password': newPassword},
+    auth: false,
+  );
+
+  // ---- administration --------------------------------------------------------
+
+  Future<AdminStats> adminStats() async =>
+      AdminStats.fromJson(await _json('GET', '/admin/stats') as Map<String, dynamic>);
+
+  Future<List<AdminUser>> adminUsers({String? query}) async {
+    final body = await _json('GET', '/admin/users', query: {'q': ?query}) as Map<String, dynamic>;
+    return [for (final u in body['items'] as List<dynamic>) AdminUser.fromJson(u as Map<String, dynamic>)];
+  }
+
+  Future<AdminUser> adminUpdateUser(String id, {bool? isActive, String? role}) async => AdminUser.fromJson(
+    await _json('PATCH', '/admin/users/$id', body: {'is_active': ?isActive, 'role': ?role}) as Map<String, dynamic>,
+  );
 
   Future<String> exportMyData() async {
     final res = await _send('GET', '/users/me/export');
@@ -282,9 +324,11 @@ class ApiClient {
     return [for (final c in body['items'] as List<dynamic>) ConversationSummary.fromJson(c as Map<String, dynamic>)];
   }
 
-  Future<ConversationSummary> createConversation({String? projectId}) async => ConversationSummary.fromJson(
-    await _json('POST', '/conversations', body: {'project_id': ?projectId}) as Map<String, dynamic>,
-  );
+  Future<ConversationSummary> createConversation({String? projectId, bool temporary = false}) async =>
+      ConversationSummary.fromJson(
+        await _json('POST', '/conversations', body: {'project_id': ?projectId, if (temporary) 'temporary': true})
+            as Map<String, dynamic>,
+      );
 
   Future<ConversationDetail> conversation(String id) async =>
       ConversationDetail.fromJson(await _json('GET', '/conversations/$id') as Map<String, dynamic>);

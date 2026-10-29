@@ -2,6 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'features/account/reset_password_screen.dart';
+import 'features/account/security_screen.dart';
+import 'features/admin/admin_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
@@ -13,7 +16,7 @@ import 'features/projects/projects_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/voice/voice_screen.dart';
 
-const _publicRoutes = {'/welcome', '/login', '/register'};
+const _publicRoutes = {'/welcome', '/login', '/register', '/reset-password'};
 
 final routerProvider = Provider<GoRouter>((ref) {
   // Re-run redirects whenever the auth state changes.
@@ -38,6 +41,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/welcome', builder: (context, state) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (context, state) => const AuthScreen(register: false)),
       GoRoute(path: '/register', builder: (context, state) => const AuthScreen(register: true)),
+      GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
       GoRoute(
         path: '/chat',
         pageBuilder: (context, state) => const NoTransitionPage(child: ChatScreen()),
@@ -56,6 +60,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
       GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
+      GoRoute(path: '/security', builder: (context, state) => const SecurityScreen()),
+      GoRoute(
+        path: '/admin',
+        redirect: (context, state) => ref.read(authControllerProvider).value?.isAdmin == true ? null : '/settings',
+        builder: (context, state) => const AdminScreen(),
+      ),
     ],
   );
   ref.onDispose(router.dispose);
