@@ -50,7 +50,7 @@ dependencies:
   path_provider: ^2.1.6
   cross_file: ^0.3.5+5
   http_parser: ^4.1.2
-  tray_manager: ^0.5.2
+  tray_manager: ^0.8.0
   window_manager: ^0.5.2
   local_notifier: ^0.1.6
   desktop_drop: ^0.8.0
