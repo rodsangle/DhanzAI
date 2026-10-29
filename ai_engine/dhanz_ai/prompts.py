@@ -53,6 +53,16 @@ How to use the sources:
 - Do not invent sources, URLs or quotes, and do not list sources at the end: the app shows them below your reply."""
 
 
+_TOOL_RULES = """
+
+Tools:
+- Use the calculator for any arithmetic beyond trivial mental math, and the converter for unit conversions; give the tool's result, not your own estimate.
+- Use the date/time tools for time zones and date arithmetic.
+- Reminders: create one only when the user asks to be reminded. Resolve relative times ("tomorrow at 9") from the user's local time and pass due times with their UTC offset. Confirm what you set, including the date and time.
+- Email: when asked to write an email, use draft_email so the user gets a button to open it in their email app. You cannot send email; the user reviews and sends it.
+- If a tool returns an error, explain it plainly; do not pretend it succeeded."""
+
+
 def build_system_prompt(
     *,
     sources: str | None = None,
@@ -60,17 +70,24 @@ def build_system_prompt(
     user_preferences: str | None = None,
     project_instructions: str | None = None,
     today: date | None = None,
+    local_time: str | None = None,
+    tools: bool = False,
 ) -> str:
     """System prompt for Dhanz.
 
     `sources` is the numbered source block from the knowledge engine (None when nothing was retrieved).
     `research_notes` tells the model what happened during research (e.g. pages that could not be read,
     or that web search is unavailable) so it can be honest about it.
+    `local_time` is the user's device time with UTC offset (ISO 8601); `tools` says tools are offered.
     """
     prompt = _BASE_PROMPT.format(
         web_access_rule=_WITH_SOURCES if sources else _NO_WEB,
         today=(today or date.today()).isoformat(),
     )
+    if local_time:
+        prompt += f"\nThe user's local date and time is {local_time} (ISO 8601 with UTC offset)."
+    if tools:
+        prompt += _TOOL_RULES
     if sources:
         prompt += _SOURCE_RULES.format(sources=sources)
     if research_notes:

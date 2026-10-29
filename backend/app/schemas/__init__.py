@@ -172,6 +172,7 @@ class MessageOut(ORM):
     error: str | None
     citations: list[dict] | None = None
     attachments: list[dict] | None = None
+    tool_activity: list[dict] | None = None
     created_at: datetime
 
 
@@ -215,6 +216,9 @@ class SendMessageRequest(BaseModel):
     )
     web: bool | None = Field(default=None, description="Web research: true always, false never, null automatic")
     attachment_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
+    client_time: str | None = Field(
+        default=None, max_length=40, description="Device time with UTC offset (ISO 8601), for dates and reminders"
+    )
 
     @field_validator("content")
     @classmethod
@@ -228,6 +232,46 @@ class RegenerateRequest(BaseModel):
     provider: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
     web: bool | None = None
+    client_time: str | None = Field(default=None, max_length=40)
+
+
+class ReminderCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    due_at: datetime
+    duration_minutes: int | None = Field(default=None, ge=1, le=20160)
+    location: str | None = Field(default=None, max_length=200)
+
+    @field_validator("due_at")
+    @classmethod
+    def _aware(cls, v: datetime) -> datetime:
+        if v.tzinfo is None:
+            raise ValueError("due_at needs a UTC offset, e.g. 2026-11-02T09:00:00+01:00")
+        return v
+
+
+class ReminderUpdate(BaseModel):
+    text: str | None = Field(default=None, min_length=1, max_length=500)
+    due_at: datetime | None = None
+    done: bool | None = None
+
+    @field_validator("due_at")
+    @classmethod
+    def _aware(cls, v: datetime | None) -> datetime | None:
+        if v is not None and v.tzinfo is None:
+            raise ValueError("due_at needs a UTC offset")
+        return v
+
+
+class ReminderOut(ORM):
+    id: uuid.UUID
+    text: str
+    due_at: datetime
+    duration_minutes: int | None
+    location: str | None
+    conversation_id: uuid.UUID | None
+    notified_at: datetime | None
+    done_at: datetime | None
+    created_at: datetime
 
 
 # --- knowledge library ----------------------------------------------------

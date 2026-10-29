@@ -10,9 +10,10 @@ and falls back to the next candidate if a provider fails *before* producing outp
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
@@ -24,7 +25,13 @@ from dhanz_ai.types import (
     ModelInfo,
     ProviderError,
     StreamChunk,
+    ToolCall,
+    ToolResult,
+    ToolSpec,
 )
+
+ToolRunner = Callable[[ToolCall], Awaitable[ToolResult]]
+MAX_TOOL_ROUNDS = 5
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +84,8 @@ class RoutingRequest:
 class RoutedChunk:
     model: ModelInfo
     chunk: StreamChunk
+    # Results of the tool calls announced by the previous chunk (after they ran).
+    tool_results: tuple[ToolResult, ...] = ()
 
 
 class NoModelAvailableError(Exception):
@@ -173,7 +182,12 @@ class Orchestrator:
         messages: Sequence[ChatMessage],
         request: RoutingRequest = RoutingRequest(),
         params: GenerationParams = GenerationParams(),
+        tools: Sequence[ToolSpec] = (),
+        run_tool: ToolRunner | None = None,
     ) -> AsyncIterator[RoutedChunk]:
+        """Stream a reply. With `tools` and `run_tool`, models that support function calling may call
+        tools: each call is executed by `run_tool` and the result handed back to the model, for up to
+        MAX_TOOL_ROUNDS rounds. Exactly one chunk with done=True ends the stream (tokens summed)."""
         last_user = next((m.content for m in reversed(messages) if m.role == "user"), "")
         task = classify_task(last_user)
         candidates = self.candidates(request, task)
@@ -184,16 +198,65 @@ class Orchestrator:
         for info in candidates:
             provider = self._providers[info.provider]
             produced_output = False
+            offer = tuple(tools) if run_tool is not None and Capability.TOOLS in info.capabilities else ()
+            convo = list(messages)
+            input_tokens: int | None = None
+            output_tokens: int | None = None
             try:
-                async for chunk in provider.stream(info.model, messages, params):
-                    if chunk.text:
-                        produced_output = True
-                    yield RoutedChunk(info, chunk)
+                for round_no in range(MAX_TOOL_ROUNDS + 1):
+                    texts: list[str] = []
+                    calls: tuple[ToolCall, ...] = ()
+                    stream = (
+                        provider.stream(info.model, convo, params, tools=offer)
+                        if offer
+                        else provider.stream(info.model, convo, params)
+                    )
+                    async for chunk in stream:
+                        if chunk.done:
+                            input_tokens = _add(input_tokens, chunk.input_tokens)
+                            output_tokens = _add(output_tokens, chunk.output_tokens)
+                            continue
+                        if chunk.text:
+                            produced_output = True
+                            texts.append(chunk.text)
+                        if chunk.tool_calls:
+                            if not offer:
+                                continue  # tools were not offered: ignore stray calls
+                            produced_output = True
+                            calls = chunk.tool_calls
+                        yield RoutedChunk(info, chunk)
+                    if not calls:
+                        break
+                    if round_no == MAX_TOOL_ROUNDS:
+                        note = "\n\n(I stopped after several tool steps. Ask me to continue if you need more.)"
+                        yield RoutedChunk(info, StreamChunk(text=note))
+                        break
+                    results = tuple([await _run(run_tool, c) for c in calls])
+                    yield RoutedChunk(info, StreamChunk(), tool_results=results)
+                    convo.append(ChatMessage("assistant", "".join(texts), tool_calls=calls))
+                    convo += [ChatMessage.from_tool_result(r) for r in results]
+                yield RoutedChunk(info, StreamChunk(done=True, input_tokens=input_tokens, output_tokens=output_tokens))
                 return
             except ProviderError as exc:
                 log.warning("Provider %s failed (model %s): %s", info.provider, info.model, exc)
-                # Once text has been streamed to the user we cannot transparently switch models.
+                # Once text has been streamed (or a tool has run) we cannot transparently switch models.
                 if produced_output or not exc.retryable:
                     raise
                 errors.append(str(exc))
         raise ProviderError("orchestrator", "All candidate models failed: " + " | ".join(errors), retryable=False)
+
+
+def _add(total: int | None, value: int | None) -> int | None:
+    if value is None:
+        return total
+    return (total or 0) + value
+
+
+async def _run(run_tool: ToolRunner | None, call: ToolCall) -> ToolResult:
+    if run_tool is None:  # pragma: no cover - tools are only offered with a runner
+        return ToolResult(call.id, call.name, json.dumps({"error": "Tools are not available."}), is_error=True)
+    try:
+        return await run_tool(call)
+    except Exception as exc:  # noqa: BLE001 - a failing tool is reported to the model, not to the user
+        log.exception("Tool %s failed", call.name)
+        return ToolResult(call.id, call.name, json.dumps({"error": f"The tool failed: {exc}"}), is_error=True)

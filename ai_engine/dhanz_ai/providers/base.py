@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
-from dhanz_ai.types import ChatMessage, GenerationParams, ModelInfo, ProviderError, StreamChunk
+from dhanz_ai.types import ChatMessage, GenerationParams, ModelInfo, ProviderError, StreamChunk, ToolSpec
 
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
 
@@ -36,8 +36,13 @@ class Provider(ABC):
         model: str,
         messages: Sequence[ChatMessage],
         params: GenerationParams,
+        tools: Sequence[ToolSpec] = (),
     ) -> AsyncIterator[StreamChunk]:
-        """Yield text deltas; the final chunk has done=True."""
+        """Yield text deltas; the final chunk has done=True.
+
+        When `tools` are given and the model decides to call some, one chunk carries `tool_calls`
+        (before the final chunk). Only pass tools to models with Capability.TOOLS.
+        """
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -82,3 +87,17 @@ def parse_json(provider: str, raw: str) -> dict:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
         raise ProviderError(provider, f"Malformed stream payload: {raw[:200]}", retryable=False) from exc
+
+
+def tool_arguments(provider: str, raw: str | dict | None) -> dict:
+    """Arguments of a tool call, which providers send as a JSON string or an object."""
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        # Let the tool report the problem to the model instead of failing the whole reply.
+        return {"_invalid_arguments": raw[:500]}
+    return value if isinstance(value, dict) else {"_invalid_arguments": raw[:500]}

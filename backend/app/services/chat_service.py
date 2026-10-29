@@ -11,7 +11,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, func, select
@@ -23,6 +23,7 @@ from app.db.base import utcnow
 from app.models import Conversation, KnowledgeChunk, KnowledgeDocument, Memory, Message, Project, User
 from app.schemas import MessageOut, RegenerateRequest, SendMessageRequest
 from app.services import knowledge_service
+from app.services.assistant_tools import ToolBox, ToolContext
 from app.services.files_service import FilesRuntime
 from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import (
@@ -36,6 +37,7 @@ from dhanz_ai import (
     RoutingPolicy,
     RoutingRequest,
     build_system_prompt,
+    classify_task,
 )
 from dhanz_knowledge import Passage, ResearchOutcome, bm25_scores, build_context, extract_urls, needs_search
 
@@ -65,6 +67,20 @@ class PreparedTurn:
     saved_memory: str | None = None  # stored from a "remember that …" message in this turn
     temporary_memory_request: bool = False  # "remember that …" in a temporary chat (not saved)
     memory_off_request: bool = False  # user asked to remember something while memory is off
+    client_time: datetime | None = None  # the user's device time (with its UTC offset)
+
+
+def parse_client_time(value: str | None) -> datetime | None:
+    """The device clock sent with a message; ignored unless it carries a UTC offset and is plausible."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or abs(parsed - utcnow()) > timedelta(days=2):
+        return None
+    return parsed
 
 
 _REMEMBER = re.compile(r"^\s*(?:please\s+)?remember(?:\s+that|\s*:)\s+(.{3,500}?)\s*[.!]?\s*$", re.I | re.S)
@@ -233,6 +249,7 @@ async def prepare_send(
         req.web,
         user.auto_index_web and not conv.temporary,
         attachment_ids=[d.id for d in docs],
+        client_time=parse_client_time(req.client_time),
         saved_memory=saved_memory,
         memory_off_request=memory_off_request,
         temporary_memory_request=temporary_memory_request,
@@ -272,6 +289,7 @@ async def prepare_regenerate(
         req.web,
         user.auto_index_web and not conv.temporary,
         attachment_ids=existing,
+        client_time=parse_client_time(req.client_time),
         **await _turn_context(db, user, conv),
     )
 
@@ -288,6 +306,7 @@ async def _finalize(
     output_tokens: int | None,
     error: str | None,
     citations: list[dict] | None,
+    tool_activity: list[dict] | None = None,
 ) -> MessageOut | None:
     async with maker() as db:
         msg = await db.get(Message, message_id)
@@ -301,6 +320,7 @@ async def _finalize(
         msg.output_tokens = output_tokens
         msg.error = error
         msg.citations = citations or None
+        msg.tool_activity = tool_activity or None
         conv = await db.get(Conversation, msg.conversation_id)
         if conv is not None:
             conv.updated_at = utcnow()
@@ -457,6 +477,28 @@ async def request_stop(db: AsyncSession, conv: Conversation, turns) -> uuid.UUID
     return msg.id
 
 
+def _toolbox(
+    maker: async_sessionmaker[AsyncSession], settings: Settings, orchestrator: Orchestrator, turn: PreparedTurn
+) -> ToolBox | None:
+    """Tools for this reply, when enabled and the model expected to answer can call functions."""
+    if not settings.assistant_tools_enabled:
+        return None
+    try:
+        first = orchestrator.candidates(turn.routing, classify_task(turn.question))[0]
+    except NoModelAvailableError:
+        return None
+    if Capability.TOOLS not in first.capabilities:
+        return None
+    return ToolBox(
+        ToolContext(
+            maker,
+            turn.user_id,
+            turn.conversation_id,
+            local_offset=turn.client_time.utcoffset() if turn.client_time else None,
+        )
+    )
+
+
 async def run_turn(
     maker: async_sessionmaker[AsyncSession],
     orchestrator: Orchestrator,
@@ -480,6 +522,7 @@ async def run_turn(
     }
 
     research = _Research()
+    toolbox: ToolBox | None = None
     parts: list[str] = []
     provider = model = None
     input_tokens = output_tokens = None
@@ -496,11 +539,15 @@ async def run_turn(
         if turn.saved_memory:
             yield {"type": "memory", "action": "saved", "content": turn.saved_memory}
         memories = [*turn.memories, *([turn.saved_memory] if turn.saved_memory else [])]
+        toolbox = _toolbox(maker, settings, orchestrator, turn)
         system = build_system_prompt(
             sources=research.sources,
             research_notes=research.notes,
             user_preferences="\n".join(f"- {m}" for m in dict.fromkeys(memories)) or None,
             project_instructions=turn.project_instructions,
+            today=turn.client_time.date() if turn.client_time else None,
+            local_time=turn.client_time.isoformat(timespec="minutes") if turn.client_time else None,
+            tools=toolbox is not None,
         )
         history = list(turn.history)
         routing = turn.routing
@@ -514,7 +561,13 @@ async def run_turn(
             routing = dataclasses.replace(routing, required=routing.required | {Capability.VISION})
         messages = [ChatMessage("system", system), *history]
         params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
-        stream = orchestrator.stream_chat(messages, routing, params)
+        stream = orchestrator.stream_chat(
+            messages,
+            routing,
+            params,
+            tools=toolbox.specs if toolbox else (),
+            run_tool=toolbox.run if toolbox else None,
+        )
         stopped = False
         last_check = time.monotonic()
         async for rc in stream:
@@ -531,6 +584,11 @@ async def run_turn(
             if rc.chunk.text:
                 parts.append(rc.chunk.text)
                 yield {"type": "delta", "text": rc.chunk.text}
+            if rc.chunk.tool_calls:
+                labels = list(dict.fromkeys(ToolBox.label(c.name) for c in rc.chunk.tool_calls))
+                yield {"type": "tool", "stage": "running", "labels": labels}
+            if rc.tool_results and toolbox:
+                yield {"type": "tool", "stage": "done", "activity": toolbox.activity[-len(rc.tool_results) :]}
             if rc.chunk.done:
                 input_tokens, output_tokens = rc.chunk.input_tokens, rc.chunk.output_tokens
         outcome = "stopped" if stopped else "complete"
@@ -552,6 +610,7 @@ async def run_turn(
                 output_tokens=output_tokens,
                 error=error,
                 citations=research.citations,
+                tool_activity=toolbox.activity if toolbox else None,
             )
         )
     if outcome == "complete" and research.pages and turn.auto_index and knowledge is not None:

@@ -93,6 +93,8 @@ class Message(Base):
     citations: Mapped[list | None] = mapped_column(JSON)
     # Files attached to a user message: [{id, filename, kind, mime_type}]
     attachments: Mapped[list | None] = mapped_column(JSON)
+    # Tools used for an assistant reply: [{tool, summary, error, action}]
+    tool_activity: Mapped[list | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
@@ -188,6 +190,24 @@ class Device(Base):
     last_seen_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class Reminder(Base):
+    """Set by the user or by Dhanz's create_reminder tool; announced by push notification when due."""
+
+    __tablename__ = "reminders"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    text: Mapped[str] = mapped_column(String(500))
+    due_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+    # Events: how long it lasts and where (used for the calendar export).
+    duration_minutes: Mapped[int | None] = mapped_column(Integer)
+    location: Mapped[str | None] = mapped_column(String(200))
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"))
+    notified_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    done_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
 class PasswordResetToken(Base):
     """One-time code emailed for a password reset; only its SHA-256 is stored."""
 
@@ -222,6 +242,7 @@ __all__ = [
     "KnowledgeChunk",
     "KnowledgeDocument",
     "PasswordResetToken",
+    "Reminder",
     "Memory",
     "Message",
     "Project",

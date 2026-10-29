@@ -7,6 +7,7 @@ from dhanz_ai.orchestrator import (
     RoutingPolicy,
     RoutingRequest,
     TaskType,
+    ToolRunner,
     classify_task,
 )
 from dhanz_ai.prompts import GREETING, build_system_prompt
@@ -24,6 +25,9 @@ from dhanz_ai.types import (
     ModelInfo,
     ProviderError,
     StreamChunk,
+    ToolCall,
+    ToolResult,
+    ToolSpec,
 )
 
 __all__ = [
@@ -47,6 +51,10 @@ __all__ = [
     "RoutingRequest",
     "StreamChunk",
     "TaskType",
+    "ToolCall",
+    "ToolResult",
+    "ToolRunner",
+    "ToolSpec",
     "build_system_prompt",
     "classify_task",
 ]

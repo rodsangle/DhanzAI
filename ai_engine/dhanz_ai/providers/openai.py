@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
-from dhanz_ai.providers.base import Provider, iter_sse_data, parse_json
+from dhanz_ai.providers.base import Provider, iter_sse_data, parse_json, tool_arguments
 from dhanz_ai.types import (
     Capability,
     ChatMessage,
@@ -15,6 +16,8 @@ from dhanz_ai.types import (
     ModelInfo,
     ProviderError,
     StreamChunk,
+    ToolCall,
+    ToolSpec,
 )
 
 
@@ -43,7 +46,7 @@ class OpenAIProvider(Provider):
     def models(self) -> list[ModelInfo]:
         infos = []
         for m in self._models:
-            caps = {Capability.CHAT, Capability.CODE}
+            caps = {Capability.CHAT, Capability.CODE, Capability.TOOLS}
             if "4o" in m or "gpt-4.1" in m or "gpt-5" in m:
                 caps.add(Capability.VISION)
             tier = CostTier.LOW if "mini" in m or "nano" in m else CostTier.MEDIUM
@@ -51,9 +54,9 @@ class OpenAIProvider(Provider):
         return infos
 
     async def stream(
-        self, model: str, messages: Sequence[ChatMessage], params: GenerationParams
+        self, model: str, messages: Sequence[ChatMessage], params: GenerationParams, tools: Sequence[ToolSpec] = ()
     ) -> AsyncIterator[StreamChunk]:
-        payload = {
+        payload: dict = {
             "model": model,
             "messages": [_to_openai(m) for m in messages],
             "stream": True,
@@ -61,8 +64,17 @@ class OpenAIProvider(Provider):
             "temperature": params.temperature,
             "max_completion_tokens": params.max_tokens,
         }
+        if tools:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {"name": t.name, "description": t.description, "parameters": t.parameters},
+                }
+                for t in tools
+            ]
         headers = {"Authorization": f"Bearer {self.api_key}"}
         input_tokens = output_tokens = None
+        calls: dict[int, dict] = {}  # tool-call fragments by index
         try:
             async with self._client.stream(
                 "POST", f"{self.base_url}/chat/completions", json=payload, headers=headers
@@ -79,15 +91,39 @@ class OpenAIProvider(Provider):
                         input_tokens = usage.get("prompt_tokens")
                         output_tokens = usage.get("completion_tokens")
                     for choice in obj.get("choices") or []:
-                        text = (choice.get("delta") or {}).get("content")
-                        if text:
-                            yield StreamChunk(text=text)
+                        delta = choice.get("delta") or {}
+                        if delta.get("content"):
+                            yield StreamChunk(text=delta["content"])
+                        for frag in delta.get("tool_calls") or []:
+                            call = calls.setdefault(frag.get("index", 0), {"id": "", "name": "", "arguments": ""})
+                            call["id"] = frag.get("id") or call["id"]
+                            fn = frag.get("function") or {}
+                            call["name"] = fn.get("name") or call["name"]
+                            call["arguments"] += fn.get("arguments") or ""
         except httpx.HTTPError as exc:
             raise ProviderError(self.name, f"Network error: {exc}") from exc
+        if calls:
+            yield StreamChunk(
+                tool_calls=tuple(
+                    ToolCall(c["id"] or f"call_{i}", c["name"], tool_arguments(self.name, c["arguments"]))
+                    for i, c in sorted(calls.items())
+                )
+            )
         yield StreamChunk(done=True, input_tokens=input_tokens, output_tokens=output_tokens)
 
 
 def _to_openai(m: ChatMessage) -> dict:
+    if m.role == "tool" and m.tool_result is not None:
+        return {"role": "tool", "tool_call_id": m.tool_result.call_id, "content": m.tool_result.content}
+    if m.tool_calls:
+        return {
+            "role": "assistant",
+            "content": m.content or None,
+            "tool_calls": [
+                {"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
+                for c in m.tool_calls
+            ],
+        }
     if not m.images:
         return {"role": m.role, "content": m.content}
     parts: list[dict] = [{"type": "text", "text": m.content}]

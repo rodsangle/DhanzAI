@@ -21,6 +21,7 @@ from app.api.routes import (
     meta,
     projects,
     realtime,
+    reminders,
     updates,
     users,
     voice,
@@ -40,6 +41,7 @@ from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_run
 from app.services.mailer import Mailer, build_mailer
 from app.services.maintenance import maintenance_loop
 from app.services.push import Notification, PushService, build_push
+from app.services.reminders import reminder_loop
 from app.services.stt import SpeechToText, build_stt
 from app.services.turns import TurnHandle, TurnManager
 from dhanz_ai import AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider, Orchestrator
@@ -113,11 +115,15 @@ def create_app(
             if settings.maintenance_interval_minutes
             else None
         )
+        reminders_task = asyncio.create_task(
+            reminder_loop(app.state.sessionmaker, app.state.push, settings.reminder_check_seconds)
+        )
         yield
-        if maintenance is not None:
-            maintenance.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await maintenance
+        for task in (maintenance, reminders_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         rate_limit.limiter.use_redis(None)
         if redis_client is not None and redis is None:
             await redis_client.aclose()
@@ -197,6 +203,7 @@ def create_app(
         memories.router,
         voice.router,
         devices.router,
+        reminders.router,
         updates.router,
         realtime.router,
         admin.router,

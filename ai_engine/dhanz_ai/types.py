@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-Role = Literal["system", "user", "assistant"]
+Role = Literal["system", "user", "assistant", "tool"]
 
 
 @dataclass(frozen=True)
@@ -18,10 +18,45 @@ class ImagePart:
 
 
 @dataclass(frozen=True)
+class ToolSpec:
+    """A function the model may call. `parameters` is a JSON Schema object (keep it simple: Gemini
+    accepts only an OpenAPI subset — no `additionalProperties`, `$ref` or `oneOf`)."""
+
+    name: str
+    description: str
+    parameters: dict
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict
+    # Opaque provider data that must be sent back with the call (e.g. Gemini thought signatures).
+    extra: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ToolResult:
+    call_id: str
+    name: str
+    content: str  # usually JSON text
+    is_error: bool = False
+
+
+@dataclass(frozen=True)
 class ChatMessage:
     role: Role
     content: str
     images: tuple[ImagePart, ...] = ()
+    # Assistant messages: the tools the model asked to call in this turn.
+    tool_calls: tuple[ToolCall, ...] = ()
+    # Tool messages (role "tool"): which call this is the result of.
+    tool_result: ToolResult | None = None
+
+    @staticmethod
+    def from_tool_result(result: ToolResult) -> ChatMessage:
+        return ChatMessage("tool", result.content, tool_result=result)
 
 
 class Capability(str, Enum):
@@ -31,6 +66,7 @@ class Capability(str, Enum):
     LONG_CONTEXT = "long_context"
     REASONING = "reasoning"
     LOCAL = "local"
+    TOOLS = "tools"  # native function calling
 
 
 class CostTier(int, Enum):
@@ -68,6 +104,8 @@ class StreamChunk:
 
     text: str = ""
     done: bool = False
+    # Set on the final chunk of a round in which the model asked for tool calls.
+    tool_calls: tuple[ToolCall, ...] = ()
     input_tokens: int | None = None
     output_tokens: int | None = None
 

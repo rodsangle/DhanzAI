@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # App updates (Phase 4): JSON manifest written by the release workflow (latest.json).
     update_manifest_file: str | None = None
 
+    # Assistant tools (calculator, units, dates, reminders, email drafts) for models that support them.
+    assistant_tools_enabled: bool = True
+    reminder_check_seconds: int = Field(default=30, ge=5, le=3600)
+
     # ---- Production readiness (Phase 5) ----
     log_format: Literal["text", "json"] = "text"
     # Prometheus metrics at GET /metrics, only when a token is set (send it as a Bearer token).
