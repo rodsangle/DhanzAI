@@ -2,8 +2,8 @@
 
     python tests/e2e/smoke_test.py --base-url http://localhost:8000
 
-Exercises registration, login, conversations, streaming chat, search, export and
-account deletion. If no AI provider is configured on the server, the chat step
+Exercises registration, login, token refresh, sessions, conversations, streaming chat,
+search, export and account deletion. If no AI provider is configured on the server, the chat step
 expects the documented "no provider" error event instead of a reply.
 """
 
@@ -60,6 +60,13 @@ def main() -> None:
         r = c.post(f"{api}/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
         check(r.status_code == 200, "refresh rotation")
         h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+        me = c.get(f"{api}/users/me", headers=h)
+        check(len(me.headers.get("x-request-id", "")) > 0, "request id header")
+        sessions = c.get(f"{api}/users/me/sessions", headers=h).json()
+        check(len(sessions) == 2 and sum(s["current"] for s in sessions) == 1, "sessions listed")
+        check(c.post(f"{api}/users/me/sessions/revoke-others", headers=h).json()["ended"] == 1, "sign out elsewhere")
+        check(c.get(f"{api}/users/me", headers=h).status_code == 200, "current session kept")
 
         models = c.get(f"{api}/models", headers=h).json()
         check(models["greeting"].startswith("Hello! I'm Dhanz"), "greeting")

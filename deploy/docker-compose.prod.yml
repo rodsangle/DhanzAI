@@ -1,0 +1,97 @@
+# Production stack: Caddy (automatic HTTPS) → DHANZ AI API (2 workers) → PostgreSQL + pgvector, Redis.
+#
+#   cd deploy
+#   cp ../.env.example .env        # fill in: APP_ENV=production, JWT_SECRET, POSTGRES_PASSWORD,
+#                                   # DHANZ_DOMAIN, ACME_EMAIL, provider keys, SMTP_*, METRICS_TOKEN …
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Uses the image published by the release workflow (ghcr.io/<owner>/<repo>/api). Set DHANZ_IMAGE
+# to pin a version, e.g. ghcr.io/rodsangle/dhanzai/api:0.5.0. See docs/DEPLOY.md.
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DHANZ_DOMAIN: ${DHANZ_DOMAIN:?set DHANZ_DOMAIN (e.g. api.example.com) in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env (Let's Encrypt notices)}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api]
+    restart: unless-stopped
+
+  api:
+    image: ${DHANZ_IMAGE:-ghcr.io/rodsangle/dhanzai/api:latest}
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dhanz}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-dhanz}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_DIR: /srv/data/uploads
+      LOG_FORMAT: json
+      # Only Caddy talks to the API, so trust its X-Forwarded-For for client IPs.
+      FORWARDED_ALLOW_IPS: "*"
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    volumes:
+      - uploads:/srv/data
+    expose: ["8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dhanz}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-dhanz}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dhanz}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    restart: unless-stopped
+
+  backup:
+    # Nightly logical backup of PostgreSQL into ./backups (keeps 14 days). Copy them off the server too.
+    image: pgvector/pgvector:pg16
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-dhanz}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-dhanz}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          pg_dump -Fc -f /backups/dhanz-$$(date +%Y%m%d-%H%M).dump && echo "backup done"
+          find /backups -name 'dhanz-*.dump' -mtime +14 -delete
+          sleep 86400
+        done
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

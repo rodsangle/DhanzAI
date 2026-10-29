@@ -27,16 +27,22 @@
 | Push notifications (Phase 4) | Notification text is generic ("Dhanz finished your answer") so nothing private appears on a locked screen; the payload carries only conversation/message IDs, which are useless without the user's session. Device tokens belong to one account at a time, are removed on sign-out and when FCM/APNs report them invalid. FCM service-account and APNs keys stay on the server |
 | App updates (Phase 4) | Only `https://` download URLs from the server's manifest are offered; the Windows installer is verified against the SHA-256 in the manifest before it runs, and a mismatching download is deleted. Release builds can be Authenticode-signed |
 | Background replies (Phase 4) | Replies continue after a disconnect but are still bound to the user who started them; only the conversation owner can stop them |
+| Sessions (Phase 5) | Each access token carries its session (refresh-token family); signing a device out, "sign out everywhere", a password change or reset, deactivation all take effect on the next request instead of after the 15-minute token lifetime. Users see their devices and can revoke them |
+| Brute force (Phase 5) | Per-IP limits plus a per-account lockout (5 failures / 15 min by default) applied identically to unknown emails; limits are shared through Redis across workers |
+| Password reset (Phase 5) | 10-character one-time code by email (≈50 bits), stored as SHA-256, valid 30 minutes, single use, invalidated after 5 wrong guesses; requests answer identically whether or not the account exists and the email is sent in the background; a reset signs out every session |
+| Administration (Phase 5) | Role checked from the database on every admin request; admins cannot demote or deactivate themselves; every admin change is audit-logged; first account on a new server is the administrator, `ALLOW_REGISTRATION=false` closes sign-up |
+| Request limits & headers (Phase 5) | JSON bodies capped (`MAX_REQUEST_KB`), uploads by their own limits, before the body is read; production adds `Content-Security-Policy: default-src 'none'` and `Cross-Origin-Resource-Policy` |
+| Supply chain (Phase 5) | CI runs `pip-audit` and CodeQL; Dependabot proposes updates; release images carry build provenance and an SBOM |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
 
 ## Known limitations (to address before a public launch)
 
-* Rate limiting is per process. With several API replicas use a shared limiter (Redis, or the
-  reverse proxy / API gateway).
+* Without `REDIS_URL`, rate limits and the login lockout are counted per worker process.
 * Message content is protected by database access controls and disk/volume encryption of your
   hosting provider, not by application-level encryption.
-* No email verification or password reset flow yet.
-* No MFA; no Google/Apple sign-in yet.
+* No email verification and no MFA; no Google/Apple sign-in yet.
+* Self-service password reset needs SMTP. Without it, the server administrator can set a new
+  password with `python -m app.cli set-password <email>`.
 * DNS rebinding: addresses are checked before connecting, but a hostile DNS server could
   answer differently at connect time. Run the API with egress restricted to the public
   internet (no route to internal networks) for defence in depth.
@@ -44,7 +50,6 @@
   policy; use self-hosted SearXNG to avoid that.
 * Conversations are sent to whichever AI provider handles the request; their data-retention
   policies apply. Use Ollama (`local_first`) to keep data on your own hardware.
-* Audit-log retention and data-retention settings are not yet configurable.
 * Without ClamAV configured, uploads are stored unscanned (marked `not_scanned`). Enable the
   `scan` profile for any multi-user deployment.
 * Uploaded files are stored unencrypted on the server volume; use encrypted disks/volumes.

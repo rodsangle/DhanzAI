@@ -11,18 +11,22 @@ from __future__ import annotations
 import contextvars
 import json
 import logging
+import os
 import re
 import time
 import uuid
 
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest, multiprocess
 
 request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("request_id", default=None)
 access_log = logging.getLogger("dhanz.access")
 
 _VALID_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
-# ---- metrics (process-wide; one API process per container) -------------------------------
+# ---- metrics (process-wide; summed over worker processes when PROMETHEUS_MULTIPROC_DIR is set) ----
+
+if _multiproc_dir := os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+    os.makedirs(_multiproc_dir, exist_ok=True)  # also for one-off processes such as `python -m app.cli`
 
 HTTP_REQUESTS = Counter("dhanz_http_requests_total", "HTTP requests", ["method", "route", "status"])
 HTTP_LATENCY = Histogram(
@@ -33,9 +37,19 @@ HTTP_LATENCY = Histogram(
 )
 CHAT_TURNS = Counter("dhanz_chat_replies_total", "Finished replies by outcome", ["outcome"])
 LLM_TOKENS = Counter("dhanz_llm_tokens_total", "Tokens used, by provider", ["provider", "direction"])
-ACTIVE_REPLIES = Gauge("dhanz_active_replies", "Replies currently being generated")
+# "livesum" adds up the live worker processes when PROMETHEUS_MULTIPROC_DIR is set (ignored otherwise).
+ACTIVE_REPLIES = Gauge("dhanz_active_replies", "Replies currently being generated", multiprocess_mode="livesum")
 PUSH_SENT = Counter("dhanz_push_notifications_total", "Push notification attempts", ["platform", "result"])
 MAINTENANCE_DELETED = Counter("dhanz_maintenance_deleted_total", "Rows removed by the retention job", ["kind"])
+
+
+def render_metrics() -> bytes:
+    """All metrics in Prometheus text format, summed over worker processes in multi-worker deployments."""
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        return generate_latest(registry)
+    return generate_latest()
 
 
 def record_reply(final_event: dict | None) -> None:

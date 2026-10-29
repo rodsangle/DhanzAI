@@ -11,6 +11,8 @@ pip install -r backend/requirements-dev.txt             # also installs ai_engin
 # The same backend suite on PostgreSQL (fresh schema per test) plus the pgvector tests — CI runs this:
 TEST_DATABASE_URL=postgresql+asyncpg://dhanz:...@localhost:5432/dhanz \
 TEST_POSTGRES_URL=postgresql+asyncpg://dhanz:...@localhost:5432/dhanz (cd backend && pytest -q)
+(cd backend && pytest -q --cov=app --cov-fail-under=80)  # coverage gate used in CI
+pip-audit -r backend/requirements.txt                   # known vulnerabilities in dependencies
 ruff check backend ai_engine knowledge_engine tests scripts
 ruff format --check backend ai_engine knowledge_engine tests scripts
 ```
@@ -119,3 +121,41 @@ desktop tray/notification calls are not covered by automated tests; use the chec
 7. Settings → notifications off → no more notifications; sign out → the device is unregistered.
 8. Put a `latest.json` with a higher version on the server → the update banner appears; on Windows
    *Update* downloads, verifies and installs, then the new version starts.
+
+## Load testing
+
+```bash
+python tests/load/load_test.py --base-url http://localhost:8000 --users 20 --rounds 10 [--chat]
+```
+
+Measured on the 4-core build machine (API in production mode, 2 workers, PostgreSQL 16 and
+Redis in containers on the same machine, no AI provider configured so `--chat` measures the
+reply pipeline up to the "no provider" result, not model latency):
+
+| Operation | p50 | p95 |
+|---|---|---|
+| list conversations | 45 ms | 99 ms |
+| create conversation | 49 ms | 88 ms |
+| open conversation | 36 ms | 79 ms |
+| chat request to final event | 139 ms | 320 ms |
+| register (Argon2, 20 at once) | 1.3 s | 1.5 s |
+
+≈150 requests/s overall with 20 concurrent users and no errors. Real chat latency is dominated
+by the AI provider. Argon2 is deliberately slow and CPU-bound; it runs in worker threads so it
+does not hold up other requests. Raise the auth/chat rate limits on a test server, or you
+measure the limiter.
+
+## Manual verification checklist (Phase 5)
+
+1. Sign in on two devices → Settings → *Password & devices* lists both; *Sign out* the other →
+   it is signed out on its next action (not after 15 minutes).
+2. *Change password* → other devices are signed out; the new password works.
+3. With SMTP configured: login screen → *Forgot your password?* → code arrives by email → new
+   password works; a wrong code five times makes the code useless.
+4. Wrong password 5 times → the account is locked for 15 minutes (other accounts unaffected).
+5. Settings → *Delete old conversations* → 30 days; `python -m app.cli maintenance` removes
+   older ones. Timer icon in a new chat → temporary chat banner; "Remember that …" is not saved.
+6. First account → Settings → *Administration* shows statistics and accounts; deactivate a test
+   account → it is signed out immediately.
+7. `curl -H "Authorization: Bearer $METRICS_TOKEN" https://<server>/metrics` shows `dhanz_*` metrics;
+   every response has an `X-Request-ID` that appears in the JSON logs.

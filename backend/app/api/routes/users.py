@@ -6,7 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import CurrentUser, DbDep, OrchestratorDep, current_session, parse_uuid
 from app.core import rate_limit
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_password_async, verify_password_async
 from app.db.base import utcnow
 from app.models import Conversation, KnowledgeDocument, Memory, Project, RefreshToken, User
 from app.schemas import (
@@ -60,11 +60,11 @@ async def update_me(body: UserUpdate, user: CurrentUser, db: DbDep, orchestrator
 async def change_password(body: ChangePasswordRequest, request: Request, user: CurrentUser, db: DbDep) -> Response:
     """Change the password and sign out every other device."""
     await rate_limit.enforce(f"password:{user.id}", 5)
-    if not verify_password(body.current_password, user.password_hash):
+    if not await verify_password_async(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Current password is incorrect")
     if body.new_password == body.current_password:
         raise HTTPException(422, "Choose a password different from the current one")
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await hash_password_async(body.new_password)
     user.updated_at = utcnow()
     ended = await revoke_user_sessions(db, user.id, keep=current_session(request))
     audit.record(
@@ -160,7 +160,7 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_me(body: DeleteAccountRequest, request: Request, user: CurrentUser, db: DbDep) -> Response:
     """Permanently delete the account and all conversations (cascades in the database)."""
-    if not verify_password(body.password, user.password_hash):
+    if not await verify_password_async(body.password, user.password_hash):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Password is incorrect")
     audit.record(db, "user.deleted", user_id=None, ip=rate_limit.client_ip(request), detail={"user_id": str(user.id)})
     uploads = list(

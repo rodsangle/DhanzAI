@@ -6,8 +6,9 @@
   build number must increase for every store upload).
 * Backend/API version: `backend/app/main.py` (`FastAPI(version=...)`).
 * Tag releases `vMAJOR.MINOR.PATCH` (pre-releases: `v0.2.0-beta.1`). Pushing a tag runs
-  `.github/workflows/release.yml`, which builds Android, Windows, iOS and macOS and attaches the
-  artifacts to a GitHub Release. Tagged builds get their version from the tag (`v0.4.0` → `0.4.0`,
+  `.github/workflows/release.yml`, which builds Android, Windows, iOS and macOS, attaches the
+  artifacts to a GitHub Release, and publishes the server image `ghcr.io/<owner>/<repo>/api:<version>`
+  (lower-case) with build provenance and an SBOM. Tagged builds get their version from the tag (`v0.4.0` → `0.4.0`,
   build number = workflow run number), so the in-app update check compares real versions.
 
 ## CI configuration (GitHub → Settings → Secrets and variables → Actions)
@@ -98,7 +99,10 @@ keyPassword=...
 - [ ] Version and build number bumped in `pubspec.yaml`; changelog/release notes drafted
 
 **Backend**
-- [ ] `APP_ENV=production`, strong `JWT_SECRET`, PostgreSQL (not SQLite)
+- [ ] Server image published (`server-image` job) and `deploy/` updated per DEPLOY.md
+- [ ] `APP_ENV=production`, strong `JWT_SECRET`, PostgreSQL (not SQLite), `REDIS_URL`, SMTP for password reset
+- [ ] Backups running and a restore tested; `/metrics` scraped and alerts set
+- [ ] CI `dependency-audit` and CodeQL clean
 - [ ] Provider keys set in the secret manager; `GET /api/v1/health/ready` lists them
 - [ ] Migrations applied (`alembic upgrade head`) and a database backup taken first
 - [ ] TLS terminated; `CORS_ORIGINS` and `FORWARDED_ALLOW_IPS` set correctly

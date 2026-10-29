@@ -39,6 +39,12 @@ server workers; Windows system tray, minimize-to-tray, desktop notifications and
 in-app updates with checksum-verified Windows installers; signed release builds when certificates
 are provided. The native push code has not yet been run on real devices; see the roadmap.
 
+**Phase 5 — production readiness:** see and sign out your devices (immediately effective),
+password change and email reset, per-account brute-force lockout, Redis-shared rate limits,
+auto-deletion of old conversations and temporary chats, an administration screen, request IDs,
+JSON logs and Prometheus metrics, coverage gates, dependency audit, CodeQL, a signed server
+image and a one-command HTTPS deployment with nightly backups ([docs/DEPLOY.md](docs/DEPLOY.md)).
+
 Tools (calendar, reminders, email drafting, calculators), OCR for scanned PDFs and Google/Apple
 sign-in are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact status
 of every feature.
@@ -70,6 +76,8 @@ ai_engine            dhanz_ai package: OpenAI / Anthropic / Gemini / Ollama adap
 knowledge_engine     dhanz_knowledge: search APIs, safe fetching, extraction, embeddings, ranking
 database             PostgreSQL init (pgvector, pg_trgm)
 tests/e2e            Smoke test against a running API
+tests/load           Load test against a running API
+deploy               Production stack: Caddy (HTTPS), API, PostgreSQL, Redis, backups
 scripts              App icon generator, Windows installer (Inno Setup)
 .github/workflows    CI and release builds
 docs                 Architecture, install, testing, security, release, roadmap
@@ -82,6 +90,7 @@ docs                 Architecture, install, testing, security, release, roadmap
 * [Testing](docs/TESTING.md) — unit, widget, end-to-end, manual checklist
 * [Security & privacy](docs/SECURITY.md) — controls in place and known limitations
 * [Release](docs/RELEASE.md) — signing, CI secrets, release checklist
+* [Deploy & operate](docs/DEPLOY.md) — HTTPS server, backups, monitoring, scaling
 * [Roadmap](docs/ROADMAP.md) — phases and implementation status
 
 ## Tech stack

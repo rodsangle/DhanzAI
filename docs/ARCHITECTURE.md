@@ -55,7 +55,11 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `main.py` | App factory, lifespan (DB engine, orchestrator), CORS, security headers |
 | `core/config.py` | Typed settings from environment; refuses weak secrets / SQLite in production |
 | `core/security.py` | Argon2id password hashing, JWT access tokens, opaque refresh tokens (SHA-256 at rest) |
-| `core/rate_limit.py` | Sliding-window limiter for auth (per IP) and chat (per user) |
+| `core/rate_limit.py` | Sliding-window limits (auth per IP, chat/uploads per user, login lockout per account), shared through Redis when `REDIS_URL` is set |
+| `core/observability.py` | Request IDs, JSON logging, Prometheus metrics, request-size limits (pure ASGI middleware, streaming-safe) |
+| `services/maintenance.py` | Hourly clean-up: conversation retention, temporary chats, expired sessions/reset codes, old audit entries |
+| `services/mailer.py` | SMTP for password-reset codes |
+| `cli.py` | `python -m app.cli promote|demote|set-password|maintenance` |
 | `models/` | `users`, `refresh_tokens`, `conversations`, `messages`, `audit_logs` |
 | `services/auth_service.py` | Token issue, rotation, reuse detection (revokes the whole session family) |
 | `services/chat_service.py` | Turn preparation (send / edit-and-resend / regenerate), research phase, history building, streaming + persistence |
@@ -90,6 +94,12 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `WS /ws/chat` | Same chat protocol over WebSocket (auth frame first) |
 | `POST /devices`, `POST /devices/unregister` | Register / remove this phone's push token |
 | `GET /app/updates?platform=&version=` | Is a newer app version available (from the release `latest.json`)? No auth needed |
+| `GET /auth/options` | Is registration open, is password reset available (no auth) |
+| `POST /auth/password-reset/request`, `/auth/password-reset/confirm` | Email a one-time code; set a new password with it |
+| `POST /users/me/password` | Change password (other devices are signed out) |
+| `GET /users/me/sessions`, `DELETE /users/me/sessions/{id}`, `POST /users/me/sessions/revoke-others` | Signed-in devices |
+| `GET /admin/stats`, `GET /admin/users`, `PATCH /admin/users/{id}`, `GET /admin/audit` | Administration (role `admin`) |
+| `GET /metrics` (no prefix) | Prometheus metrics, only with `METRICS_TOKEN` |
 
 `POST /conversations/{id}/messages` also takes `attachment_ids`; conversations take an optional
 `project_id`; exports take `format=markdown|txt|pdf`.
@@ -172,6 +182,12 @@ users 1──* audit_logs (user_id SET NULL on delete)
   `knowledge_documents` (`kind = "file"`, type, size, storage key, scan status, extraction notes).
   File bytes live in `STORAGE_DIR` (a Docker volume), are removed when the document or account is deleted.
   Phase 4 added `devices` (push token, platform, app version; unique token, cascades with the user).
+  Phase 5 added `password_reset_tokens`, `users.retention_days`, `conversations.temporary` and an
+  index on `messages.created_at` (usage statistics).
+
+**Sessions.** A session is a refresh-token family: every refresh rotates the token inside the
+family, and access tokens carry the family ID (`sid`). Each authenticated request checks that the
+family still has a live token, so revoking a session ends it at once.
 
 ## 6. Flutter app (`apps/dhanz_flutter/lib`)
 
@@ -192,6 +208,8 @@ users 1──* audit_logs (user_id SET NULL on delete)
 | `features/voice` | Voice screen and controller: recording with level-based end-of-speech detection, transcription, spoken replies, hands-free loop, wake phrase |
 | `core/files.dart` | File picking and "save as" (attachments, downloads, exports) |
 | `features/settings` | Profile, theme, default model, routing policy, data export, account deletion, sign-out |
+| `features/account` | Password & devices screen, change-password dialog, forgot-password flow |
+| `features/admin` | Administration screen (statistics, accounts) for administrators |
 | `router.dart` | GoRouter with auth-aware redirects |
 
 Layout is responsive: ≥ 900 px wide shows a permanent history panel (desktop/tablet); narrower

@@ -11,13 +11,13 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import DbDep, SettingsDep
 from app.core import rate_limit
 from app.core.security import (
-    hash_password,
+    hash_password_async,
     hash_token,
     new_reset_code,
     normalize_reset_code,
     password_needs_rehash,
     same_hash,
-    verify_password,
+    verify_password_async,
 )
 from app.db.base import utcnow
 from app.models import PasswordResetToken, User
@@ -70,7 +70,7 @@ async def register(body: RegisterRequest, request: Request, db: DbDep, settings:
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")
     user = User(
         email=email,
-        password_hash=hash_password(body.password),
+        password_hash=await hash_password_async(body.password),
         display_name=body.display_name,
         routing_policy=settings.default_routing_policy,
         # The first account on a new server administers it.
@@ -102,14 +102,18 @@ async def login(body: LoginRequest, request: Request, db: DbDep, settings: Setti
             "or reset your password.",
         )
     user = await db.scalar(select(User).where(User.email == email))
-    if not verify_password(body.password, user.password_hash if user else None) or not user or not user.is_active:
+    if (
+        not await verify_password_async(body.password, user.password_hash if user else None)
+        or not user
+        or not user.is_active
+    ):
         await rate_limit.limiter.hit(lock_key, settings.login_lockout_attempts, window)
         audit.record(db, "auth.login_failed", user_id=user.id if user else None, ip=ip)
         await db.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     await rate_limit.limiter.clear(lock_key)
     if user.password_hash and password_needs_rehash(user.password_hash):
-        user.password_hash = hash_password(body.password)
+        user.password_hash = await hash_password_async(body.password)
     tokens = await issue_tokens(db, settings, user, user_agent=request.headers.get("user-agent"))
     audit.record(db, "auth.login", user_id=user.id, ip=ip)
     await db.commit()
@@ -220,7 +224,7 @@ async def confirm_password_reset(
         await db.commit()
         raise invalid
     token.used_at = utcnow()
-    user.password_hash = hash_password(body.new_password)
+    user.password_hash = await hash_password_async(body.new_password)
     user.updated_at = utcnow()
     ended = await revoke_user_sessions(db, user.id)
     await rate_limit.limiter.clear(f"login-fail:{user.email}")

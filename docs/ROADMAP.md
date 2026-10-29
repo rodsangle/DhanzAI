@@ -62,7 +62,7 @@ features that work.
 | Background / always-on wake word | ⬜ | Deliberately not done: the microphone is only used while the Voice screen is open, as Android and iOS require |
 | Tools (calculator, unit conversion, email drafting, calendar, reminders) | ⬜ | Moved to Phase 3b: needs provider tool-calling and an approval step for any external action |
 
-## Phase 4 — Platform distribution (this milestone)
+## Phase 4 — Platform distribution
 
 | Feature | Status | Notes |
 |---|---|---|
@@ -78,9 +78,28 @@ features that work.
 | Store listings (Play, App Store, Microsoft Store) | ⬜ | Needs developer accounts, privacy forms and screenshots |
 | Linux packages | ⬜ | The app runs on Linux (`flutter build linux`) but is not packaged |
 
-## Phase 5 — Production readiness
+## Phase 5 — Production readiness (this milestone)
 
-⬜ Redis-backed shared rate limiting and job queue · ⬜ metrics/tracing (OpenTelemetry) ·
-⬜ admin RBAC endpoints · ⬜ data-retention jobs · ⬜ encryption of message content at rest
-(application-level) · ⬜ load tests · ⬜ Google/Apple sign-in · ⬜ offline mode (local history
-cache, on-device models where hardware allows).
+| Area | Feature | Status | Notes |
+|---|---|---|---|
+| Security | Sessions list, sign out one device or all others | ✅ | Access tokens carry their session; revoking it locks them out immediately, not after 15 minutes |
+| Security | Change password (signs out other devices) | ✅ | |
+| Security | Password reset by emailed one-time code | ✅ | Needs SMTP; codes are single-use, expire in 30 min, burn after 5 wrong guesses; the API never reveals whether an email is registered |
+| Security | Per-account login lockout | ✅ | After 5 failures in 15 minutes (configurable), on top of per-IP limits |
+| Security | Shared rate limits (Redis) | ✅ | `REDIS_URL`; falls back to per-process limits if Redis is down |
+| Security | Request size limits, extra headers (CSP, CORP) | ✅ | |
+| Security | Closed registration for private servers; first account is the administrator | ✅ | `ALLOW_REGISTRATION=false` |
+| Security | Email verification, MFA, Google/Apple sign-in | ⬜ | |
+| Security | Application-level encryption of message content | ⬜ | Rely on encrypted volumes; app-level encryption would disable server-side search |
+| Privacy | Auto-delete old conversations (7/30/90/365 days) | ✅ | Per user, in Settings |
+| Privacy | Temporary chats | ✅ | No memory, no library indexing, deleted after 24 h |
+| Privacy | Audit-log retention, expired-token clean-up | ✅ | Hourly maintenance job (`python -m app.cli maintenance` to run it by hand) |
+| Admin | Usage statistics, account list, deactivate/reactivate, roles, audit log | ✅ | API + app screen; `python -m app.cli promote <email>` |
+| Monitoring | Request IDs, JSON logs, Prometheus metrics (HTTP, replies, tokens, push, clean-up) | ✅ | `/metrics` only with `METRICS_TOKEN`; aggregated across workers |
+| Monitoring | Distributed tracing (OpenTelemetry) | ⬜ | Request IDs are propagated in logs and the `X-Request-ID` header |
+| Performance | Response compression, DB pool settings, password hashing off the event loop | ✅ | |
+| Performance | Load-test script | ✅ | `tests/load/load_test.py`; see TESTING.md for measured numbers |
+| Pipelines | Coverage gates, dependency audit, CodeQL, Dependabot | ✅ | |
+| Pipelines | Signed-provenance container image on GHCR, production compose with automatic HTTPS and nightly backups | ✅ | `deploy/` — see DEPLOY.md |
+| Offline | Offline history cache, on-device models | ⬜ | |
+| Tools | Calculator, unit conversion, calendar, reminders, email drafting | ⬜ | Still open from Phase 3b |

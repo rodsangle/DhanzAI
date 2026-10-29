@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST
 
 from app.api.routes import (
     admin,
@@ -28,7 +28,12 @@ from app.api.routes import (
 from app.api.routes import knowledge as knowledge_routes
 from app.core import rate_limit
 from app.core.config import Settings, get_settings
-from app.core.observability import BodySizeLimitMiddleware, RequestContextMiddleware, configure_logging
+from app.core.observability import (
+    BodySizeLimitMiddleware,
+    RequestContextMiddleware,
+    configure_logging,
+    render_metrics,
+)
 from app.db.session import make_engine, make_sessionmaker
 from app.services.files_service import build_files_runtime
 from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
@@ -179,7 +184,7 @@ def create_app(
         given = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
         if not token or not hmac.compare_digest(given.encode(), token.encode()):
             return Response(status_code=404)
-        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+        return Response(render_metrics(), media_type=CONTENT_TYPE_LATEST)
 
     for router in (
         meta.router,

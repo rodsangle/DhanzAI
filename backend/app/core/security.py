@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import secrets
@@ -29,6 +30,16 @@ def verify_password(password: str, password_hash: str | None) -> bool:
         return _hasher.verify(password_hash or _DUMMY_HASH, password) and password_hash is not None
     except (VerifyMismatchError, VerificationError, InvalidHashError):
         return False
+
+
+# Argon2 deliberately takes ~50-100 ms of CPU: run it in a worker thread so one sign-in does not
+# stall every other request (and streaming reply) handled by the same process.
+async def hash_password_async(password: str) -> str:
+    return await asyncio.to_thread(hash_password, password)
+
+
+async def verify_password_async(password: str, password_hash: str | None) -> bool:
+    return await asyncio.to_thread(verify_password, password, password_hash)
 
 
 def password_needs_rehash(password_hash: str) -> bool:

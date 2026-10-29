@@ -1,6 +1,7 @@
 """Phase 5: sessions, lockout, password change/reset, retention, temporary chats, admin, monitoring."""
 
 import asyncio
+import os
 from datetime import timedelta
 
 import fakeredis
@@ -330,6 +331,12 @@ def test_cli_promote(settings, knowledge, monkeypatch):
     assert db_run(settings, lambda db: db.scalar(select(User.role).where(User.email == "ada@example.com"))) == "admin"
     assert cli.main(["demote", "nobody@example.com"]) == 1
 
+    answers = iter(["cli-set-pass-1", "cli-set-pass-1"])
+    monkeypatch.setattr(cli.getpass, "getpass", lambda prompt="": next(answers))
+    assert cli.main(["set-password", "ada@example.com"]) == 0
+    with make_client(settings, knowledge) as client:
+        assert login(client, "ada@example.com", "cli-set-pass-1").status_code == 200
+
 
 # ---------------------------------------------------------------- monitoring & limits
 
@@ -405,3 +412,19 @@ async def test_rate_limiter_falls_back_when_redis_is_down():
 def test_settings_accept_retention_choices(client, auth, days):
     r = client.patch("/api/v1/users/me", json={"retention_days": days or 0}, headers=auth["headers"])
     assert r.json()["retention_days"] == days
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_REDIS_URL"), reason="set TEST_REDIS_URL to test against a real Redis")
+async def test_real_redis_rate_limiter():
+    from redis.asyncio import Redis
+
+    client = Redis.from_url(os.environ["TEST_REDIS_URL"])
+    try:
+        rl = RateLimiter()
+        rl.use_redis(client)
+        await rl.clear("ci-check")
+        assert [await rl.hit("ci-check", 2, 30) is None for _ in range(3)] == [True, True, False]
+        assert await rl.peek("ci-check", 2, 30) is not None
+        await rl.clear("ci-check")
+    finally:
+        await client.aclose()

@@ -74,6 +74,11 @@ on each device. The apps ask for microphone permission the first time the Voice 
   answers simply are not announced.
 * **Updates**: copy `latest.json` from a GitHub release to the server and set `UPDATE_MANIFEST_FILE`.
 
+### Production server
+
+For a server reachable from the internet (HTTPS, backups, monitoring) use `deploy/` and follow
+[DEPLOY.md](DEPLOY.md). The first account registered on a new server becomes its administrator.
+
 ### Using local models (Ollama)
 
 Install [Ollama](https://ollama.com), run `ollama pull llama3.1`, then set

@@ -35,15 +35,28 @@ jobs:
         run: |
           ruff check backend ai_engine knowledge_engine tests scripts
           ruff format --check backend ai_engine knowledge_engine tests scripts
-      - name: AI engine tests
+      - name: AI engine tests (coverage >= 85%)
         working-directory: ai_engine
-        run: pytest -q
-      - name: Knowledge engine tests
+        run: pytest -q --cov=dhanz_ai --cov-report=term-missing:skip-covered --cov-fail-under=85
+      - name: Knowledge engine tests (coverage >= 85%)
         working-directory: knowledge_engine
-        run: pytest -q
-      - name: Backend tests
+        run: pytest -q --cov=dhanz_knowledge --cov-report=term-missing:skip-covered --cov-fail-under=85
+      - name: Backend tests (coverage >= 80%)
         working-directory: backend
-        run: pytest -q
+        run: pytest -q --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=80
+
+  dependency-audit:
+    name: Dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: pip-audit (backend runtime dependencies)
+        run: |
+          pip install "pip-audit>=2.7"
+          pip-audit -r backend/requirements.txt --progress-spinner off
 
   backend-postgres:
     name: Backend on PostgreSQL + pgvector (migrations, full tests, e2e smoke)
@@ -58,6 +71,9 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U dhanz" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
     env:
       APP_ENV: production
       DATABASE_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
@@ -82,16 +98,21 @@ jobs:
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
           TEST_POSTGRES_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
+          TEST_REDIS_URL: redis://localhost:6379/0
         run: pytest -q
       - name: Re-apply migrations for the smoke test
         working-directory: backend
         run: alembic upgrade head
-      - name: Start API and run smoke test
+      - name: Start API (with Redis rate limits and metrics) and run smoke test
         working-directory: backend
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          METRICS_TOKEN: ci-metrics-token-0123456789abcdef
         run: |
           uvicorn app.main:app --port 8000 &
           for i in $(seq 1 30); do curl -sf localhost:8000/api/v1/health && break; sleep 1; done
           python ../tests/e2e/smoke_test.py --base-url http://localhost:8000
+          curl -sf -H "Authorization: Bearer $METRICS_TOKEN" localhost:8000/metrics | grep -q dhanz_http_requests_total
 
   docker:
     name: Backend Docker image
