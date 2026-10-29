@@ -74,8 +74,9 @@ jobs:
           flutter build apk --release $VERSION_ARGS --dart-define=DHANZ_API_URL="$API_URL"
           flutter build appbundle --release $VERSION_ARGS --dart-define=DHANZ_API_URL="$API_URL"
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/dhanz-ai-${{ github.ref_name }}.apk
-          cp build/app/outputs/bundle/release/app-release.aab dist/dhanz-ai-${{ github.ref_name }}.aab
+          NAME="${GITHUB_REF_NAME//\//-}"   # manual runs on branches like dependabot/... have slashes
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/dhanz-ai-$NAME.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "dist/dhanz-ai-$NAME.aab"
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -221,7 +222,7 @@ jobs:
           flutter pub get
           flutter build macos --release ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL"
           mkdir -p dist
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/dhanz_ai.app" "dist/dhanz-ai-macos-unsigned.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/DHANZ AI.app" "dist/dhanz-ai-macos-unsigned.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: macos
