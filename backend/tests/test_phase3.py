@@ -339,3 +339,26 @@ def test_account_deletion_removes_stored_files(client, auth, settings):
     r = client.request("DELETE", "/api/v1/users/me", headers=auth["headers"], json={"password": "correct-horse-9"})
     assert r.status_code == 204
     assert not any(p.exists() for p in stored)
+
+
+def test_remember_request_parsing_and_redos_resistance():
+    import time
+
+    from app.services.chat_service import remember_request
+
+    assert remember_request("Remember that I prefer metric units.") == "I prefer metric units"
+    assert remember_request("  please REMEMBER: my sister is called Ana!  ") == "my sister is called Ana"
+    assert remember_request("remember that\nI work nights") == "I work nights"
+    assert remember_request("Do you remember that film?") is None
+    assert remember_request("remember that ab") is None  # too short
+    assert remember_request("remember that " + "x" * 600) is None  # too long for a memory
+
+    # The old pattern took ~30 s on the first input (CodeQL py/polynomial-redos); messages may be 32,000 chars.
+    for evil in (
+        "remember that abc" + " " * 5_000 + "x",
+        "remember that ab" + " " * 500 + "x",
+        "remember:" + " " * 30_000,
+    ):
+        start = time.perf_counter()
+        remember_request(evil)
+        assert time.perf_counter() - start < 0.05

@@ -83,7 +83,24 @@ def parse_client_time(value: str | None) -> datetime | None:
     return parsed
 
 
-_REMEMBER = re.compile(r"^\s*(?:please\s+)?remember(?:\s+that|\s*:)\s+(.{3,500}?)\s*[.!]?\s*$", re.I | re.S)
+# Matched against the stripped message. The captured text starts with a non-space so the parts of the
+# pattern cannot overlap (no polynomial backtracking), and only short messages are tried at all.
+_REMEMBER = re.compile(r"(?:please\s+)?remember(?:\s+that|\s*:)\s+(\S.{2,520})", re.I | re.S)
+_REMEMBER_MAX_CHARS = 600
+
+
+def remember_request(content: str) -> str | None:
+    """The text of a "Remember that …" request, or None."""
+    text = content.strip()
+    if len(text) > _REMEMBER_MAX_CHARS:
+        return None
+    match = _REMEMBER.fullmatch(text)
+    if not match:
+        return None
+    saved = match.group(1).rstrip()
+    if saved[-1] in ".!":
+        saved = saved[:-1].rstrip()
+    return saved if 3 <= len(saved) <= 500 else None
 
 
 async def _attachments(
@@ -210,12 +227,12 @@ async def prepare_send(
     docs = await _attachments(db, settings, user, attachment_ids)
 
     saved_memory, memory_off_request, temporary_memory_request = None, False, False
-    remember = _REMEMBER.match(req.content)
+    remember = remember_request(req.content)
     if remember and conv.temporary:
         temporary_memory_request = True
     elif remember:
         if user.memory_enabled:
-            saved_memory = remember.group(1).strip()
+            saved_memory = remember
             db.add(Memory(user_id=user.id, content=saved_memory[:1000], source="chat"))
         else:
             memory_off_request = True
