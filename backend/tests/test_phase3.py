@@ -153,6 +153,38 @@ def test_malware_scanner_verdicts(client, auth):
     assert upload(client, auth, "a.txt", b"hello there").json()["scan_status"] == "clean"
 
 
+def test_malware_is_rejected_before_document_parser(client, auth, monkeypatch):
+    def must_not_parse(*args, **kwargs):
+        raise AssertionError("Unscanned file reached the parser")
+
+    class Infected:
+        async def scan(self, data):
+            raise MalwareFound("Eicar-Test-Signature")
+
+    monkeypatch.setattr("app.services.files_service.extract_document", must_not_parse)
+    client.app.state.files.scanner = Infected()
+    response = upload(client, auth, "bad.pdf", b"%PDF-untrusted")
+    assert response.status_code == 422
+    assert "Eicar-Test-Signature" in response.json()["detail"]
+
+
+def test_ocr_upload_is_indexed_and_private(client, auth, settings, monkeypatch):
+    from fpdf import FPDF
+
+    settings.ocr_enabled = True
+    monkeypatch.setattr("app.services.files_service.PDFOCR.__call__", lambda self, page: "Pump serial SCAN12345")
+    pdf = FPDF()
+    pdf.add_page()
+    response = upload(client, auth, "scan.pdf", bytes(pdf.output()))
+    assert response.status_code == 201, response.text
+    doc = response.json()
+    assert "recognition errors" in doc["notes"]
+    hits = client.get("/api/v1/knowledge/search", headers=auth["headers"], params={"q": "SCAN12345"}).json()
+    assert hits[0]["document_id"] == doc["id"]
+    other = register(client, "ocr-other@example.com")
+    assert client.get("/api/v1/knowledge/search", headers=other["headers"], params={"q": "SCAN12345"}).json() == []
+
+
 async def test_clamav_protocol():
     import asyncio
 

@@ -64,6 +64,32 @@ class Settings(BaseSettings):
     # scanned are rejected (fail closed); when unset, files are stored as "not_scanned".
     clamav_host: str | None = None
     clamav_port: int = 3310
+    ocr_enabled: bool = False
+    ocr_language: str = Field(default="eng", pattern=r"^[a-zA-Z0-9_]+(?:\+[a-zA-Z0-9_]+)*$")
+    ocr_max_pages: int = Field(default=20, ge=1, le=100)
+    ocr_timeout_seconds: int = Field(default=90, ge=1, le=300)
+
+    # Creative Studio. Disabled until explicitly configured; secrets stay on the server.
+    creative_enabled: bool = False
+    creative_worker_enabled: bool = True
+    creative_image_api_key: str | None = None  # falls back to OPENAI_API_KEY
+    creative_image_base_url: str = "https://api.openai.com/v1"
+    creative_image_model: str = "gpt-image-2.5-sunburst"
+    creative_image_edits: bool = True
+    creative_image_transparency: bool = True
+    creative_moderation_api_key: str | None = None  # falls back to OPENAI_API_KEY
+    runway_api_key: str | None = None
+    creative_storage: Literal["local", "s3"] = "local"
+    creative_storage_dir: str = "./data/creations"
+    creative_s3_bucket: str | None = None
+    creative_s3_endpoint: str | None = None
+    creative_s3_region: str = "us-east-1"
+    creative_media_days: int = Field(default=30, ge=1, le=365)
+    creative_max_media_mb: int = Field(default=100, ge=1, le=500)
+    creative_max_active_jobs: int = Field(default=3, ge=1, le=20)
+    creative_image_cost: int = Field(default=5, ge=1, le=100000)
+    creative_video_cost_per_second: int = Field(default=10, ge=1, le=100000)
+    creative_monthly_allowance: int = Field(default=100, ge=0, le=1000000)
 
     # Speech-to-text for the voice assistant: an OpenAI-compatible /audio/transcriptions endpoint
     # (OpenAI, or a self-hosted Whisper server). Text-to-speech runs on the device.
@@ -158,6 +184,12 @@ class Settings(BaseSettings):
         if not self.jwt_secret and self.app_env != "production":
             self.jwt_secret = _INSECURE_DEV_SECRET  # blank JWT_SECRET= line in a dev .env
         if self.app_env == "production":
+            if self.creative_enabled and self.creative_storage != "s3":
+                raise ValueError("Production Creative Studio requires private S3 storage (CREATIVE_STORAGE=s3)")
+            if self.creative_enabled and not self.creative_image_base_url.startswith("https://"):
+                raise ValueError("Production image generation requires an HTTPS provider endpoint")
+            if self.creative_s3_endpoint and not self.creative_s3_endpoint.startswith("https://"):
+                raise ValueError("Production S3 storage requires an HTTPS endpoint")
             if self.jwt_secret == _INSECURE_DEV_SECRET or len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET must be set to a random value of at least 32 characters in production")
             if self.database_url.startswith("sqlite"):

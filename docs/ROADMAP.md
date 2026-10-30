@@ -2,6 +2,21 @@
 
 Legend: ✅ implemented and tested · 🟡 partially implemented · ⬜ not started
 
+## Creative Studio — 0.7 update
+
+| Feature | Status | Notes |
+|---|---|---|
+| Image generation and natural-language reference editing | 🟡 | OpenAI-compatible adapter, prompt/ratio/quality/format controls; API and widget tests use simulated services; live verification pending |
+| Asynchronous video generation | 🟡 | Runway Gen-4.5 text/image-to-video, persisted tasks, polling, cancel, MP4; live verification pending; retired Sora API not exposed |
+| Private creation gallery, previews, downloads and explicit sharing | 🟡 | Flutter studio on Windows/Android/iOS/web; widget tests and web compilation checks; native playback/share need devices |
+| Credit reservations, settlement/refunds, monthly plan allowances | ✅ | Server-side ledger, idempotency and concurrent requests tested on SQLite; PostgreSQL covered by CI configuration |
+| Payment checkout / purchased credit packs | ⬜ | Admin grants and per-user plan allowances exist; no payment gateway or webhook handler |
+| Private cloud media storage / expiring preview links / cleanup | 🟡 | Encrypted S3-compatible adapter and deletion outbox; simulated storage contract tests; live bucket verification pending |
+| Safety screening, consent, reports, admin takedown | 🟡 | Fail-closed prompt/reference and image-output screening, native provider video checks; no independent video-frame moderation or rights verification |
+| Dedicated image upscaling / generated video audio | ⬜ | Generative enhancement exists; unsupported controls are not offered |
+
+See [Creative Studio](CREATIVE_STUDIO.md) for configuration, architecture, verification and limitations.
+
 Nothing marked ⬜ exists in the code base as a mock or placeholder screen; the app only shows
 features that work.
 

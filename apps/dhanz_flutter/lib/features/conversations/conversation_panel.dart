@@ -247,6 +247,11 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
             ),
             const Divider(height: 1),
             ListTile(
+              leading: const Icon(Icons.auto_awesome_outlined),
+              title: const Text('DHANZ Creative Studio'),
+              onTap: () => _go('/studio'),
+            ),
+            ListTile(
               leading: const Icon(Icons.local_library_outlined),
               title: const Text('Knowledge library'),
               onTap: () => _go('/library'),

@@ -315,6 +315,21 @@ class DocumentList(BaseModel):
     total: int
 
 
+class ResearchLibraryRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=500)
+    project_id: uuid.UUID | None = None
+
+
+class ResearchFailure(BaseModel):
+    url: str | None = None
+    reason: str
+
+
+class ResearchLibraryResponse(BaseModel):
+    items: list[DocumentOut]
+    failures: list[ResearchFailure]
+
+
 class LibraryHit(BaseModel):
     document_id: uuid.UUID
     title: str

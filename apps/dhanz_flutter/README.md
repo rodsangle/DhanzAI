@@ -15,3 +15,6 @@ flutter test
   from `assets/branding` with `dart run flutter_launcher_icons`.
 
 See `../../docs/INSTALL.md` for release builds on each platform.
+
+For direct Windows Ollama chat, Local/Cloud/Hybrid routing, and offline setup,
+see [Windows local AI](../../docs/windows-ollama.md).

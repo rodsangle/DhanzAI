@@ -15,6 +15,7 @@ from app.api.routes import (
     admin,
     auth,
     conversations,
+    creative,
     devices,
     files,
     memories,
@@ -36,6 +37,7 @@ from app.core.observability import (
     render_metrics,
 )
 from app.db.session import make_engine, make_sessionmaker
+from app.generation_jobs import CreativeRuntime, worker_loop
 from app.services.files_service import build_files_runtime
 from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
 from app.services.mailer import Mailer, build_mailer
@@ -100,6 +102,12 @@ def create_app(
         app.state.orchestrator = orchestrator or build_orchestrator(settings)
         app.state.knowledge = knowledge or build_knowledge_runtime(settings)
         app.state.files = build_files_runtime(settings)
+        app.state.creative = CreativeRuntime(settings)
+        creative_task = (
+            asyncio.create_task(worker_loop(app.state.sessionmaker, app.state.creative))
+            if settings.creative_enabled and settings.creative_worker_enabled
+            else None
+        )
         app.state.stt = stt if stt is not None else build_stt(settings)
         app.state.push = push if push is not None else build_push(settings)
         app.state.turns = TurnManager(on_unattended_finish=_notify_finished(app))
@@ -119,7 +127,7 @@ def create_app(
             reminder_loop(app.state.sessionmaker, app.state.push, settings.reminder_check_seconds)
         )
         yield
-        for task in (maintenance, reminders_task):
+        for task in (maintenance, reminders_task, creative_task):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -135,11 +143,12 @@ def create_app(
         if app.state.stt is not None:
             await app.state.stt.aclose()
         await app.state.push.aclose()
+        await app.state.creative.aclose()
         await engine.dispose()
 
     app = FastAPI(
         title="DHANZ AI API",
-        version="0.6.0",
+        version="0.7.0",
         description="Backend for the DHANZ AI assistant. Your World. Your Knowledge. Your AI.",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
@@ -163,9 +172,9 @@ def create_app(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_credentials=False,  # bearer tokens, no cookies
-        allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Range"],
+        expose_headers=["X-Request-ID", "Content-Range", "Accept-Ranges", "Content-Disposition"],
     )
 
     @app.middleware("http")
@@ -207,6 +216,7 @@ def create_app(
         updates.router,
         realtime.router,
         admin.router,
+        creative.router,
     ):
         app.include_router(router, prefix=settings.api_prefix)
     return app

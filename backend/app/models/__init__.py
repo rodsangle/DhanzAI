@@ -5,10 +5,110 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, false, true
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid,
+    false,
+    true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Embedding, UTCDateTime, utcnow
+
+
+class CreativePolicy(Base):
+    __tablename__ = "creative_policy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_cost: Mapped[int] = mapped_column(Integer, default=5)
+    video_cost_per_second: Mapped[int] = mapped_column(Integer, default=10)
+    monthly_allowance: Mapped[int] = mapped_column(Integer, default=100)
+
+
+class CreditAccount(Base):
+    __tablename__ = "credit_accounts"
+    __table_args__ = (
+        CheckConstraint("balance >= 0", name="positive_balance"),
+        CheckConstraint("reserved >= 0", name="positive_reserved"),
+        CheckConstraint("consumed >= 0", name="positive_consumed"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    balance: Mapped[int] = mapped_column(Integer, default=0)
+    reserved: Mapped[int] = mapped_column(Integer, default=0)
+    consumed: Mapped[int] = mapped_column(Integer, default=0)
+    allowance_month: Mapped[str] = mapped_column(String(7), default="")
+    monthly_allowance: Mapped[int | None] = mapped_column(Integer)
+
+
+class GenerationJob(Base):
+    __tablename__ = "generation_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "request_key", name="uq_generation_request"),
+        Index("ix_generation_queue", "status", "next_poll_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    request_key: Mapped[str] = mapped_column(String(80))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(10))
+    provider: Mapped[str] = mapped_column(String(30))
+    model: Mapped[str] = mapped_column(String(100))
+    prompt: Mapped[str] = mapped_column(Text)
+    options: Mapped[dict] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(20), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    cost: Mapped[int] = mapped_column(Integer)
+    submitted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider_job_id: Mapped[str | None] = mapped_column(String(150))
+    lease_token: Mapped[str | None] = mapped_column(String(64))
+    lease_until: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    next_poll_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    reference_key: Mapped[str | None] = mapped_column(String(100))
+    reference_mime: Mapped[str | None] = mapped_column(String(50))
+    media_key: Mapped[str | None] = mapped_column(String(100))
+    mime_type: Mapped[str | None] = mapped_column(String(50))
+    provenance: Mapped[dict | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
+
+
+class CreditEntry(Base):
+    __tablename__ = "credit_entries"
+    __table_args__ = (UniqueConstraint("user_id", "event_key", name="uq_credit_event"),)
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_key: Mapped[str] = mapped_column(String(150))
+    kind: Mapped[str] = mapped_column(String(30))
+    amount: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class MediaReport(Base):
+    __tablename__ = "media_reports"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("generation_jobs.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    reason: Mapped[str] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class MediaDeletion(Base):
+    """Deletion outbox survives account deletion and retries storage/provider failures."""
+
+    __tablename__ = "media_deletions"
+    key: Mapped[str] = mapped_column(String(150), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
 class User(Base):

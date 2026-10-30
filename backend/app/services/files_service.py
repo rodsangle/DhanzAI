@@ -19,6 +19,7 @@ from app.services.scanner import ClamAVScanner, MalwareFound, ScanError
 from app.services.storage import FileStorage
 from dhanz_knowledge import Embedder
 from dhanz_knowledge.documents import UnsupportedFile, extract_document, safe_filename
+from dhanz_knowledge.ocr import PDFOCR
 
 log = logging.getLogger(__name__)
 
@@ -51,15 +52,6 @@ async def store_upload(
     if len(data) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(413, f"Files larger than {settings.max_upload_mb} MB are not accepted.")
     name = safe_filename(filename)
-    try:
-        # Parsing can be CPU-heavy (large PDFs/spreadsheets): keep it off the event loop.
-        extracted = await asyncio.to_thread(extract_document, name, data)
-    except UnsupportedFile as exc:
-        raise HTTPException(422, str(exc)) from None
-    except Exception:  # noqa: BLE001 - malformed files must not crash the API
-        log.exception("Extraction failed for %s", name)
-        raise HTTPException(422, "The file could not be read. It may be damaged.") from None
-
     scan_status = "not_scanned"
     if files.scanner is not None:
         try:
@@ -73,6 +65,25 @@ async def store_upload(
             raise HTTPException(
                 status.HTTP_503_SERVICE_UNAVAILABLE, "The malware scanner is unavailable. Try again later."
             ) from None
+
+    try:
+        # Parsing can be CPU-heavy (large PDFs/spreadsheets): keep it off the event loop.
+        ocr = (
+            PDFOCR(
+                data,
+                language=settings.ocr_language,
+                max_pages=settings.ocr_max_pages,
+                timeout=settings.ocr_timeout_seconds,
+            )
+            if settings.ocr_enabled
+            else None
+        )
+        extracted = await asyncio.to_thread(extract_document, name, data, pdf_ocr=ocr)
+    except UnsupportedFile as exc:
+        raise HTTPException(422, str(exc)) from None
+    except Exception:  # noqa: BLE001 - malformed files must not crash the API
+        log.exception("Extraction failed for %s", name)
+        raise HTTPException(422, "The file could not be read. It may be damaged.") from None
 
     key = await files.storage.put(data)
     doc_id = uuid.uuid4()
