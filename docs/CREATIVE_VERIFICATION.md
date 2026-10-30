@@ -29,3 +29,15 @@ build, native playback/share, signing or public release was performed here. The 
 backend/account database and installed app were not migrated or restarted automatically.
 
 See [Creative Studio setup](CREATIVE_STUDIO.md) for activation and remaining device/live checks.
+
+## Windows installer follow-up
+
+Built `dhanz-ai-0.7.0-windows-setup.exe` with signature-verified Inno Setup 6.7.4.
+The stable production AppId is retained, previous install settings are reused, and new
+installs default to the existing per-user application directory. An isolated test AppId
+was used to install twice: the second run (without a directory override) reused the first
+directory, replaced a deliberately modified application payload, preserved an unrelated
+user file, and retained exactly one uninstall registration. The isolated test was then
+uninstalled. The user's running 0.6.0 installation was not modified during this test.
+The installer is unsigned; real user upgrade, native playback and mobile updates remain
+device validation steps. Android release CI now requires the existing signing key.

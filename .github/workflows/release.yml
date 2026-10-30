@@ -49,7 +49,8 @@ jobs:
             echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             echo "DHANZ_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           else
-            echo "::warning::No ANDROID_KEYSTORE_BASE64 secret: building with debug signing (not accepted by Google Play)."
+            echo "::error::Configure the existing Android release signing key. A newly generated debug key cannot update installed copies."
+            exit 1
           fi
       - name: Firebase config (push notifications)
         env:

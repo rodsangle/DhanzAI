@@ -12,12 +12,20 @@
 
 [Setup]
 ; Keep AppId stable across releases so upgrades replace the previous install.
+#ifdef UpgradeTest
+AppId=DHANZ-AI-ISOLATED-UPGRADE-TEST
+#else
 AppId={{6C1C4E2B-7D3A-4B8E-9C11-3F2D7A5B9E40}
+#endif
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher=DHANZ AI
 DefaultDirName={autopf}\DHANZ AI
+UsePreviousAppDir=yes
+UsePreviousGroup=yes
+UsePreviousTasks=yes
+UsePreviousPrivileges=yes
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\..\dist
@@ -31,6 +39,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 PrivilegesRequiredOverridesAllowed=dialog
+; Match the existing per-user installation; registered all-user installs retain their scope.
+PrivilegesRequired=lowest
 ; In-app updates run this installer with /SILENT /CLOSEAPPLICATIONS: close a running copy first.
 CloseApplications=yes
 
@@ -51,4 +61,15 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; After an in-app (silent) update, start the new version again.
-Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: LaunchAfterSilentUpdate
+
+[Code]
+function LaunchAfterSilentUpdate: Boolean;
+var
+  I: Integer;
+begin
+  Result := WizardSilent;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/NOLAUNCH') = 0 then
+      Result := False;
+end;

@@ -4,11 +4,14 @@
 
 ## Download for Windows
 
-[Download DHANZ AI 0.7.0 for Windows](https://github.com/rodsangle/DhanzAI/releases/download/desktop-0.7.0/dhanz-ai-0.7.0-windows.zip)
+[Download the DHANZ AI 0.7.0 Windows installer / update](https://github.com/rodsangle/DhanzAI/releases/download/desktop-0.7.0/dhanz-ai-0.7.0-windows-setup.exe)
 
-Close DHANZ AI (including its tray icon), extract the ZIP into a new folder, and run
-`dhanz_ai.exe` from the extracted folder. Keep all DLLs and the `data` folder together.
-This is an unsigned portable release; you can create a new desktop shortcut to its executable.
+Close DHANZ AI (including its tray icon) and run the setup EXE. Keep the existing installation
+folder selected: setup replaces the application files and retains your shortcuts and user data.
+Do not uninstall first. The installer reuses registered installations and defaults to
+`%LOCALAPPDATA%\Programs\DHANZ AI` for existing per-user copies. If you previously extracted
+a portable ZIP elsewhere, select that folder in setup to update that copy.
+This installer is unsigned. The portable ZIP is an optional download, not the normal update path.
 See the [release notes](https://github.com/rodsangle/DhanzAI/releases/tag/desktop-0.7.0)
 for downloads and checksums. Creative Studio needs an updated backend and configured provider
 keys; follow the [setup guide](docs/CREATIVE_STUDIO.md).

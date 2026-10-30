@@ -25,8 +25,37 @@
 | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` | secrets | Authenticode code-signing certificate (`.pfx`, base64) for `dhanz_ai.exe` and the installer |
 | `DHANZ_GOOGLE_SERVICES_JSON` | secret | Contents of `google-services.json` from your Firebase project; enables Android push |
 
-Without signing secrets the workflow still succeeds, producing a debug-signed APK/AAB (not
-accepted by Google Play) and an unsigned iOS `Runner.app` zip (not installable on devices).
+Android release builds require the existing signing keystore. The workflow fails if it is
+missing instead of publishing an APK signed with a new runner's debug key, which cannot
+update existing installations. Without Apple signing secrets, the iOS output remains an
+unsigned `Runner.app` zip for build verification, not an installable device update.
+
+## Updating the existing application
+
+Do not uninstall before updating. Keep application identities stable:
+
+* Windows: run `dhanz-ai-<version>-windows-setup.exe`. Its stable Inno AppId reuses the
+  previous installation folder, scope, tasks and Start Menu group. The default is the
+  per-user `%LOCALAPPDATA%\Programs\DHANZ AI` directory. Manually copied portable apps
+  must be updated by selecting their existing directory. AppData settings and backend
+  databases are outside the packaged application files and are not deleted by setup.
+* Android: retain `ai.dhanz.dhanz_ai`, sign with the installed app's existing key (or use
+  its Play App Signing distribution), and increase `versionCode`. Install the APK over
+  the old app or publish an update to its existing Play Store listing. Never resolve a
+  signature mismatch by telling users to uninstall: obtain the matching key instead.
+* iOS: retain `ai.dhanz.dhanzAi`, the existing Apple team and App Store Connect app;
+  increase the build number and distribute through the same App Store/TestFlight app.
+* macOS: retain the bundle ID and signing identity; replace the existing app bundle in
+  Applications. Do not rename each release or create a second bundle beside the old one.
+* Web: deploy the new build to the same site URL; users reload the existing site.
+
+The installer accepts `/NOLAUNCH` for packaging verification. The in-app Windows updater
+uses the setup EXE and its SHA-256 from `latest.json`, not a portable ZIP. Publishing the
+manifest on GitHub does not configure the backend: copy it to `UPDATE_MANIFEST_FILE`.
+
+References: [Inno upgrade identity](https://jrsoftware.org/ishelp/topic_setup_appid.htm),
+[Android signing](https://developer.android.com/studio/publish/app-signing),
+[Android versioning](https://developer.android.com/studio/publish/versioning).
 
 Without `WINDOWS_CERT_PFX_BASE64` the Windows build is unsigned (SmartScreen warns on first run);
 without `DHANZ_GOOGLE_SERVICES_JSON` the Android app has no push notifications.
