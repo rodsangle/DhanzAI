@@ -24,6 +24,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, Embedding, UTCDateTime, utcnow
 
 
+class GitHubConnection(Base):
+    __tablename__ = "github_connections"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    login: Mapped[str] = mapped_column(String(100))
+    encrypted_token: Mapped[str] = mapped_column(Text)
+    repositories: Mapped[list] = mapped_column(JSON)
+
+
 class CreativePolicy(Base):
     __tablename__ = "creative_policy"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

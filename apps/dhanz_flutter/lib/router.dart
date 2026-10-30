@@ -10,6 +10,7 @@ import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/chat/local_chat_screen.dart';
 import 'features/creative/studio_screen.dart';
+import 'features/github/github_screen.dart';
 import 'features/library/library_screen.dart';
 import 'features/memory/memory_screen.dart';
 import 'features/onboarding/splash_screen.dart';
@@ -63,6 +64,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
       GoRoute(path: '/studio', builder: (context, state) => const StudioScreen()),
+      GoRoute(path: '/github', builder: (context, state) => const GitHubScreen()),
       GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
       GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),

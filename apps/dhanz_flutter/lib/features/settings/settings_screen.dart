@@ -192,6 +192,12 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               section('AI model'),
               ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('GitHub repositories'),
+                subtitle: const Text('Connect selected repositories for code explanations and reviews'),
+                onTap: () => context.go('/github'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.computer),
                 title: const Text('Local / Cloud / Hybrid chat'),
                 subtitle: const Text('Connect to Ollama on this PC · Qwen3 8B or 14B'),

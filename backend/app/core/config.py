@@ -116,6 +116,8 @@ class Settings(BaseSettings):
 
     # Assistant tools (calculator, units, dates, reminders, email drafts) for models that support them.
     assistant_tools_enabled: bool = True
+    # Separate Fernet key for per-account GitHub credentials. Never return to clients.
+    github_token_encryption_key: str | None = None
     reminder_check_seconds: int = Field(default=30, ge=5, le=3600)
 
     # ---- Production readiness (Phase 5) ----

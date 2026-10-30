@@ -2,6 +2,11 @@
 
 **Your World. Your Knowledge. Your AI.**
 
+**GitHub repository assistance:** the source now includes **Settings → GitHub repositories**
+for reading selected repositories, explaining code and reviewing PR changes in chat.
+Connections are per-account and read-only. Enable the backend encryption key, apply migration
+0008 and build the updated client; see [GitHub setup](docs/GITHUB.md).
+
 ## Download for Windows
 
 [Download the DHANZ AI 0.7.0 Windows installer / update](https://github.com/rodsangle/DhanzAI/releases/download/desktop-0.7.0/dhanz-ai-0.7.0-windows-setup.exe)

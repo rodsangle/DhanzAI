@@ -207,6 +207,24 @@ class ApiClient {
 
   // ---- users & models ----------------------------------------------------
 
+  Future<Map<String, dynamic>> githubConnection() async =>
+      await _json('GET', '/github/connection') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> connectGithub(String token, List<String> repositories) async {
+    final endpoint = Uri.parse(baseUrl);
+    if (endpoint.scheme != 'https' &&
+        !(endpoint.scheme == 'http' && ['localhost', '127.0.0.1', '::1', '[::1]'].contains(endpoint.host))) {
+      throw ApiException(0, 'GitHub tokens require an HTTPS backend or a local loopback server.');
+    }
+    return await _json('PUT', '/github/connection', body: {'token': token, 'repositories': repositories})
+        as Map<String, dynamic>;
+  }
+
+  Future<void> disconnectGithub() async => _json('DELETE', '/github/connection');
+
+  Future<Map<String, dynamic>> readGithub(Map<String, String> query) async =>
+      await _json('GET', '/github/read', query: query) as Map<String, dynamic>;
+
   Future<Map<String, dynamic>> creativeCapabilities() async =>
       await _json('GET', '/creative/capabilities') as Map<String, dynamic>;
 

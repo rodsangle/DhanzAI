@@ -512,6 +512,7 @@ def _toolbox(
             turn.user_id,
             turn.conversation_id,
             local_offset=turn.client_time.utcoffset() if turn.client_time else None,
+            settings=settings,
         )
     )
 

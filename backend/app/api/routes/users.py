@@ -13,6 +13,7 @@ from app.models import (
     CreditAccount,
     CreditEntry,
     GenerationJob,
+    GitHubConnection,
     KnowledgeDocument,
     MediaDeletion,
     Memory,
@@ -160,10 +161,12 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
     creations = list(await db.scalars(select(GenerationJob).where(GenerationJob.user_id == user.id)))
     ledger = await db.scalars(select(CreditEntry).where(CreditEntry.user_id == user.id))
     account = await db.get(CreditAccount, user.id)
+    github = await db.get(GitHubConnection, user.id)
     from app.api.routes.creative import output
 
     return {
         "exported_at": utcnow().isoformat(),
+        "github_connection": None if github is None else {"login": github.login, "repositories": github.repositories},
         "user": UserOut.model_validate(user).model_dump(mode="json"),
         "conversations": [ConversationDetail.model_validate(c).model_dump(mode="json") for c in convs],
         "knowledge_documents": [DocumentOut.model_validate(d).model_dump(mode="json") for d in docs],
