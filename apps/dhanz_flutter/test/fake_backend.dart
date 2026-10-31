@@ -130,8 +130,9 @@ class FakeBackend {
     if (filePage != null && req.method == 'GET') {
       final pages = filePreviewPages[filePage.group(1)];
       final index = int.parse(filePage.group(2)!) - 1;
-      if (pages == null || index < 0 || index >= pages.length)
+      if (pages == null || index < 0 || index >= pages.length) {
         return json({'detail': 'That page is not in the file.'}, 404);
+      }
       return http.StreamedResponse(Stream.value(pages[index]), 200, headers: {'content-type': 'image/png'});
     }
 
