@@ -154,7 +154,7 @@ def create_app(
 
     app = FastAPI(
         title="DHANZ AI API",
-        version="0.7.0",
+        version="0.8.0",
         description="Backend for the DHANZ AI assistant. Your World. Your Knowledge. Your AI.",
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",
