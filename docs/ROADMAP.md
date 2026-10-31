@@ -133,7 +133,7 @@ as before.
 | Reminders | ✅ | "Remind me to … tomorrow at 9" resolved in the user's time zone (the app sends its UTC offset); push notification when due (desktop: system notification while the app runs); Reminders screen |
 | Calendar | 🟡 | Reminders/events export as `.ics` (*Add to calendar*) for any calendar app. No direct Google/Outlook calendar access (would need OAuth sign-in to those services) |
 | Email drafting | ✅ | Draft card with *Open in email app* and *Copy*; Dhanz never sends email — the user reviews and sends it from their own app |
-| Office files | 🟡 | `create_word_document` (docx/pdf), `create_spreadsheet` (xlsx/csv) and `create_presentation` (pptx) write real files into the user's library with a download button. Cells that look like formulas are stored as text. No charts, images or animations |
+| Office files | 🟡 | `create_word_document` (docx/pdf), `create_spreadsheet` (xlsx/csv) and `create_presentation` (pptx) write real files into the user's library. Chat and the library can preview them before download: spreadsheet grids, slide text, Word headings and paragraphs, and rendered PDF pages. Cells that look like formulas are stored and shown as text. No charts, images inside slides, animations, or a pixel-perfect Word/PowerPoint layout |
 | Approval for external actions | ✅ | No tool acts outside DHANZ AI; anything leaving the app is a button the user presses |
 | Native tool-calling verified against live provider APIs | 🟡 | Wire formats are tested against recorded examples, not against the live services in this milestone |
 

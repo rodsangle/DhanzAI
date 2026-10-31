@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 from urllib.parse import quote
 
@@ -13,6 +14,7 @@ from app.core import rate_limit
 from app.models import KnowledgeDocument, Project
 from app.schemas import DocumentOut
 from app.services import audit, files_service
+from app.services.file_preview import PreviewError, build_preview, render_pdf_page
 
 router = APIRouter(prefix="/files", tags=["files"])
 
@@ -53,12 +55,54 @@ async def upload_file(
     return doc
 
 
-@router.get("/{document_id}/download")
-async def download_file(document_id: str, request: Request, user: CurrentUser, db: DbDep) -> Response:
+async def _owned_bytes(
+    document_id: str, request: Request, user: CurrentUser, db: DbDep
+) -> tuple[KnowledgeDocument, bytes]:
     doc = await db.get(KnowledgeDocument, parse_uuid(document_id))
     if doc is None or doc.user_id != user.id or not doc.storage_key:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
-    data = await request.app.state.files.storage.get(doc.storage_key)
+    try:
+        data = await request.app.state.files.storage.get(doc.storage_key)
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found") from None
+    return doc, data
+
+
+@router.get("/{document_id}/preview")
+async def preview_file(document_id: str, request: Request, user: CurrentUser, db: DbDep) -> dict:
+    """Structured view of a file the caller owns. Does not require saving a copy first."""
+    await rate_limit.enforce(f"preview:{user.id}", 60)
+    doc, data = await _owned_bytes(document_id, request, user, db)
+    try:
+        return await asyncio.to_thread(build_preview, doc.title, data)
+    except PreviewError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/{document_id}/preview/pages/{page}")
+async def preview_pdf_page(document_id: str, page: int, request: Request, user: CurrentUser, db: DbDep) -> Response:
+    """One rendered PDF page as PNG. Page numbers start at 1."""
+    await rate_limit.enforce(f"preview-page:{user.id}", 60)
+    doc, data = await _owned_bytes(document_id, request, user, db)
+    if (doc.file_type or "") != "pdf":
+        raise HTTPException(422, "This file is not a PDF.")
+    if page < 1:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That page is not in the file.")
+    try:
+        png = await asyncio.to_thread(render_pdf_page, data, page)
+    except PreviewError as exc:
+        status_code = status.HTTP_404_NOT_FOUND if "not in the file" in str(exc) else 422
+        raise HTTPException(status_code, str(exc)) from None
+    return Response(
+        png,
+        media_type="image/png",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@router.get("/{document_id}/download")
+async def download_file(document_id: str, request: Request, user: CurrentUser, db: DbDep) -> Response:
+    doc, data = await _owned_bytes(document_id, request, user, db)
     ascii_name = "".join(c if c.isascii() and c.isprintable() and c != '"' else "_" for c in doc.title)
     return Response(
         data,

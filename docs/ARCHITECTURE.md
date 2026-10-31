@@ -61,7 +61,7 @@ talk to the DHANZ AI API; they never contain or see an OpenAI/Anthropic/Gemini k
 | `services/mailer.py` | SMTP for password-reset and email-verification codes |
 | `services/accounts.py`, `core/mfa.py` | Email codes, TOTP two-step verification (encrypted secrets, recovery codes), finishing a sign-in |
 | `services/oauth.py` | Verifies Google / Apple ID tokens against the providers' published keys |
-| `services/assistant_tools.py`, `services/office_files.py` | Tools Dhanz can call: calculator, units, world time, date maths, reminders, email drafts, and Word/PDF/Excel/CSV/PowerPoint files saved to the library |
+| `services/assistant_tools.py`, `services/office_files.py`, `services/file_preview.py` | Tools Dhanz can call: calculator, units, world time, date maths, reminders, email drafts, and Word/PDF/Excel/CSV/PowerPoint files saved to the library. Preview reads the stored file (grids, slides, headings, rendered PDF pages) for the owner only |
 | `services/reminders.py` | Due-reminder delivery (claimed once across workers) and `.ics` export |
 | `cli.py` | `python -m app.cli promote|demote|set-password|maintenance` |
 | `models/` | `users`, `refresh_tokens`, `conversations`, `messages`, `audit_logs` |

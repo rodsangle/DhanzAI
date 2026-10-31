@@ -158,6 +158,45 @@ def test_documents_are_saved_and_only_the_owner_can_download(client, auth):
     pdf_bytes = client.get(f"/api/v1/files/{pdf['document_id']}/download", headers=auth["headers"]).content
     assert pdf_bytes.startswith(b"%PDF-") and "pump seal" in extract_document("notes.pdf", pdf_bytes).text
 
+    def preview(document_id: str) -> dict:
+        response = client.get(f"/api/v1/files/{document_id}/preview", headers=auth["headers"])
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    word_view = preview(body["document_id"])
+    assert word_view["kind"] == "document"
+    assert any(block["type"] == "heading" and block["text"] == "Maintenance" for block in word_view["blocks"])
+    assert any("pump seal" in block["text"] for block in word_view["blocks"])
+    assert any(block["type"] == "bullet" and block["text"] == "Order the seal kit" for block in word_view["blocks"])
+
+    sheet_view = preview(sheet["document_id"])
+    assert sheet_view["kind"] == "spreadsheet"
+    assert sheet_view["sheets"][0]["rows"][0] == ["Item", "Amount"]
+    assert sheet_view["sheets"][0]["rows"][1] == ["Rent", 1200]
+
+    csv_view = preview(csv_file["document_id"])
+    assert csv_view["file_type"] == "csv" and csv_view["sheets"][0]["rows"][2][0] == "Food"
+
+    deck_view = preview(deck["document_id"])
+    titles = [slide["title"] for slide in deck_view["slides"]]
+    assert titles[:2] == ["Pitch", "Problem"]
+    assert "Too many tabs" in deck_view["slides"][1]["bullets"]
+    assert deck_view["slides"][1]["notes"] == "Pause"
+
+    pdf_view = preview(pdf["document_id"])
+    assert pdf_view["kind"] == "pdf" and pdf_view["page_count"] >= 1
+    page = client.get(f"/api/v1/files/{pdf['document_id']}/preview/pages/1", headers=auth["headers"])
+    assert page.status_code == 200 and page.headers["content-type"].startswith("image/png")
+    assert page.content.startswith(b"\x89PNG")
+    missing = client.get(f"/api/v1/files/{pdf['document_id']}/preview/pages/99", headers=auth["headers"])
+    assert missing.status_code == 404
+    not_pdf = client.get(f"/api/v1/files/{body['document_id']}/preview/pages/1", headers=auth["headers"])
+    assert not_pdf.status_code == 422
+
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    assert client.get(f"/api/v1/files/{body['document_id']}/preview", headers=other_headers).status_code == 404
+    assert client.get(f"/api/v1/files/{pdf['document_id']}/preview/pages/1", headers=other_headers).status_code == 404
+
 
 async def test_document_tools_report_bad_input_and_missing_storage():
     app_ctx = ToolContext(None, uuid.uuid4(), None)

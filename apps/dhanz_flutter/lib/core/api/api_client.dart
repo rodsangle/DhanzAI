@@ -486,6 +486,15 @@ class ApiClient {
     return KnowledgeDocument.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
   }
 
+  Future<FilePreview> filePreview(String documentId) async =>
+      FilePreview.fromJson(await _json('GET', '/files/$documentId/preview') as Map<String, dynamic>);
+
+  Future<Uint8List> filePreviewPage(String documentId, int page) async {
+    final res = await _send('GET', '/files/$documentId/preview/pages/$page');
+    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    return res.bodyBytes;
+  }
+
   Future<Uint8List> downloadFile(String documentId) async {
     final res = await _send('GET', '/files/$documentId/download');
     if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));

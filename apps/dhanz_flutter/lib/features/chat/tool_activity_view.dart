@@ -9,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/files.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
+import '../files/file_preview_dialog.dart';
 
 const _toolIcons = {
   'calculate': Icons.calculate_outlined,
@@ -159,6 +160,12 @@ class ToolActivityView extends ConsumerWidget {
               spacing: 8,
               children: [
                 FilledButton.tonalIcon(
+                  onPressed: () =>
+                      showFilePreview(context, ref, documentId: action['document_id'] as String, filename: name),
+                  icon: const Icon(Icons.visibility_outlined, size: 18),
+                  label: const Text('Preview'),
+                ),
+                TextButton.icon(
                   onPressed: () => _downloadFile(context, ref, action),
                   icon: const Icon(Icons.download, size: 18),
                   label: const Text('Download'),
