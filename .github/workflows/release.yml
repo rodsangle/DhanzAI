@@ -314,7 +314,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
+          # Only the app jobs. The server-image job also uploads a *.dockerbuild
+          # record, which is not a zip this action can extract.
           path: dist
+          pattern: "{android,windows,ios,macos}"
           merge-multiple: true
       - name: Write the update manifest (latest.json)
         env:
