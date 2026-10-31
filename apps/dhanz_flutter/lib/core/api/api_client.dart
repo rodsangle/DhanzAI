@@ -66,10 +66,41 @@ class ApiClient {
     return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
   }
 
-  Future<AuthTokens> login(String email, String password) async {
+  /// Signs in, or returns an [MfaChallenge] when the account also needs an authenticator code.
+  Future<Object> login(String email, String password) async {
     final body = await _json('POST', '/auth/login', body: {'email': email, 'password': password}, auth: false);
+    return _signInResult(body as Map<String, dynamic>);
+  }
+
+  /// Sign in (or create an account) with an ID token from Google Sign-In or Sign in with Apple.
+  Future<Object> oauthSignIn(String provider, String idToken, {String? nonce, String? displayName}) async {
+    final body = await _json(
+      'POST',
+      '/auth/oauth/$provider',
+      body: {'id_token': idToken, 'nonce': ?nonce, 'display_name': ?displayName},
+      auth: false,
+    );
+    return _signInResult(body as Map<String, dynamic>);
+  }
+
+  /// Second sign-in step: a code from the authenticator app, or a recovery code.
+  Future<AuthTokens> verifyMfa(MfaChallenge challenge, String code) async {
+    final body = await _json(
+      'POST',
+      '/auth/mfa/verify',
+      body: {'mfa_token': challenge.token, 'code': code},
+      auth: false,
+    );
     return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
   }
+
+  Future<Object> _signInResult(Map<String, dynamic> body) async {
+    if (body['mfa_required'] == true) return MfaChallenge(body['mfa_token'] as String);
+    return _saveTokens(AuthTokens.fromJson(body));
+  }
+
+  Future<AuthOptions> authOptions() async =>
+      AuthOptions.fromJson(await _json('GET', '/auth/options', auth: false) as Map<String, dynamic>);
 
   Future<void> logout() async {
     final refresh = await store.read(StoreKeys.refreshToken);
@@ -307,9 +338,14 @@ class ApiClient {
     return [for (final u in body['items'] as List<dynamic>) AdminUser.fromJson(u as Map<String, dynamic>)];
   }
 
-  Future<AdminUser> adminUpdateUser(String id, {bool? isActive, String? role}) async => AdminUser.fromJson(
-    await _json('PATCH', '/admin/users/$id', body: {'is_active': ?isActive, 'role': ?role}) as Map<String, dynamic>,
-  );
+  Future<AdminUser> adminUpdateUser(String id, {bool? isActive, String? role, bool resetMfa = false}) async =>
+      AdminUser.fromJson(
+        await _json(
+          'PATCH',
+          '/admin/users/$id',
+          body: {'is_active': ?isActive, 'role': ?role, if (resetMfa) 'reset_mfa': true},
+        ) as Map<String, dynamic>,
+      );
 
   Future<String> exportMyData() async {
     final res = await _send('GET', '/users/me/export');
@@ -317,10 +353,49 @@ class ApiClient {
     return const JsonEncoder.withIndent('  ').convert(jsonDecode(utf8.decode(res.bodyBytes)));
   }
 
-  Future<void> deleteAccount(String password) async {
-    await _json('DELETE', '/users/me', body: {'password': password});
+  /// Confirm with the password, or (accounts without one) by retyping the email; plus a current
+  /// authenticator code when two-factor authentication is on.
+  Future<void> deleteAccount({String? password, String? confirmEmail, String? mfaCode}) async {
+    await _json(
+      'DELETE',
+      '/users/me',
+      body: {'password': ?password, 'confirm_email': ?confirmEmail, 'mfa_code': ?mfaCode},
+    );
     await clearTokens();
   }
+
+  // ---- email verification & two-factor authentication ------------------------
+
+  Future<void> sendEmailCode() => _json('POST', '/users/me/email-verification');
+
+  Future<User> confirmEmailCode(String code) async => User.fromJson(
+    await _json('POST', '/users/me/email-verification/confirm', body: {'code': code}) as Map<String, dynamic>,
+  );
+
+  Future<MfaSetup> mfaSetup({String? password}) async => MfaSetup.fromJson(
+    await _json('POST', '/users/me/mfa/setup', body: {'password': ?password}) as Map<String, dynamic>,
+  );
+
+  /// Switches two-factor authentication on; returns the recovery codes (shown only once).
+  Future<List<String>> mfaEnable(String code) async {
+    final body = await _json('POST', '/users/me/mfa/enable', body: {'code': code}) as Map<String, dynamic>;
+    return [for (final c in body['recovery_codes'] as List<dynamic>) c as String];
+  }
+
+  Future<User> mfaDisable(String code) async =>
+      User.fromJson(await _json('POST', '/users/me/mfa/disable', body: {'code': code}) as Map<String, dynamic>);
+
+  Future<List<String>> newRecoveryCodes(String code) async {
+    final body = await _json('POST', '/users/me/mfa/recovery-codes', body: {'code': code}) as Map<String, dynamic>;
+    return [for (final c in body['recovery_codes'] as List<dynamic>) c as String];
+  }
+
+  Future<List<LinkedIdentity>> identities() async => [
+    for (final i in await _json('GET', '/users/me/identities') as List<dynamic>)
+      LinkedIdentity.fromJson(i as Map<String, dynamic>),
+  ];
+
+  Future<void> unlinkIdentity(String provider) => _json('DELETE', '/users/me/identities/$provider');
 
   /// Configured models plus optional features (web search, semantic search).
   Future<ServerInfo> serverInfo() async {

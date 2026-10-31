@@ -92,6 +92,15 @@ def current_session(request: Request) -> uuid.UUID | None:
     return getattr(request.state, "session_id", None)
 
 
+async def require_verified_email(request: Request, user: CurrentUser, settings: SettingsDep) -> None:
+    """With REQUIRE_EMAIL_VERIFICATION (and email configured), content stays locked until confirmed."""
+    if settings.require_email_verification and request.app.state.mailer is not None and not user.email_verified:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Confirm your email address to continue: enter the code we sent you (Settings, Account).",
+        )
+
+
 async def get_admin(user: CurrentUser) -> User:
     if user.role != "admin":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Administrator access required")

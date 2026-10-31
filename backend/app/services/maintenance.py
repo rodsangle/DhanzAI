@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.core.config import Settings
 from app.core.observability import MAINTENANCE_DELETED
 from app.db.base import utcnow
-from app.models import AuditLog, Conversation, PasswordResetToken, RefreshToken, User
+from app.models import AuditLog, Conversation, PasswordResetToken, RefreshToken, User, VerificationCode
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +57,9 @@ async def run_maintenance(
         )
         counts["password_reset_tokens"] = await _rowcount(
             db, delete(PasswordResetToken).where(PasswordResetToken.expires_at < now - timedelta(days=1))
+        )
+        counts["verification_codes"] = await _rowcount(
+            db, delete(VerificationCode).where(VerificationCode.expires_at < now - timedelta(days=1))
         )
         counts["audit_logs"] = await _rowcount(
             db, delete(AuditLog).where(AuditLog.created_at < now - timedelta(days=settings.audit_log_retention_days))

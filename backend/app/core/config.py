@@ -141,6 +141,20 @@ class Settings(BaseSettings):
     smtp_from: str | None = None
     smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
     password_reset_ttl_minutes: int = Field(default=30, ge=5, le=1440)
+    # Email verification (needs SMTP). New accounts get a 6-digit code by email. With
+    # REQUIRE_EMAIL_VERIFICATION=true, chats, files and the library stay locked until it is entered.
+    require_email_verification: bool = False
+    email_verification_ttl_minutes: int = Field(default=60, ge=5, le=1440)
+    # Encrypts two-factor secrets at rest. Falls back to JWT_SECRET; set it separately so rotating
+    # JWT_SECRET does not lock out everyone who uses an authenticator app.
+    data_encryption_key: str | None = None
+    # Time to type the authenticator code after the password was accepted.
+    mfa_challenge_minutes: int = Field(default=5, ge=1, le=30)
+    # Sign in with Google / Apple: the OAuth client IDs whose ID tokens are accepted (comma-separated).
+    # GOOGLE_CLIENT_IDS: the first one is the "Web application" client the apps request tokens for.
+    # APPLE_CLIENT_IDS: the iOS/macOS bundle ID (ai.dhanz.app) and/or a Services ID.
+    google_client_ids: str = ""
+    apple_client_ids: str = ""
     # Privacy & maintenance: background clean-up job.
     maintenance_interval_minutes: int = Field(default=60, ge=0, le=1440)  # 0 = off
     audit_log_retention_days: int = Field(default=365, ge=7, le=3650)
@@ -158,6 +172,14 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return _csv(self.cors_origins)
+
+    @property
+    def google_client_id_list(self) -> list[str]:
+        return _csv(self.google_client_ids)
+
+    @property
+    def apple_client_id_list(self) -> list[str]:
+        return _csv(self.apple_client_ids)
 
     @property
     def openai_model_list(self) -> list[str]:

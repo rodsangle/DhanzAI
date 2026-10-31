@@ -74,6 +74,29 @@ on each device. The apps ask for microphone permission the first time the Voice 
   answers simply are not announced.
 * **Updates**: copy `latest.json` from a GitHub release to the server and set `UPDATE_MANIFEST_FILE`.
 
+### Accounts: email verification, two-step verification, Google and Apple (optional)
+
+* **Email verification**: set the `SMTP_*` variables. New accounts get a 6-digit code; add
+  `REQUIRE_EMAIL_VERIFICATION=true` to lock chats until it is entered (recommended for public servers).
+* **Two-step verification** works out of the box (Settings → Security). Set `DATA_ENCRYPTION_KEY`
+  to a random value once and keep it; it encrypts the authenticator secrets.
+* **Sign in with Google**
+  1. [Google Cloud console](https://console.cloud.google.com/apis/credentials) → create a project →
+     *OAuth consent screen* (External, app name DHANZ AI, support email, privacy policy URL).
+  2. *Credentials → Create OAuth client ID → Web application*. Copy its client ID into
+     `GOOGLE_CLIENT_IDS` (first in the list). The apps ask Google for tokens addressed to this ID.
+  3. Android: create another client ID of type *Android* with package `ai.dhanz.app` and the
+     SHA-1 of your signing key (`keytool -list -v -keystore release.jks`; for Play App Signing use
+     the SHA-1 shown in Play Console). Nothing to copy: it only authorizes the app.
+  4. iOS: create a client ID of type *iOS* with bundle ID `ai.dhanz.app`. Add it to
+     `GOOGLE_CLIENT_IDS` too, and set it as the repository variable `GOOGLE_IOS_CLIENT_ID` so release
+     builds include it (see RELEASE.md).
+* **Sign in with Apple** (iOS app): in the Apple Developer portal enable *Sign in with Apple* for the
+  App ID `ai.dhanz.app`, add the capability in Xcode (Runner → Signing & Capabilities), and set
+  `APPLE_CLIENT_IDS=ai.dhanz.app`. Apple requires it in the App Store whenever Google sign-in is offered.
+
+Restart the API after changing these. `GET /api/v1/auth/options` shows what the apps will offer.
+
 ### Production server
 
 For a server reachable from the internet (HTTPS, backups, monitoring) use `deploy/` and follow

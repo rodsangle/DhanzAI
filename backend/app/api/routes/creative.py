@@ -25,6 +25,9 @@ from app.models import CreditEntry, GenerationJob, MediaReport, User
 from app.services import audit
 
 router = APIRouter(prefix="/creative", tags=["creative"])
+# Signed media URLs authenticate with an HMAC, not a bearer token, so they stay off the
+# email-verification gate applied to `router` (see app.main).
+public_router = APIRouter(prefix="/creative", tags=["creative"])
 
 
 class GenerateRequest(BaseModel):
@@ -294,7 +297,7 @@ async def media_response(job, request, settings):
     return Response(data, media_type=job.mime_type, headers=headers)
 
 
-@router.get("/media/{job_id}")
+@public_router.get("/media/{job_id}")
 async def signed_media(job_id: str, request: Request, db: DbDep, settings: SettingsDep, expires: int, signature: str):
     job_uuid = parse_uuid(job_id)
     if (

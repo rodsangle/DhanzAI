@@ -16,6 +16,7 @@
 | Name | Type | Purpose |
 |---|---|---|
 | `DHANZ_API_URL` | variable | Backend URL compiled into the apps (`https://…`) |
+| `GOOGLE_IOS_CLIENT_ID` | variable | Optional. iOS OAuth client ID (`….apps.googleusercontent.com`): enables *Continue with Google* on iOS; the workflow also registers its reversed form as a URL scheme |
 | `ANDROID_KEYSTORE_BASE64` | secret | `base64 -w0 release.jks` |
 | `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | secrets | Keystore credentials |
 | `IOS_CERTIFICATE_P12_BASE64`, `IOS_CERTIFICATE_PASSWORD` | secrets | Apple Distribution certificate |
@@ -59,6 +60,11 @@ References: [Inno upgrade identity](https://jrsoftware.org/ishelp/topic_setup_ap
 
 Without `WINDOWS_CERT_PFX_BASE64` the Windows build is unsigned (SmartScreen warns on first run);
 without `DHANZ_GOOGLE_SERVICES_JSON` the Android app has no push notifications.
+
+iOS *Sign in with Apple* needs the capability on the App ID and in the provisioning profile
+(Xcode → Runner → Signing & Capabilities → **+ Sign in with Apple**), like push notifications below.
+Android *Continue with Google* needs no build setting: the app reads the client ID from the server,
+and Google authorizes the app by package name + signing-key SHA-1 (INSTALL.md).
 
 ## In-app updates
 

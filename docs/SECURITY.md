@@ -14,7 +14,7 @@
 | Secrets | Provider keys and `JWT_SECRET` only in server environment; app refuses to start in production with a weak secret or SQLite; `.env`, keystores and signing files are git-ignored |
 | Client storage | Tokens in Keychain (iOS/macOS), Android Keystore-backed storage, Windows DPAPI via `flutter_secure_storage` |
 | Errors | Raw provider errors are logged server-side and replaced with a generic message for clients |
-| Audit log | Register, login, failed login, logout, account deletion (IP + timestamp); entries survive account deletion with the user link removed |
+| Audit log | Register, login (with method), failed login, two-step challenges and failures, identity linking, email confirmation, logout, account deletion (IP + timestamp); entries survive account deletion with the user link removed |
 | Prompt injection | Retrieved web/library text is placed in a `<sources>` block labelled as untrusted data; the system prompt forbids following instructions inside it. Dhanz's tools have no effect outside DHANZ AI (see below), which limits what injected text could achieve |
 | Server-side fetching (Phase 2) | Only http/https on ports 80/443; URLs with credentials refused; every DNS answer must be a public address (blocks localhost, private ranges, link-local/cloud metadata) and this is re-checked on every redirect; 2 MB cap; HTML/text only; no cookies or auth headers sent |
 | Responsible crawling | Fetches only pages a user asked about or a search returned (no crawling); honours robots.txt for `DhanzAI-Research` (robots.txt unreachable because of a server or network error = disallowed); spaces requests per host; pages returning 401/402/403 are reported as requiring a login/subscription and are never worked around |
@@ -34,6 +34,9 @@
 | Request limits & headers (Phase 5) | JSON bodies capped (`MAX_REQUEST_KB`), uploads by their own limits, before the body is read; production adds `Content-Security-Policy: default-src 'none'` and `Cross-Origin-Resource-Policy` |
 | Supply chain (Phase 5) | CI runs `pip-audit` and CodeQL; Dependabot proposes updates; release images carry build provenance and an SBOM |
 | Assistant tools | Tool arguments come from the model and are validated like any user input (the calculator parses arithmetic only — no code execution; time zones, dates and units are checked). Tools act only on the user's own data: reminders are scoped to the user, and email drafts are handed to the user's email app — Dhanz cannot send anything. Worst case for a prompt injection through a web page or document: an unwanted reminder or a draft the user sees before deciding to send it |
+| Email verification (public accounts) | 6-digit code by email (Argon2id stored), valid 60 minutes, burnt after 5 wrong guesses, 3 emails per hour per account. With `REQUIRE_EMAIL_VERIFICATION=true` every content route (chats, files, library, projects, memory, voice, reminders, Creative Studio) returns 403 until confirmed. Signed Creative Studio media links stay usable without a session |
+| Two-step verification (public accounts) | RFC 6238 TOTP (30 s, 6 digits, ±1 step), secret encrypted at rest with AES-256-GCM (key from `DATA_ENCRYPTION_KEY` via HKDF); a code is accepted once only; 10 recovery codes (~60 bits, Argon2id stored, single use). Sign-in returns a 5-minute challenge token that cannot be used as an access token; 5 wrong codes per 15 min lock the second step for that account. Turning it on signs out other devices; turning it off, replacing recovery codes and deleting the account need a current code |
+| Google / Apple sign-in (public accounts) | The server verifies each ID token itself: RS256 signature against the provider's published keys (cached, refetched on key rotation), issuer, audience = our client IDs, expiry, and nonce when sent (Apple's SHA-256 form too). Accounts are found by the provider's stable `sub`, not the email. A verified email matching an existing account links to it; if that account's address was never confirmed, its password and sessions are removed (an impostor who pre-registered the address loses access). Two-step verification still applies. The last sign-in method cannot be unlinked |
 | Containers | Non-root user, no secrets baked into images, healthcheck |
 
 ## Known limitations (to address before a public launch)
@@ -41,7 +44,11 @@
 * Without `REDIS_URL`, rate limits and the login lockout are counted per worker process.
 * Message content is protected by database access controls and disk/volume encryption of your
   hosting provider, not by application-level encryption.
-* No email verification and no MFA; no Google/Apple sign-in yet.
+* No CAPTCHA or app attestation on sign-up yet: rely on rate limits and email verification.
+* Google sign-in in the app works on Android and iOS; Apple on iOS. Web and desktop users sign in
+  with email and password for now.
+* If `DATA_ENCRYPTION_KEY` (or, without it, `JWT_SECRET`) changes, stored two-step secrets can no
+  longer be read; affected users need an admin reset.
 * Self-service password reset needs SMTP. Without it, the server administrator can set a new
   password with `python -m app.cli set-password <email>`.
 * DNS rebinding: addresses are checked before connecting, but a hostile DNS server could

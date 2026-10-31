@@ -4,6 +4,7 @@ name: Release builds
 # Release, or run manually to get build artifacts only.
 #
 # Repository variables:  DHANZ_API_URL                 backend URL baked into the apps (https://...)
+#                        GOOGLE_IOS_CLIENT_ID          optional: enables "Continue with Google" on iOS
 # Repository secrets (optional; unsigned/debug-signed builds are produced without them):
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
 #   IOS_CERTIFICATE_P12_BASE64, IOS_CERTIFICATE_PASSWORD, IOS_PROVISIONING_PROFILE_BASE64,
@@ -75,8 +76,9 @@ jobs:
           flutter build apk --release $VERSION_ARGS --dart-define=DHANZ_API_URL="$API_URL"
           flutter build appbundle --release $VERSION_ARGS --dart-define=DHANZ_API_URL="$API_URL"
           mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-release.apk dist/dhanz-ai-${{ github.ref_name }}.apk
-          cp build/app/outputs/bundle/release/app-release.aab dist/dhanz-ai-${{ github.ref_name }}.aab
+          NAME="${GITHUB_REF_NAME//\//-}"   # manual runs on branches like dependabot/... have slashes
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/dhanz-ai-$NAME.apk"
+          cp build/app/outputs/bundle/release/app-release.aab "dist/dhanz-ai-$NAME.aab"
       - uses: actions/upload-artifact@v4
         with:
           name: android
@@ -186,18 +188,32 @@ jobs:
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "$PROFILE_B64" | base64 -d > ~/Library/MobileDevice/Provisioning\ Profiles/dhanz.mobileprovision
           echo "signed=true" >> "$GITHUB_OUTPUT"
+      - name: Google Sign-In URL scheme
+        # With the iOS OAuth client ID set, the app offers "Continue with Google"; iOS returns to the
+        # app through the client ID's reversed form, registered here as a URL scheme.
+        if: vars.GOOGLE_IOS_CLIENT_ID != ''
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
+        run: |
+          REVERSED="com.googleusercontent.apps.${CLIENT_ID%.apps.googleusercontent.com}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" ios/Runner/Info.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" \
+            -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+            -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $REVERSED" ios/Runner/Info.plist
       - name: Build
         working-directory: ${{ env.APP_DIR }}
         env:
           API_URL: ${{ vars.DHANZ_API_URL }}
+          GOOGLE_IOS_CLIENT_ID: ${{ vars.GOOGLE_IOS_CLIENT_ID }}
         run: |
           flutter pub get
           mkdir -p dist
           if [ "${{ steps.signing.outputs.signed }}" = "true" ]; then
-            flutter build ipa --release ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --export-options-plist="$RUNNER_TEMP/ExportOptions.plist" --dart-define=DHANZ_API_URL="$API_URL"
+            flutter build ipa --release ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --export-options-plist="$RUNNER_TEMP/ExportOptions.plist" --dart-define=DHANZ_API_URL="$API_URL" --dart-define=GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID"
             cp build/ios/ipa/*.ipa dist/
           else
-            flutter build ios --release --no-codesign ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL"
+            flutter build ios --release --no-codesign ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL" --dart-define=GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID"
             (cd build/ios/iphoneos && zip -qry "$GITHUB_WORKSPACE/$APP_DIR/dist/dhanz-ai-ios-unsigned.zip" Runner.app)
           fi
       - uses: actions/upload-artifact@v4
@@ -222,7 +238,7 @@ jobs:
           flutter pub get
           flutter build macos --release ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL"
           mkdir -p dist
-          ditto -c -k --keepParent "build/macos/Build/Products/Release/dhanz_ai.app" "dist/dhanz-ai-macos-unsigned.zip"
+          ditto -c -k --keepParent "build/macos/Build/Products/Release/DHANZ AI.app" "dist/dhanz-ai-macos-unsigned.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: macos

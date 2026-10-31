@@ -4,13 +4,15 @@ import asyncio
 import logging
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Path, Request, Response, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import DbDep, SettingsDep
 from app.core import rate_limit
 from app.core.security import (
+    InvalidTokenError,
+    decode_mfa_token,
     hash_password_async,
     hash_token,
     new_reset_code,
@@ -20,17 +22,21 @@ from app.core.security import (
     verify_password_async,
 )
 from app.db.base import utcnow
-from app.models import PasswordResetToken, User
+from app.models import OAuthIdentity, PasswordResetToken, User
 from app.schemas import (
     AuthOptions,
     LoginRequest,
+    MfaChallenge,
+    MfaVerifyRequest,
+    OAuthSignInRequest,
     PasswordResetConfirm,
     PasswordResetRequest,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
 )
-from app.services import audit
+from app.services import accounts, audit
+from app.services import oauth as accounts_oauth
 from app.services.auth_service import (
     RefreshError,
     issue_tokens,
@@ -56,7 +62,16 @@ async def _limit(request: Request, settings, bucket: str) -> str:
 async def auth_options(request: Request, db: DbDep, settings: SettingsDep) -> AuthOptions:
     """What the sign-in screen can offer (no authentication needed)."""
     open_ = settings.allow_registration or not await db.scalar(select(func.count(User.id)))
-    return AuthOptions(registration_open=open_, password_reset=request.app.state.mailer is not None)
+    mail = request.app.state.mailer is not None
+    google = settings.google_client_id_list
+    return AuthOptions(
+        registration_open=open_,
+        password_reset=mail,
+        email_verification=mail,
+        email_verification_required=mail and settings.require_email_verification,
+        google_client_id=google[0] if google else None,
+        apple_sign_in=bool(settings.apple_client_id_list),
+    )
 
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
@@ -83,13 +98,18 @@ async def register(body: RegisterRequest, request: Request, db: DbDep, settings:
         await db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists") from None
     tokens = await issue_tokens(db, settings, user, user_agent=request.headers.get("user-agent"))
-    audit.record(db, "auth.register", user_id=user.id, ip=ip, detail={"role": user.role})
+    audit.record(db, "auth.register", user_id=user.id, ip=ip, detail={"role": user.role, "method": "password"})
+    mailer = request.app.state.mailer
+    if mailer is not None:
+        await accounts.issue_email_code(db, settings, mailer, user)
     await db.commit()
     return tokens
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, request: Request, db: DbDep, settings: SettingsDep) -> TokenResponse:
+@router.post("/login", response_model=TokenResponse | MfaChallenge)
+async def login(body: LoginRequest, request: Request, db: DbDep, settings: SettingsDep) -> TokenResponse | MfaChallenge:
+    """Sign in with email and password. Accounts with two-factor authentication get an `MfaChallenge`
+    instead of tokens: send the authenticator code with it to `/auth/mfa/verify`."""
     ip = await _limit(request, settings, "login")
     email = body.email.lower()
     # Per-account lockout, applied to every email (registered or not) so it reveals nothing.
@@ -114,10 +134,98 @@ async def login(body: LoginRequest, request: Request, db: DbDep, settings: Setti
     await rate_limit.limiter.clear(lock_key)
     if user.password_hash and password_needs_rehash(user.password_hash):
         user.password_hash = await hash_password_async(body.password)
+    result = await accounts.finish_sign_in(db, settings, request, user, "password")
+    await db.commit()
+    return result
+
+
+@router.post("/mfa/verify", response_model=TokenResponse)
+async def verify_mfa(body: MfaVerifyRequest, request: Request, db: DbDep, settings: SettingsDep) -> TokenResponse:
+    """Second sign-in step: the code from the authenticator app (or a recovery code)."""
+    ip = await _limit(request, settings, "mfa")
+    expired = HTTPException(status.HTTP_401_UNAUTHORIZED, "This sign-in has expired. Please start again.")
+    try:
+        user_id, first_factor = decode_mfa_token(settings, body.mfa_token)
+    except InvalidTokenError:
+        raise expired from None
+    user = await db.get(User, user_id)
+    if user is None or not user.is_active or not user.mfa_enabled:
+        raise expired
+    method = await accounts.guarded_second_factor(db, settings, user, body.code)
+    if method is None:
+        audit.record(db, "auth.mfa_failed", user_id=user.id, ip=ip)
+        await db.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That code is not correct. Check the time on your phone.")
     tokens = await issue_tokens(db, settings, user, user_agent=request.headers.get("user-agent"))
-    audit.record(db, "auth.login", user_id=user.id, ip=ip)
+    audit.record(db, "auth.login", user_id=user.id, ip=ip, detail={"method": first_factor, "mfa": method})
     await db.commit()
     return tokens
+
+
+@router.post("/oauth/{provider}", response_model=TokenResponse | MfaChallenge)
+async def oauth_sign_in(
+    body: OAuthSignInRequest,
+    request: Request,
+    db: DbDep,
+    settings: SettingsDep,
+    provider: str = Path(pattern="^(google|apple)$"),
+) -> TokenResponse | MfaChallenge:
+    """Sign in (or sign up) with an ID token from Google Sign-In or Sign in with Apple."""
+    ip = await _limit(request, settings, "oauth")
+    try:
+        identity = await request.app.state.id_tokens.verify(provider, body.id_token, body.nonce)
+    except accounts_oauth.IdTokenError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from None
+    link = await db.scalar(
+        select(OAuthIdentity).where(OAuthIdentity.provider == provider, OAuthIdentity.subject == identity.subject)
+    )
+    user = await db.get(User, link.user_id) if link else None
+    if link is None:
+        if not identity.email or not identity.email_verified:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Your {provider.title()} account did not share a verified email address, which DHANZ AI needs.",
+            )
+        user = await db.scalar(select(User).where(User.email == identity.email))
+        if user is None:
+            first_user = not await db.scalar(select(func.count(User.id)))
+            if not settings.allow_registration and not first_user:
+                raise HTTPException(
+                    status.HTTP_403_FORBIDDEN, "Registration is closed on this server. Ask the administrator."
+                )
+            name = (body.display_name or identity.name or identity.email.split("@")[0]).strip()[:100] or "Friend"
+            user = User(
+                email=identity.email,
+                password_hash=None,
+                display_name=name,
+                routing_policy=settings.default_routing_policy,
+                role="admin" if first_user else "user",
+                email_verified_at=utcnow(),
+            )
+            db.add(user)
+            await db.flush()
+            audit.record(db, "auth.register", user_id=user.id, ip=ip, detail={"role": user.role, "method": provider})
+        elif not user.email_verified:
+            # Someone registered this address with a password but never proved they own it. The
+            # provider just proved the real owner is here: drop that password and its sessions so an
+            # impostor who pre-registered the address cannot keep a way in.
+            user.password_hash = None
+            await revoke_user_sessions(db, user.id)
+            user.email_verified_at = utcnow()
+            audit.record(db, "auth.unverified_password_removed", user_id=user.id, ip=ip, detail={"via": provider})
+        link = OAuthIdentity(user_id=user.id, provider=provider, subject=identity.subject, email=identity.email)
+        db.add(link)
+        audit.record(db, "auth.identity_linked", user_id=user.id, ip=ip, detail={"provider": provider})
+    if user is None or not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled.")
+    link.last_used_at = utcnow()
+    try:
+        result = await accounts.finish_sign_in(db, settings, request, user, provider)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Sign-in conflicted with another request. Try again.") from None
+    return result
 
 
 @router.post("/refresh", response_model=TokenResponse)
