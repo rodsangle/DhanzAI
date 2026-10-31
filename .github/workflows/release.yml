@@ -41,7 +41,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -97,7 +97,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -172,7 +172,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -241,7 +241,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -272,7 +272,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Image name (registry names must be lowercase)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/api" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
