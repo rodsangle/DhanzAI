@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config.dart';
 import '../../core/providers.dart';
 import '../../core/storage/secure_store.dart';
 import '../../models/models.dart';
@@ -16,7 +17,12 @@ class AuthController extends AsyncNotifier<User?> {
       if (ref.mounted) state = const AsyncData(null);
     };
     final savedUrl = await ref.read(secureStoreProvider).read(StoreKeys.apiUrl);
-    if (savedUrl != null && savedUrl.isNotEmpty) api.baseUrl = savedUrl;
+    if (savedUrl != null && savedUrl.isNotEmpty) {
+      api.baseUrl = AppConfig.resolveSavedApiUrl(savedUrl);
+      if (api.baseUrl != savedUrl) {
+        await ref.read(secureStoreProvider).write(StoreKeys.apiUrl, api.baseUrl);
+      }
+    }
     if (!await api.hasSession()) return null;
     try {
       return await api.me();

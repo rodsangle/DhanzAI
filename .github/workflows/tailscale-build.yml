@@ -1,0 +1,56 @@
+name: Tailscale Android build
+
+on:
+  push:
+    branches: ['codex/tailscale-build-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+      - name: Restore existing release signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.DHANZ_GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo '::error::The existing Android release signing key is required.'
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "DHANZ_ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > apps/dhanz_flutter/android/app/google-services.json
+          fi
+      - name: Validate and build private server APK
+        working-directory: apps/dhanz_flutter
+        env:
+          DHANZ_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          DHANZ_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          DHANZ_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter pub get
+          flutter analyze lib/core/config.dart lib/features/auth/auth_controller.dart lib/features/auth/auth_screen.dart lib/core/api/api_client.dart
+          flutter test test/app_flow_test.dart
+          flutter build apk --release --build-number=$((100000 + GITHUB_RUN_NUMBER)) --dart-define=DHANZ_API_URL=https://danterog.tail8bd40a.ts.net
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/dhanz-ai-0.8.1-android.apk
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhanz-ai-0.8.1-android
+          path: apps/dhanz_flutter/dist/*

@@ -11,7 +11,10 @@ import '../storage/secure_store.dart';
 import 'sse.dart';
 
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, String message)
+    : message = statusCode == 0 && message.contains('.ts.net')
+          ? '$message Connect Tailscale on this device and the server laptop, and keep the laptop awake with DHANZ AI running.'
+          : message;
 
   final int statusCode;
   final String message;
