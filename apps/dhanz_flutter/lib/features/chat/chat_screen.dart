@@ -55,6 +55,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Future.microtask(() => ref.read(chatControllerProvider.notifier).open(widget.conversationId));
   }
 
+  /// Leaves the open conversation in history and shows a blank chat.
+  ///
+  /// `/chat` is the parent of `/chat/:id`. Going there shows the original blank
+  /// screen again, but that screen does not reload, so the controller has to be
+  /// cleared here or the previous messages stay on screen.
+  void _newChat() {
+    ref.read(chatControllerProvider.notifier).open(null);
+    context.go('/chat');
+  }
+
   Future<void> _send(String text) async {
     final id = await ref.read(chatControllerProvider.notifier).send(text);
     if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
@@ -118,7 +128,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Composer(onSend: _send),
+                  Composer(key: ValueKey(chat.conversationId ?? 'new'), onSend: _send),
                   const SizedBox(height: 6),
                   Text(
                     'Dhanz can make mistakes. Verify important information.',
@@ -177,7 +187,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onPressed: () => ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary),
           ),
         IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
-        IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: () => context.go('/chat')),
+        IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: _newChat),
       ],
     );
 

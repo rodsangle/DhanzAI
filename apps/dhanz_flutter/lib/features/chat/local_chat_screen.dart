@@ -191,7 +191,12 @@ class _LocalChatScreenState extends ConsumerState<LocalChatScreen> {
                     child: Text(_testing ? 'Testing…' : 'Test connection'),
                   ),
                   TextButton(
-                    onPressed: _busy ? null : () => setState(() => _messages.clear()),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                            _messages.clear();
+                            _input.clear();
+                          }),
                     child: const Text('New chat'),
                   ),
                 ],

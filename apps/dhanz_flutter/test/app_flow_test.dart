@@ -82,6 +82,35 @@ void main() {
     expect(backend.conversations, hasLength(1));
   });
 
+  testWidgets('New chat opens an empty conversation and keeps the previous one in history', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Get started'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'Ada');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Email'), 'ada@example.com');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Password'), 'correct-horse-9');
+    await tester.tap(find.text('Create account'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.widgetWithText(TextField, 'Message Dhanz…'), 'What is DHANZ AI?');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+    expect(find.text('What is DHANZ AI?'), findsWidgets);
+    expect(backend.conversations, hasLength(1));
+
+    await tester.enterText(find.widgetWithText(TextField, 'Message Dhanz…'), 'unsent draft');
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'New chat'));
+    await tester.pumpAndSettle();
+
+    expect(find.text("Hello! I'm Dhanz, your personal AI assistant. How can I help you today?"), findsOneWidget);
+    expect(find.text('What is DHANZ AI?'), findsOneWidget); // still in the history list, not in the transcript
+    expect(find.widgetWithText(TextField, 'Message Dhanz…'), findsOneWidget);
+    expect(find.text('unsent draft'), findsNothing);
+    expect(backend.conversations, hasLength(1));
+  });
+
   testWidgets('stored session restores straight into the chat on a phone layout', (tester) async {
     final api = ApiClient(store: store, baseUrl: 'http://test', clientFactory: backend.client);
     await api.register('ada@example.com', 'correct-horse-9', 'Ada');
