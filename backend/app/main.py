@@ -16,6 +16,7 @@ from app.api.routes import (
     admin,
     auth,
     conversations,
+    creative,
     devices,
     files,
     memories,
@@ -37,6 +38,7 @@ from app.core.observability import (
     render_metrics,
 )
 from app.db.session import make_engine, make_sessionmaker
+from app.generation_jobs import CreativeRuntime, worker_loop
 from app.services.files_service import build_files_runtime
 from app.services.knowledge_service import KnowledgeRuntime, build_knowledge_runtime, wait_for_background_indexing
 from app.services.mailer import Mailer, build_mailer
@@ -103,6 +105,12 @@ def create_app(
         app.state.orchestrator = orchestrator or build_orchestrator(settings)
         app.state.knowledge = knowledge or build_knowledge_runtime(settings)
         app.state.files = build_files_runtime(settings)
+        app.state.creative = CreativeRuntime(settings)
+        creative_task = (
+            asyncio.create_task(worker_loop(app.state.sessionmaker, app.state.creative))
+            if settings.creative_enabled and settings.creative_worker_enabled
+            else None
+        )
         app.state.stt = stt if stt is not None else build_stt(settings)
         app.state.push = push if push is not None else build_push(settings)
         app.state.turns = TurnManager(on_unattended_finish=_notify_finished(app))
@@ -123,7 +131,7 @@ def create_app(
             reminder_loop(app.state.sessionmaker, app.state.push, settings.reminder_check_seconds)
         )
         yield
-        for task in (maintenance, reminders_task):
+        for task in (maintenance, reminders_task, creative_task):
             if task is not None:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -141,6 +149,7 @@ def create_app(
         await app.state.push.aclose()
         if id_tokens is None:
             await app.state.id_tokens.aclose()
+        await app.state.creative.aclose()
         await engine.dispose()
 
     app = FastAPI(
@@ -169,9 +178,9 @@ def create_app(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_credentials=False,  # bearer tokens, no cookies
-        allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
-        expose_headers=["X-Request-ID"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Range"],
+        expose_headers=["X-Request-ID", "Content-Range", "Accept-Ranges", "Content-Disposition"],
     )
 
     @app.middleware("http")
@@ -207,6 +216,7 @@ def create_app(
         memories.router,
         voice.router,
         reminders.router,
+        creative.router,
     ]
     for router in (
         meta.router,
@@ -223,6 +233,7 @@ def create_app(
         updates.router,
         realtime.router,
         admin.router,
+        creative.router,
     ):
         gated = any(router is r for r in content_routers)
         app.include_router(
@@ -230,6 +241,8 @@ def create_app(
             prefix=settings.api_prefix,
             dependencies=[Depends(require_verified_email)] if gated else None,
         )
+    # Expiring shared media links carry their own signature and must not require a session.
+    app.include_router(creative.public_router, prefix=settings.api_prefix)
     return app
 
 

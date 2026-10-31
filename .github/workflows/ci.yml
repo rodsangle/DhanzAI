@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "claude/**"]
+    branches: [main, "claude/**", "codex/**"]
   pull_request:
   workflow_dispatch:
 
@@ -139,3 +139,9 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
+      - name: Build Creative Studio web client
+        run: flutter build web --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhanz-web
+          path: apps/dhanz_flutter/build/web

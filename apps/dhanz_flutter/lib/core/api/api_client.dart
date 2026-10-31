@@ -238,6 +238,49 @@ class ApiClient {
 
   // ---- users & models ----------------------------------------------------
 
+  Future<Map<String, dynamic>> creativeCapabilities() async =>
+      await _json('GET', '/creative/capabilities') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> creativeCredits() async =>
+      await _json('GET', '/creative/credits') as Map<String, dynamic>;
+
+  Future<List<Map<String, dynamic>>> creations({int offset = 0}) async =>
+      (await _json('GET', '/creative/jobs', query: {'offset': '$offset'}) as List).cast<Map<String, dynamic>>();
+
+  Future<Map<String, dynamic>> creativePolicy() async =>
+      await _json('GET', '/creative/admin/policy') as Map<String, dynamic>;
+
+  Future<void> updateCreativePolicy(Map<String, dynamic> policy) async =>
+      _json('PUT', '/creative/admin/policy', body: policy);
+
+  Future<List<Map<String, dynamic>>> creativeReports() async =>
+      (await _json('GET', '/creative/admin/reports') as List).cast<Map<String, dynamic>>();
+
+  Future<void> removeUnsafeCreation(String id) async => _json('DELETE', '/creative/admin/jobs/$id');
+
+  Future<Map<String, dynamic>> generateMedia(Map<String, dynamic> body) async =>
+      await _json('POST', '/creative/jobs', body: body) as Map<String, dynamic>;
+
+  Future<void> cancelCreation(String id) async => _json('POST', '/creative/jobs/$id/cancel');
+
+  Future<void> deleteCreation(String id) async => _json('DELETE', '/creative/jobs/$id');
+
+  Future<void> reportCreation(String id, String reason) async =>
+      _json('POST', '/creative/jobs/$id/report', body: {'reason': reason});
+
+  Future<String> creationMediaUrl(String id) async {
+    final body = await _json('POST', '/creative/jobs/$id/media-link') as Map<String, dynamic>;
+    return '${baseUrl.replaceAll(RegExp(r'/+$'), '')}${AppConfig.apiPrefix}${body['path']}';
+  }
+
+  Future<Uint8List> downloadCreation(String id) async {
+    final response = await _send('GET', '/creative/jobs/$id/download');
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    }
+    return response.bodyBytes;
+  }
+
   Future<User> me() async => User.fromJson(await _json('GET', '/users/me') as Map<String, dynamic>);
 
   Future<User> updateMe({
@@ -382,6 +425,10 @@ class ApiClient {
   );
 
   Future<void> deleteDocument(String id) => _json('DELETE', '/knowledge/documents/$id');
+
+  Future<Map<String, dynamic>> researchAndSave(String query, {String? projectId}) async =>
+      await _json('POST', '/knowledge/research', body: {'query': query, 'project_id': projectId})
+          as Map<String, dynamic>;
 
   Future<List<LibraryHit>> searchLibrary(String query) async {
     final body = await _json('GET', '/knowledge/search', query: {'q': query}) as List<dynamic>;

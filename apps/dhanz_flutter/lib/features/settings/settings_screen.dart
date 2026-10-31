@@ -195,6 +195,12 @@ class SettingsScreen extends ConsumerWidget {
                   onChanged: ref.read(minimizeToTrayProvider.notifier).set,
                 ),
               section('AI model'),
+              ListTile(
+                leading: const Icon(Icons.computer),
+                title: const Text('Local / Cloud / Hybrid chat'),
+                subtitle: const Text('Connect to Ollama on this PC · Qwen3 8B or 14B'),
+                onTap: () => context.go('/local'),
+              ),
               models.when(
                 loading: () => const ListTile(title: Text('Loading models…')),
                 error: (e, _) => ListTile(title: const Text('Could not load models'), subtitle: Text('$e')),

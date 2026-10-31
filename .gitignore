@@ -29,3 +29,8 @@ htmlcov/
 # Production deployment: secrets and database backups stay on the server
 deploy/.env
 deploy/backups/
+.tools/
+backend/data/creations/
+backend/data/uploads/
+deploy/windows/Release/
+dist/

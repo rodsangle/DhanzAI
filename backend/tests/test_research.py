@@ -30,6 +30,44 @@ def test_features_reported(client, auth):
     assert features["speech_to_text"] is False and features["malware_scanning"] is False
 
 
+def test_library_research_saves_searchable_pages_and_deduplicates(client, auth, search):
+    h = auth["headers"]
+    for _ in range(2):
+        r = client.post("/api/v1/knowledge/research", headers=h, json={"query": "semiconductor technology"})
+        assert r.status_code == 200, r.text
+        assert len(r.json()["items"]) == 1
+        assert r.json()["failures"] == []
+    assert search.queries == ["semiconductor technology"] * 2
+    assert documents(client, auth)["total"] == 1
+    hits = client.get("/api/v1/knowledge/search", headers=h, params={"q": "gate-all-around transistors"}).json()
+    assert hits[0]["url"] == "https://chips.example/2nm"
+
+
+def test_library_research_unavailable_and_blank(client, auth, knowledge):
+    h = auth["headers"]
+    assert client.post("/api/v1/knowledge/research", headers=h, json={"query": "   "}).status_code == 422
+    knowledge.search = None
+    assert client.post("/api/v1/knowledge/research", headers=h, json={"query": "chips"}).status_code == 503
+    assert documents(client, auth)["total"] == 0
+
+
+def test_library_research_partial_fetch_failure(client, auth, search):
+    from dhanz_knowledge import SearchResult
+
+    async def mixed(query, **kwargs):
+        return [
+            SearchResult("Blocked", "https://private.example/page", "snippet"),
+            SearchResult("Chips", "https://chips.example/2nm", "snippet"),
+        ]
+
+    search.search = mixed
+    r = client.post("/api/v1/knowledge/research", headers=auth["headers"], json={"query": "chips"})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["items"]) == 1
+    assert "robots.txt" in r.json()["failures"][0]["reason"]
+    assert documents(client, auth)["total"] == 1
+
+
 def test_web_research_turn_cites_sources_and_indexes(client, auth, provider, search):
     cid, events = chat(client, auth, "Hey Dhanz, search the internet for the latest semiconductor technology")
     assert search.queries == ["the latest semiconductor technology"]

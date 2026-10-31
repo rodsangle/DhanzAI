@@ -9,11 +9,55 @@ from app.api.deps import CurrentUser, DbDep, KnowledgeDep, SettingsDep, parse_uu
 from app.api.routes.projects import get_owned_project
 from app.core import rate_limit
 from app.models import KnowledgeChunk, KnowledgeDocument
-from app.schemas import AddDocumentRequest, DocumentDetail, DocumentList, DocumentOut, LibraryHit, MoveDocumentRequest
+from app.schemas import (
+    AddDocumentRequest,
+    DocumentDetail,
+    DocumentList,
+    DocumentOut,
+    LibraryHit,
+    MoveDocumentRequest,
+    ResearchLibraryRequest,
+    ResearchLibraryResponse,
+)
 from app.services import audit, files_service, knowledge_service
 from dhanz_knowledge import FetchError
+from dhanz_knowledge.research import ResearchOutcome
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+
+
+@router.post("/research", response_model=ResearchLibraryResponse)
+async def research_and_save(
+    body: ResearchLibraryRequest, user: CurrentUser, db: DbDep, knowledge: KnowledgeDep, settings: SettingsDep
+) -> ResearchLibraryResponse:
+    """Search public sources and persist readable pages before reporting success."""
+    query = body.query.strip()
+    if not query:
+        raise HTTPException(422, "Enter a topic to research")
+    if knowledge.search is None:
+        raise HTTPException(503, "Internet search is not configured. Set up Brave, Tavily or SearXNG on the server.")
+    if body.project_id is not None:
+        await get_owned_project(db, user, body.project_id)
+    await rate_limit.enforce(f"ingest:{user.id}", settings.rate_limit_ingest_per_minute)
+    items = []
+    failures = []
+    async for event in knowledge.pipeline().run(query, use_search=True):
+        if not isinstance(event, ResearchOutcome):
+            continue
+        failures.extend(event.failures)
+        for page in event.pages:
+            # Commit each source independently so one failed save preserves the others.
+            try:
+                doc = await knowledge_service.ingest_page(db, user.id, page, knowledge.embedder, added_via="manual")
+                if body.project_id is not None:
+                    doc.project_id = body.project_id
+                audit.record(db, "knowledge.add", user_id=user.id, detail={"url": page.url})
+                await db.commit()
+                items.append(DocumentOut.model_validate(doc))
+            except Exception:  # noqa: BLE001 - report partial success without losing saved pages
+                await db.rollback()
+                failures.append({"url": page.url, "reason": "Could not save this page. Try adding its URL again."})
+    return ResearchLibraryResponse(items=items, failures=failures)
 
 
 async def _owned(db, user, document_id: str) -> KnowledgeDocument:

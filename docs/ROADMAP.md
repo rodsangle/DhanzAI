@@ -2,6 +2,21 @@
 
 Legend: ✅ implemented and tested · 🟡 partially implemented · ⬜ not started
 
+## Creative Studio — 0.7 update
+
+| Feature | Status | Notes |
+|---|---|---|
+| Image generation and natural-language reference editing | 🟡 | OpenAI-compatible adapter, prompt/ratio/quality/format controls; API and widget tests use simulated services; live verification pending |
+| Asynchronous video generation | 🟡 | Runway Gen-4.5 text/image-to-video, persisted tasks, polling, cancel, MP4; live verification pending; retired Sora API not exposed |
+| Private creation gallery, previews, downloads and explicit sharing | 🟡 | Flutter studio on Windows/Android/iOS/web; widget tests and web compilation checks; native playback/share need devices |
+| Credit reservations, settlement/refunds, monthly plan allowances | ✅ | Server-side ledger, idempotency and concurrent requests tested on SQLite; PostgreSQL covered by CI configuration |
+| Payment checkout / purchased credit packs | ⬜ | Admin grants and per-user plan allowances exist; no payment gateway or webhook handler |
+| Private cloud media storage / expiring preview links / cleanup | 🟡 | Encrypted S3-compatible adapter and deletion outbox; simulated storage contract tests; live bucket verification pending |
+| Safety screening, consent, reports, admin takedown | 🟡 | Fail-closed prompt/reference and image-output screening, native provider video checks; no independent video-frame moderation or rights verification |
+| Dedicated image upscaling / generated video audio | ⬜ | Generative enhancement exists; unsupported controls are not offered |
+
+See [Creative Studio](CREATIVE_STUDIO.md) for configuration, architecture, verification and limitations.
+
 Nothing marked ⬜ exists in the code base as a mock or placeholder screen; the app only shows
 features that work.
 
@@ -53,7 +68,7 @@ features that work.
 | Ask questions about attached documents, compare documents, summarise | ✅ | Short files given whole, long files by opening + most relevant passages; each file is a citable `[n]` source |
 | Spreadsheet analysis | ✅ | Row/column counts and exact per-column sum/mean/min/max computed server-side, plus the first 200 rows |
 | Images / technical drawings | ✅ | Sent to a vision-capable model (OpenAI, Claude, Gemini, LLaVA-type Ollama models); routing refuses non-vision models |
-| Scanned PDFs (OCR) | ⬜ | Detected and reported honestly; text recognition is not implemented |
+| Scanned PDFs (OCR) | 🟡 | Optional local Poppler + Tesseract when `OCR_ENABLED=true`; no external OCR service. Tests simulate the engines; recognition quality needs a server with both installed ([OCR.md](OCR.md)) |
 | Uploaded files in the knowledge library (search, download, move to project, delete) | ✅ | Files are private; downloads are always `attachment` + `nosniff` |
 | Generate downloadable files | 🟡 | Conversations can be saved as PDF, Markdown or text; generating new reports/spreadsheets as files is not implemented |
 | Project workspaces | ✅ | Group chats and documents, standing instructions added to the prompt, project chats only search that project's documents |
@@ -131,7 +146,7 @@ plans. Work is split into milestones; each is shipped and tested before the next
 
 | Feature | Status | Notes |
 |---|---|---|
-| Email verification by 6-digit code | ✅ | Sent at sign-up when SMTP is configured. `REQUIRE_EMAIL_VERIFICATION=true` locks chats, files, library, projects, memory, voice and reminders until confirmed. Accounts that existed before were marked verified by the migration |
+| Email verification by 6-digit code | ✅ | Sent at sign-up when SMTP is configured. `REQUIRE_EMAIL_VERIFICATION=true` locks chats, files, library, projects, memory, voice, reminders and Creative Studio until confirmed. Accounts that existed before were marked verified by the migration |
 | Two-step verification (TOTP authenticator apps) | ✅ | QR code + manual key; 10 single-use recovery codes; one code can't be reused; 5 wrong codes per 15 min per account; secrets encrypted at rest (AES-256-GCM, `DATA_ENCRYPTION_KEY`); turning it on signs out other devices; account deletion asks for a code |
 | Admin reset of a lost authenticator | ✅ | Admin screen → user menu; audited |
 | Sign in with Google | 🟡 | Server verifies the ID token (signature via Google's keys, audience, issuer, expiry, nonce). App: Android and iOS. **Web and desktop not yet** (web needs Google's own button; Windows has no Google SDK) |

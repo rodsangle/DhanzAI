@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../widgets/dhanz_logo.dart';
 import '../auth/auth_controller.dart';
@@ -39,6 +40,7 @@ class SplashScreen extends ConsumerWidget {
                 ),
               ] else
                 const CircularProgressIndicator(),
+              TextButton(onPressed: () => context.go('/local'), child: const Text('Use local AI on this PC')),
             ],
           ),
         ),

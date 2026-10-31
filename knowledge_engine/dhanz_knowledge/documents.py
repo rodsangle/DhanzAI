@@ -1,7 +1,7 @@
 """Uploaded-file validation and text extraction.
 
 Supported: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV, plain text / Markdown /
-source code, and images (PNG, JPEG, WebP, GIF — passed to vision-capable models; no OCR).
+source code, and images (PNG, JPEG, WebP, GIF — passed to vision-capable models).
 Legacy binary Office formats (.doc/.xls/.ppt) are rejected with a clear message.
 """
 
@@ -11,8 +11,11 @@ import csv
 import io
 import math
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePath
+
+from .ocr import OCRError
 
 MAX_UNCOMPRESSED_BYTES = 100_000_000  # zip-bomb guard for Office files
 MAX_ZIP_ENTRIES = 5_000
@@ -88,7 +91,7 @@ def _check_zip(data: bytes) -> zipfile.ZipFile:
     return zf
 
 
-def extract_document(filename: str, data: bytes) -> ExtractedDocument:
+def extract_document(filename: str, data: bytes, *, pdf_ocr: Callable[[int], str] | None = None) -> ExtractedDocument:
     """Validate the file's real type (not just its name) and extract readable text."""
     ext = PurePath(filename.lower()).suffix
     if ext in LEGACY:
@@ -101,7 +104,7 @@ def extract_document(filename: str, data: bytes) -> ExtractedDocument:
     if ext == ".pdf":
         if not data.startswith(b"%PDF-"):
             raise UnsupportedFile("The file does not look like a valid PDF.")
-        return _pdf(data)
+        return _pdf(data, pdf_ocr)
     if ext in OFFICE:
         zf = _check_zip(data)
         zf.close()
@@ -126,10 +129,12 @@ def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def _pdf(data: bytes) -> ExtractedDocument:
+def _pdf(data: bytes, pdf_ocr: Callable[[int], str] | None = None) -> ExtractedDocument:
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 
+    notes = []
+    ocr_stopped = False
     try:
         reader = PdfReader(io.BytesIO(data))
         if reader.is_encrypted:
@@ -137,19 +142,28 @@ def _pdf(data: bytes) -> ExtractedDocument:
         pages = []
         for i, page in enumerate(reader.pages, start=1):
             text = (page.extract_text() or "").strip()
+            if not text:
+                if pdf_ocr is not None and not ocr_stopped:
+                    try:
+                        text = pdf_ocr(i).strip()
+                        if text:
+                            notes.append(f"Page {i}: OCR text may contain recognition errors.")
+                        else:
+                            notes.append(f"Page {i}: OCR found no readable text.")
+                    except OCRError as exc:
+                        notes.append(str(exc))
+                        ocr_stopped = True
+                elif not ocr_stopped:
+                    notes.append(f"Page {i}: no text layer; OCR is disabled.")
             if text:
                 pages.append(f"## Page {i}\n{text}")
             if sum(len(p) for p in pages) > MAX_TEXT_CHARS:
                 break
     except PdfReadError:
         raise UnsupportedFile("The PDF is damaged and could not be read.") from None
-    notes = []
     if not pages:
-        notes.append(
-            "This PDF has no text layer (it is probably scanned). Text recognition (OCR) is not available, "
-            "so its contents could not be read."
-        )
-    return ExtractedDocument("pdf", "application/pdf", "\n\n".join(pages), notes)
+        notes.append("This PDF has no readable text. Its contents could not be read; see the OCR notes.")
+    return ExtractedDocument("pdf", "application/pdf", "\n\n".join(pages)[:MAX_TEXT_CHARS], notes)
 
 
 def _docx(data: bytes) -> ExtractedDocument:

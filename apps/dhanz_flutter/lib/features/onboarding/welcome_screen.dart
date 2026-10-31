@@ -63,6 +63,7 @@ class WelcomeScreen extends StatelessWidget {
                       ),
                     ),
                   const SizedBox(height: 24),
+                  OutlinedButton(onPressed: () => context.go('/local'), child: const Text('Use local AI on this PC')),
                   FilledButton(onPressed: () => context.go('/register'), child: const Text('Get started')),
                   const SizedBox(height: 12),
                   OutlinedButton(onPressed: () => context.go('/login'), child: const Text('I already have an account')),

@@ -9,6 +9,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /srv
 
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY ai_engine /srv/ai_engine
 COPY knowledge_engine /srv/knowledge_engine
 COPY backend/requirements.txt /srv/backend/requirements.txt

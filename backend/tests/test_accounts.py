@@ -92,6 +92,8 @@ def test_email_verification_unlocks_chats_when_required(settings, knowledge):
 
         locked = client.post(f"{API}/conversations", json={"title": "x"}, headers=bearer(tokens))
         assert locked.status_code == 403 and "Confirm your email" in locked.json()["detail"]
+        locked_studio = client.get(f"{API}/creative/capabilities", headers=bearer(tokens))
+        assert locked_studio.status_code == 403 and "Confirm your email" in locked_studio.json()["detail"]
         assert client.get(f"{API}/users/me", headers=bearer(tokens)).status_code == 200  # account stays usable
 
         confirm = f"{API}/users/me/email-verification/confirm"
@@ -100,6 +102,7 @@ def test_email_verification_unlocks_chats_when_required(settings, knowledge):
         r = client.post(confirm, json={"code": code}, headers=bearer(tokens))
         assert r.status_code == 200 and r.json()["email_verified"] is True
         assert client.post(f"{API}/conversations", json={"title": "x"}, headers=bearer(tokens)).status_code == 201
+        assert client.get(f"{API}/creative/capabilities", headers=bearer(tokens)).status_code == 200
         resend = client.post(f"{API}/users/me/email-verification", headers=bearer(tokens))
         assert resend.status_code == 202 and "already" in resend.json()["detail"]
 

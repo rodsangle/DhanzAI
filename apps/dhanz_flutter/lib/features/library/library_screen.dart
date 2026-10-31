@@ -70,6 +70,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Timer? _debounce;
   List<LibraryHit>? _hits;
   bool _searching = false;
+  bool _researching = false;
 
   static final _date = DateFormat.yMMMd();
 
@@ -126,6 +127,53 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       if (mounted) _snack('Added to your library');
     } on ApiException catch (e) {
       if (mounted) _snack(e.message);
+    }
+  }
+
+  Future<void> _research() async {
+    final query = await showTextPrompt(
+      context,
+      title: 'Search internet and save',
+      confirmLabel: 'Search and save',
+      hint: 'What would you like Dhanz to learn about?',
+      prefixIcon: Icons.travel_explore,
+      help: const Text('Dhanz downloads readable public pages and saves their text and source links to your library.'),
+    );
+    if (query == null || query.trim().isEmpty || !mounted) return;
+    setState(() => _researching = true);
+    try {
+      final result = await ref
+          .read(apiClientProvider)
+          .researchAndSave(query.trim(), projectId: ref.read(selectedProjectProvider));
+      final items = result['items'] as List<dynamic>;
+      for (final item in items) {
+        ref.read(libraryProvider.notifier).addLocal(KnowledgeDocument.fromJson(item as Map<String, dynamic>));
+      }
+      if (!mounted) return;
+      _search.clear();
+      _debounce?.cancel();
+      setState(() => _hits = null);
+      final failures = result['failures'] as List<dynamic>;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Saved ${items.length} page${items.length == 1 ? '' : 's'}'),
+          content: SingleChildScrollView(
+            child: Text(
+              [
+                if (items.isEmpty) 'No readable pages were saved. Try a more specific topic or add a page URL.',
+                if (items.isNotEmpty) 'These sources are now available in your knowledge library.',
+                for (final failure in failures) '${failure['url'] ?? 'Internet search'}: ${failure['reason']}',
+              ].join('\n\n'),
+            ),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Done'))],
+        ),
+      );
+    } on ApiException catch (e) {
+      if (mounted) _snack(e.message);
+    } finally {
+      if (mounted) setState(() => _researching = false);
     }
   }
 
@@ -254,6 +302,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          FloatingActionButton.extended(
+            heroTag: 'research',
+            onPressed: _researching ? null : _research,
+            icon: _researching
+                ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.travel_explore),
+            label: Text(_researching ? 'Searching and saving…' : 'Search internet and save'),
+          ),
+          const SizedBox(height: 12),
           FloatingActionButton.extended(
             heroTag: 'upload',
             onPressed: _upload,

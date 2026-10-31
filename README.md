@@ -2,6 +2,20 @@
 
 **Your World. Your Knowledge. Your AI.**
 
+## Download for Windows
+
+[Download the DHANZ AI 0.7.0 Windows installer / update](https://github.com/rodsangle/DhanzAI/releases/download/desktop-0.7.0/dhanz-ai-0.7.0-windows-setup.exe)
+
+Close DHANZ AI (including its tray icon) and run the setup EXE. Keep the existing installation
+folder selected: setup replaces the application files and retains your shortcuts and user data.
+Do not uninstall first. The installer reuses registered installations and defaults to
+`%LOCALAPPDATA%\Programs\DHANZ AI` for existing per-user copies. If you previously extracted
+a portable ZIP elsewhere, select that folder in setup to update that copy.
+This installer is unsigned. The portable ZIP is an optional download, not the normal update path.
+See the [release notes](https://github.com/rodsangle/DhanzAI/releases/tag/desktop-0.7.0)
+for downloads and checksums. Creative Studio needs an updated backend and configured provider
+keys; follow the [setup guide](docs/CREATIVE_STUDIO.md).
+
 DHANZ AI is a cross-platform AI assistant — *Dhanz* — for Windows 10/11, Android and
 iPhone/iPad, built with Flutter on top of a FastAPI backend that routes each message to OpenAI,
 Anthropic Claude, Google Gemini or a local Ollama model.
@@ -23,6 +37,13 @@ privacy controls (data export, account deletion), CI and release pipelines.
 reading that respects robots.txt and never bypasses paywalls, webpage summarisation, answers
 with numbered clickable citations and publication/retrieval dates, and a private knowledge
 library with hybrid keyword + semantic (pgvector) retrieval.
+
+In **Knowledge library → Search internet and save**, enter a topic to download readable
+public page text into your private library. Saved sources include their links and retrieval
+dates and can be previewed and searched later. Repeat searches refresh existing pages;
+unreadable sources are reported individually. This requires the backend account mode and a
+configured `SEARCH_PROVIDER` (`brave`, `tavily`, or `searxng`) with its key or server URL.
+The standalone local chat mode does not provide this library action.
 
 | Web research with sources | Answer from your knowledge library |
 |---|---|
@@ -51,13 +72,21 @@ send from your own email app — using each AI provider's native function callin
 
 **Public accounts:** email verification by code, two-step verification with any authenticator app
 (QR code, recovery codes), and *Continue with Google* (Android, iOS) / *Sign in with Apple* (iOS),
-all verified on the server. Next: Free / Plus / Pro subscriptions with Stripe and in-app purchases,
-usage limits and cost tracking, then the web administrator dashboard.
+all verified on the server.
 
-OCR for scanned PDFs, subscriptions and the web dashboard are **not implemented yet** — see
-[docs/ROADMAP.md](docs/ROADMAP.md) for the exact status of every feature.
+Optional local [OCR for scanned PDFs](docs/OCR.md) is implemented; enable it on the backend.
+Subscriptions (Free / Plus / Pro), usage limits, cost tracking and the web administrator
+dashboard are **not implemented yet** — see [docs/ROADMAP.md](docs/ROADMAP.md) for the exact
+status of every feature.
 
 ## Quick start
+
+**DHANZ Creative Studio (0.7):** text-to-image, reference edits, asynchronous Runway video,
+private creation history, previews/downloads/sharing, server-side credit reservations/refunds,
+monthly allowances, moderation and administrator controls. Requires configured provider keys;
+generation is disabled by default. See [Creative Studio setup and limitations](docs/CREATIVE_STUDIO.md).
+Provider/storage contracts are tested with simulated services; live generation and native playback
+still need operator verification before release.
 
 ```bash
 # 1. Backend (Docker)

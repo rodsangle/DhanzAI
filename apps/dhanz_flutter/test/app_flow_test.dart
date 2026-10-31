@@ -42,6 +42,22 @@ void main() {
     expect(find.text('Get started'), findsOneWidget);
   });
 
+  testWidgets('signed-out user opens local workspace without creating cloud conversations', (tester) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Use local AI on this PC'));
+    await tester.pumpAndSettle();
+    expect(find.text('DHANZ AI · Local / Cloud'), findsOneWidget);
+    expect(find.text('Local'), findsOneWidget);
+    expect(find.text('qwen3:8b'), findsOneWidget);
+    expect(find.text('Test connection'), findsOneWidget);
+    expect(backend.conversations, isEmpty);
+    await tester.tap(find.text('qwen3:8b'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('qwen3:14b').last);
+    await tester.pumpAndSettle();
+    expect(find.text('qwen3:14b'), findsOneWidget);
+  });
+
   testWidgets('register, greet, send a message and see the streamed reply', (tester) async {
     await pumpApp(tester);
     await tester.tap(find.text('Get started'));

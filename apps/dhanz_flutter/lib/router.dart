@@ -9,6 +9,8 @@ import 'features/admin/admin_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
+import 'features/chat/local_chat_screen.dart';
+import 'features/creative/studio_screen.dart';
 import 'features/library/library_screen.dart';
 import 'features/memory/memory_screen.dart';
 import 'features/onboarding/splash_screen.dart';
@@ -33,6 +35,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
+      if (location == '/local') return null;
       if (auth.isLoading || auth.hasError) return location == '/splash' ? null : '/splash';
       final signedIn = auth.value != null;
       if (!signedIn) return _publicRoutes.contains(location) ? null : '/welcome';
@@ -44,6 +47,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       return null;
     },
     routes: [
+      GoRoute(path: '/local', builder: (context, state) => const LocalChatScreen()),
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/welcome', builder: (context, state) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (context, state) => const AuthScreen(register: false)),
@@ -64,6 +68,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
       GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
+      GoRoute(path: '/studio', builder: (context, state) => const StudioScreen()),
       GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
       GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),

@@ -165,8 +165,14 @@ void main() {
     tester.state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger)).clearSnackBars();
     container.read(routerProvider).go('/settings');
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Delete account'), 200, scrollable: find.byType(Scrollable).first);
-    await tester.tap(find.text('Delete account'));
+    // ListView builds the row before its center is on screen. Scroll until it exists,
+    // then align it so the tap lands inside the window.
+    final deleteAccount = find.text('Delete account');
+    final settingsList = find.byType(Scrollable).first;
+    await tester.scrollUntilVisible(deleteAccount, 200, scrollable: settingsList);
+    await tester.ensureVisible(deleteAccount);
+    await tester.pumpAndSettle();
+    await tester.tap(deleteAccount);
     await tester.pumpAndSettle();
     expect(find.text('Type your email (ada@gmail.com)'), findsOneWidget);
     await tester.enterText(find.byType(TextField).last, 'ada@gmail.com');

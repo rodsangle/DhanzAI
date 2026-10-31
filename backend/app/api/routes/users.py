@@ -10,7 +10,11 @@ from app.core.security import hash_password_async, verify_password_async
 from app.db.base import utcnow
 from app.models import (
     Conversation,
+    CreditAccount,
+    CreditEntry,
+    GenerationJob,
     KnowledgeDocument,
+    MediaDeletion,
     Memory,
     MfaRecoveryCode,
     OAuthIdentity,
@@ -161,6 +165,11 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
     docs = await db.scalars(select(KnowledgeDocument).where(KnowledgeDocument.user_id == user.id))
     projects = await db.scalars(select(Project).where(Project.user_id == user.id))
     memories = await db.scalars(select(Memory).where(Memory.user_id == user.id))
+    creations = list(await db.scalars(select(GenerationJob).where(GenerationJob.user_id == user.id)))
+    ledger = await db.scalars(select(CreditEntry).where(CreditEntry.user_id == user.id))
+    account = await db.get(CreditAccount, user.id)
+    from app.api.routes.creative import output
+
     return {
         "exported_at": utcnow().isoformat(),
         "user": UserOut.model_validate(user).model_dump(mode="json"),
@@ -168,6 +177,19 @@ async def export_my_data(user: CurrentUser, db: DbDep) -> dict:
         "knowledge_documents": [DocumentOut.model_validate(d).model_dump(mode="json") for d in docs],
         "projects": [ProjectOut.model_validate(p).model_dump(mode="json") for p in projects],
         "memories": [MemoryOut.model_validate(m).model_dump(mode="json") for m in memories],
+        "creations": [output(job) for job in creations if not job.deleted],
+        "creative_credits": None
+        if account is None
+        else {
+            "balance": account.balance,
+            "reserved": account.reserved,
+            "consumed": account.consumed,
+            "monthly_allowance": account.monthly_allowance,
+            "allowance_month": account.allowance_month,
+        },
+        "creative_credit_history": [
+            {"kind": entry.kind, "amount": entry.amount, "created_at": entry.created_at.isoformat()} for entry in ledger
+        ],
         "note": "Uploaded files can be downloaded individually from the knowledge library.",
     }
 
@@ -200,6 +222,14 @@ async def delete_me(
             )
         )
     )
+    creations = await db.scalars(select(GenerationJob).where(GenerationJob.user_id == user.id))
+    for creation in creations:
+        for key in (creation.media_key, creation.reference_key):
+            if key:
+                db.add(MediaDeletion(key=key, kind="object"))
+        if creation.provider_job_id and creation.kind == "video" and creation.status in ("queued", "processing"):
+            db.add(MediaDeletion(key=creation.provider_job_id, kind="runway_task"))
+    await db.flush()
     await db.delete(user)
     await db.commit()
     # Stored file bytes live outside the database: remove them too.
