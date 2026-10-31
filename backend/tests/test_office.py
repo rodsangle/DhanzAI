@@ -34,10 +34,19 @@ def _sheets():
     return [{"name": "Budget", "columns": ["Item", "Amount"], "rows": [["Rent", 1200], ["Food", 80.5]]}]
 
 
-async def _call(ctx: ToolContext, name: str, **args):
+async def _call(ctx: ToolContext, name: str, args: dict):
     box = ToolBox(ctx)
     result = await box.run(ToolCall("c1", name, args))
     return json.loads(result.content), result.is_error, box.activity
+
+
+def _call_on_app_loop(client, ctx: ToolContext, name: str, args: dict):
+    """Run the tool on the API's event loop.
+
+    TestClient owns that loop. asyncpg connections are bound to it, so awaiting the
+    tool from pytest's loop fails on PostgreSQL with "attached to a different loop".
+    """
+    return client.portal.call(_call, ctx, name, args)
 
 
 def test_builders_round_trip_through_the_same_reader_as_uploads():
@@ -88,7 +97,7 @@ def test_sections_must_contain_something():
         parse_sections([{"heading": "", "paragraphs": [], "bullets": []}])
 
 
-async def test_documents_are_saved_and_only_the_owner_can_download(client, auth):
+def test_documents_are_saved_and_only_the_owner_can_download(client, auth):
     app = client.app
     other = client.post(
         "/api/v1/auth/register",
@@ -103,12 +112,11 @@ async def test_documents_are_saved_and_only_the_owner_can_download(client, auth)
         embedder=app.state.knowledge.embedder,
         settings=app.state.settings,
     )
-    body, failed, activity = await _call(
+    body, failed, activity = _call_on_app_loop(
+        client,
         ctx,
         "create_word_document",
-        title="Plant notes",
-        filename="Plant notes",
-        sections=_sections(),
+        {"title": "Plant notes", "filename": "Plant notes", "sections": _sections()},
     )
     assert failed is False and body["saved"] is True and body["filename"] == "Plant notes.docx"
     assert activity[0]["action"]["type"] == "file"
@@ -128,19 +136,23 @@ async def test_documents_are_saved_and_only_the_owner_can_download(client, auth)
     )
     assert stolen.status_code == 404
 
-    sheet, sheet_failed, _ = await _call(ctx, "create_spreadsheet", filename="Budget", sheets=_sheets())
+    sheet, sheet_failed, _ = _call_on_app_loop(
+        client, ctx, "create_spreadsheet", {"filename": "Budget", "sheets": _sheets()}
+    )
     assert sheet_failed is False and sheet["file_type"] == "xlsx"
-    csv_file, csv_failed, _ = await _call(ctx, "create_spreadsheet", filename="Budget", format="csv", sheets=_sheets())
+    csv_file, csv_failed, _ = _call_on_app_loop(
+        client, ctx, "create_spreadsheet", {"filename": "Budget", "format": "csv", "sheets": _sheets()}
+    )
     assert csv_failed is False and csv_file["filename"].endswith(".csv")
-    deck, deck_failed, _ = await _call(
+    deck, deck_failed, _ = _call_on_app_loop(
+        client,
         ctx,
         "create_presentation",
-        title="Pitch",
-        slides=[{"title": "Problem", "bullets": ["Too many tabs"], "notes": "Pause"}],
+        {"title": "Pitch", "slides": [{"title": "Problem", "bullets": ["Too many tabs"], "notes": "Pause"}]},
     )
     assert deck_failed is False and deck["file_type"] == "pptx"
-    pdf, pdf_failed, _ = await _call(
-        ctx, "create_word_document", title="Plant notes", format="pdf", sections=_sections()
+    pdf, pdf_failed, _ = _call_on_app_loop(
+        client, ctx, "create_word_document", {"title": "Plant notes", "format": "pdf", "sections": _sections()}
     )
     assert pdf_failed is False and pdf["filename"].endswith(".pdf")
     pdf_bytes = client.get(f"/api/v1/files/{pdf['document_id']}/download", headers=auth["headers"]).content
@@ -150,11 +162,13 @@ async def test_documents_are_saved_and_only_the_owner_can_download(client, auth)
 async def test_document_tools_report_bad_input_and_missing_storage():
     app_ctx = ToolContext(None, uuid.uuid4(), None)
     body, failed, activity = await _call(
-        app_ctx, "create_spreadsheet", filename="Budget", format="csv", sheets=_sheets() * 2
+        app_ctx, "create_spreadsheet", {"filename": "Budget", "format": "csv", "sheets": _sheets() * 2}
     )
     assert failed is True and "one sheet" in body["error"]
     assert activity[0]["error"] is True
 
     bare = ToolContext(None, uuid.uuid4(), None)
-    body, failed, _ = await _call(bare, "create_word_document", title="Notes", sections=[{"paragraphs": ["Hello"]}])
+    body, failed, _ = await _call(
+        bare, "create_word_document", {"title": "Notes", "sections": [{"paragraphs": ["Hello"]}]}
+    )
     assert failed is True and "not available" in body["error"]
