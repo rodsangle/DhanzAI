@@ -344,14 +344,14 @@ class PasswordResetToken(Base):
 
 
 class VerificationCode(Base):
-    """One-time code emailed to the user (purpose "email": confirm the address). Only its SHA-256 is stored."""
+    """One-time code emailed to the user (purpose "email": confirm the address). Only its Argon2 hash is stored."""
 
     __tablename__ = "verification_codes"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     purpose: Mapped[str] = mapped_column(String(20))
-    code_hash: Mapped[str] = mapped_column(String(64))
+    code_hash: Mapped[str] = mapped_column(String(255))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
@@ -359,13 +359,13 @@ class VerificationCode(Base):
 
 
 class MfaRecoveryCode(Base):
-    """Single-use backup code for signing in without the authenticator app (SHA-256 only)."""
+    """Single-use backup code for signing in without the authenticator app (Argon2id only)."""
 
     __tablename__ = "mfa_recovery_codes"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    code_hash: Mapped[str] = mapped_column(String(64))
+    code_hash: Mapped[str] = mapped_column(String(255))
     used_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 

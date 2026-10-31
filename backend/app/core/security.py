@@ -46,6 +46,35 @@ def password_needs_rehash(password_hash: str) -> bool:
     return _hasher.check_needs_rehash(password_hash)
 
 
+def hash_single_use_code(code: str) -> str:
+    """Argon2id for a short typed code (email verification, recovery).
+
+    SHA-256 is fine for high-entropy refresh tokens, and too fast for a 6-digit code or a
+    ~60-bit recovery code if the database leaks.
+    """
+    return _hasher.hash(code)
+
+
+def single_use_code_matches(code: str, stored: str) -> bool:
+    return verify_password(code, stored)
+
+
+def matching_single_use_code(code: str, stored_hashes: list[str]) -> int | None:
+    """Index of the stored Argon2 hash `code` matches, checking every hash (salts differ)."""
+    for index, stored in enumerate(stored_hashes):
+        if single_use_code_matches(code, stored):
+            return index
+    return None
+
+
+async def hash_single_use_code_async(code: str) -> str:
+    return await asyncio.to_thread(hash_single_use_code, code)
+
+
+async def matching_single_use_code_async(code: str, stored_hashes: list[str]) -> int | None:
+    return await asyncio.to_thread(matching_single_use_code, code, stored_hashes)
+
+
 def create_access_token(
     settings: Settings, user_id: uuid.UUID, role: str, session_id: uuid.UUID | None = None
 ) -> tuple[str, int]:

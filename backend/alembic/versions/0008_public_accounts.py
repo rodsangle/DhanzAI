@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("purpose", sa.String(length=20), nullable=False),
-        sa.Column("code_hash", sa.String(length=64), nullable=False),
+        sa.Column("code_hash", sa.String(length=255), nullable=False),
         sa.Column("attempts", sa.Integer(), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
@@ -47,7 +47,7 @@ def upgrade() -> None:
         "mfa_recovery_codes",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("user_id", sa.Uuid(), nullable=False),
-        sa.Column("code_hash", sa.String(length=64), nullable=False),
+        sa.Column("code_hash", sa.String(length=255), nullable=False),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(

@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import mfa, rate_limit
 from app.core.config import Settings
-from app.core.security import create_mfa_token, hash_token, new_numeric_code, same_hash
+from app.core.security import (
+    create_mfa_token,
+    hash_single_use_code_async,
+    matching_single_use_code_async,
+    new_numeric_code,
+)
 from app.db.base import utcnow
 from app.models import MfaRecoveryCode, User, VerificationCode
 from app.schemas import MfaChallenge, TokenResponse
@@ -60,7 +65,7 @@ async def issue_email_code(db: AsyncSession, settings: Settings, mailer: Mailer,
         VerificationCode(
             user_id=user.id,
             purpose="email",
-            code_hash=hash_token(code),
+            code_hash=await hash_single_use_code_async(code),
             attempts=0,
             expires_at=utcnow() + timedelta(minutes=settings.email_verification_ttl_minutes),
         )
@@ -90,7 +95,7 @@ async def confirm_email_code(db: AsyncSession, user: User, code: str) -> bool:
     if pending is None or pending.attempts >= EMAIL_CODE_MAX_ATTEMPTS:
         return False
     digits = "".join(ch for ch in code if ch.isdigit())
-    if not same_hash(pending.code_hash, hash_token(digits)):
+    if (await matching_single_use_code_async(digits, [pending.code_hash])) is None:
         pending.attempts += 1
         if pending.attempts >= EMAIL_CODE_MAX_ATTEMPTS:
             pending.used_at = utcnow()  # burnt: a new code must be requested
@@ -108,7 +113,12 @@ async def new_recovery_codes(db: AsyncSession, user: User) -> list[str]:
     await db.execute(delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user.id))
     codes = mfa.new_recovery_codes()
     for code in codes:
-        db.add(MfaRecoveryCode(user_id=user.id, code_hash=hash_token(mfa.normalize_recovery_code(code))))
+        db.add(
+            MfaRecoveryCode(
+                user_id=user.id,
+                code_hash=await hash_single_use_code_async(mfa.normalize_recovery_code(code)),
+            )
+        )
     return codes
 
 
@@ -126,15 +136,15 @@ async def check_second_factor(db: AsyncSession, settings: Settings, user: User, 
         return "totp"
     normalized = mfa.normalize_recovery_code(code)
     if len(normalized) == 12:
-        recovery = await db.scalar(
-            select(MfaRecoveryCode).where(
-                MfaRecoveryCode.user_id == user.id,
-                MfaRecoveryCode.code_hash == hash_token(normalized),
-                MfaRecoveryCode.used_at.is_(None),
+        # Argon2 salts differ per code, so the match cannot be a SQL equality on the hash.
+        unused = list(
+            await db.scalars(
+                select(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user.id, MfaRecoveryCode.used_at.is_(None))
             )
         )
-        if recovery is not None:
-            recovery.used_at = utcnow()
+        index = await matching_single_use_code_async(normalized, [row.code_hash for row in unused])
+        if index is not None:
+            unused[index].used_at = utcnow()
             return "recovery_code"
     return None
 
