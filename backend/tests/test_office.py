@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from app.services.assistant_tools import ToolBox, ToolContext
+from app.services.assistant_tools import TOOLS, ToolBox, ToolContext
 from app.services.office_files import (
     DocumentBuildError,
     build_csv,
@@ -18,6 +18,13 @@ from app.services.office_files import (
 )
 from dhanz_ai import ToolCall
 from dhanz_knowledge.documents import extract_document
+
+
+def test_spreadsheet_rows_declare_cell_types_for_strict_validators():
+    rows = TOOLS["create_spreadsheet"].spec.parameters["properties"]["sheets"]["items"]["properties"]["rows"]
+    assert rows["type"] == "array"
+    assert rows["items"]["type"] == "array"
+    assert rows["items"]["items"] == {"type": ["string", "number", "boolean", "null"]}
 
 
 def _sections():

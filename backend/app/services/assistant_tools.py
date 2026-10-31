@@ -712,7 +712,13 @@ TOOLS: dict[str, Tool] = {
                                 "properties": {
                                     "name": _S,
                                     "columns": {"type": "array", "items": _S},
-                                    "rows": {"type": "array", "items": {"type": "array"}},
+                                    "rows": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "array",
+                                            "items": {"type": ["string", "number", "boolean", "null"]},
+                                        },
+                                    },
                                 },
                                 "required": ["columns", "rows"],
                             },

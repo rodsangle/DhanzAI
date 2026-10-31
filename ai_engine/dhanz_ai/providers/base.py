@@ -10,7 +10,16 @@ import httpx
 
 from dhanz_ai.types import ChatMessage, GenerationParams, ModelInfo, ProviderError, StreamChunk, ToolSpec
 
-DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+# Cloud providers wait this long for the next byte. Ollama's own default is longer.
+CLOUD_READ_TIMEOUT_SECONDS = 120.0
+OLLAMA_READ_TIMEOUT_SECONDS = 300.0
+
+
+def http_timeout(read_seconds: float) -> httpx.Timeout:
+    return httpx.Timeout(connect=10.0, read=read_seconds, write=30.0, pool=10.0)
+
+
+DEFAULT_TIMEOUT = http_timeout(CLOUD_READ_TIMEOUT_SECONDS)
 
 
 class Provider(ABC):
@@ -18,9 +27,9 @@ class Provider(ABC):
 
     name: str
 
-    def __init__(self, client: httpx.AsyncClient | None = None):
+    def __init__(self, client: httpx.AsyncClient | None = None, *, read_timeout: float = CLOUD_READ_TIMEOUT_SECONDS):
         # A client may be injected (tests use httpx.MockTransport).
-        self._client = client or httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
+        self._client = client or httpx.AsyncClient(timeout=http_timeout(read_timeout))
 
     @abstractmethod
     def models(self) -> list[ModelInfo]:

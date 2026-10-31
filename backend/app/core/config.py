@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     gemini_models: str = "gemini-2.5-flash,gemini-2.5-pro"
     ollama_base_url: str | None = None
     ollama_models: str = "llama3.1"
+    # Context length requested from Ollama (options.num_ctx) and reported as the model's context window.
+    ollama_num_ctx: int = Field(default=16_384, ge=2048, le=1_048_576)
+    # Seconds to wait for the next byte from a cloud provider. Ollama keeps a 300s wait unless this
+    # is set to a value other than the 120 default.
+    provider_read_timeout_seconds: int = Field(default=120, ge=10, le=3600)
 
     # Web research (Phase 2). Configure one search provider; "none" disables web search
     # (Dhanz can still read links the user pastes).
@@ -168,7 +173,7 @@ class Settings(BaseSettings):
 
     default_routing_policy: Literal["balanced", "cheapest", "best", "local_first"] = "balanced"
     default_temperature: float = 0.7
-    default_max_tokens: int = Field(default=2048, ge=64, le=32000)
+    default_max_tokens: int = Field(default=8192, ge=64, le=32000)
 
     max_message_chars: int = 32_000
     history_max_messages: int = 40

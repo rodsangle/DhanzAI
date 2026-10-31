@@ -355,7 +355,39 @@ class _Research:
 
 
 ATTACHMENT_FULL_TEXT_CHARS = 12_000  # shorter attachments are given to the model whole
-ATTACHMENT_CONTEXT_BUDGET = 40_000
+ATTACHMENT_CONTEXT_BUDGET = 40_000  # character cap, then limited by the chosen model's context window
+
+
+def attachment_context_budget(context_window: int) -> int:
+    """Characters of attachment text that fit the model. About two characters per context token, capped."""
+    return min(ATTACHMENT_CONTEXT_BUDGET, max(0, context_window) * 2)
+
+
+def provider_failure_message(exc: ProviderError) -> str:
+    """A user-facing reason. The raw provider body stays in the log."""
+    text = str(exc).lower()
+    status = exc.status_code
+    if status in (408, 504) or "timeout" in text or "timed out" in text:
+        return (
+            "The AI provider timed out before finishing this reply. "
+            "Try again, or use a shorter prompt or fewer attachments."
+        )
+    if status == 401 or any(phrase in text for phrase in ("invalid api key", "incorrect api key", "unauthorized")):
+        return "The AI provider rejected the API key. Check the server key for this model and try again."
+    if status == 429 or "rate limit" in text or "too many requests" in text:
+        return "The AI provider is rate limiting requests. Wait a moment and try again."
+    if (
+        status == 400
+        or "context length" in text
+        or "context window" in text
+        or "maximum context" in text
+        or "too large" in text
+    ):
+        return (
+            "This request is too large for the model's context window. "
+            "Remove an attachment or choose a model with a larger context."
+        )
+    return PROVIDER_FAILURE_MESSAGE
 
 
 async def _attachment_passages(
@@ -399,7 +431,11 @@ async def _attachment_passages(
 
 
 async def _research(
-    maker: async_sessionmaker[AsyncSession], knowledge: KnowledgeRuntime | None, turn: PreparedTurn, out: _Research
+    maker: async_sessionmaker[AsyncSession],
+    knowledge: KnowledgeRuntime | None,
+    turn: PreparedTurn,
+    out: _Research,
+    orchestrator: Orchestrator,
 ) -> AsyncIterator[dict]:
     """Gather sources (attachments, web, the user's library) for this turn, yielding progress events."""
     passages: list[Passage] = []
@@ -462,7 +498,14 @@ async def _research(
                 passages += [p for p in library if p.url not in known]
 
     if passages:
-        budget = ATTACHMENT_CONTEXT_BUDGET if attached else 14_000
+        budget = 14_000
+        if attached:
+            window = 8_192
+            try:
+                window = orchestrator.candidates(turn.routing, classify_task(turn.question))[0].context_window
+            except NoModelAvailableError:
+                pass
+            budget = attachment_context_budget(window)
         context, citations = build_context(passages, budget_chars=budget)
         out.sources = context
         out.citations = [c.to_json() for c in citations]
@@ -555,7 +598,7 @@ async def run_turn(
     result: MessageOut | None = None
     try:
         try:
-            async for event in _research(maker, knowledge, turn, research):
+            async for event in _research(maker, knowledge, turn, research, orchestrator):
                 yield event
         except Exception:  # noqa: BLE001 - research problems must not prevent an answer
             log.exception("Research failed for turn %s", turn.assistant_message_id)
@@ -627,8 +670,14 @@ async def run_turn(
     except NoModelAvailableError as exc:
         outcome, error = "error", str(exc)
     except ProviderError as exc:
-        log.warning("Chat turn failed: %s", exc)
-        outcome, error = "error", PROVIDER_FAILURE_MESSAGE
+        log.warning(
+            "Chat turn failed (provider=%s model=%s status=%s): %s",
+            exc.provider,
+            model or "-",
+            exc.status_code,
+            exc,
+        )
+        outcome, error = "error", provider_failure_message(exc)
     finally:
         result = await asyncio.shield(
             _finalize(

@@ -49,15 +49,29 @@ from app.services.reminders import reminder_loop
 from app.services.stt import SpeechToText, build_stt
 from app.services.turns import TurnHandle, TurnManager
 from dhanz_ai import AnthropicProvider, GeminiProvider, OllamaProvider, OpenAIProvider, Orchestrator
+from dhanz_ai.providers.base import CLOUD_READ_TIMEOUT_SECONDS, OLLAMA_READ_TIMEOUT_SECONDS
 
 
 def build_orchestrator(settings: Settings) -> Orchestrator:
+    cloud_timeout = settings.provider_read_timeout_seconds
+    # Local models stay on the longer default unless the shared timeout was changed.
+    ollama_timeout = OLLAMA_READ_TIMEOUT_SECONDS if cloud_timeout == CLOUD_READ_TIMEOUT_SECONDS else cloud_timeout
     return Orchestrator(
         [
-            OpenAIProvider(settings.openai_api_key, settings.openai_model_list, base_url=settings.openai_base_url),
-            AnthropicProvider(settings.anthropic_api_key, settings.anthropic_model_list),
-            GeminiProvider(settings.gemini_api_key, settings.gemini_model_list),
-            OllamaProvider(settings.ollama_base_url, settings.ollama_model_list),
+            OpenAIProvider(
+                settings.openai_api_key,
+                settings.openai_model_list,
+                base_url=settings.openai_base_url,
+                read_timeout=cloud_timeout,
+            ),
+            AnthropicProvider(settings.anthropic_api_key, settings.anthropic_model_list, read_timeout=cloud_timeout),
+            GeminiProvider(settings.gemini_api_key, settings.gemini_model_list, read_timeout=cloud_timeout),
+            OllamaProvider(
+                settings.ollama_base_url,
+                settings.ollama_model_list,
+                num_ctx=settings.ollama_num_ctx,
+                read_timeout=ollama_timeout,
+            ),
         ]
     )
 
