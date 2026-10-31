@@ -28,6 +28,10 @@ Anthropic Claude, Google Gemini or a local Ollama model.
 
 ## Status
 
+**0.8.0** is the current app and API version. It adds public accounts and office documents
+created from chat. The Windows installer linked above is the published 0.7.0 build
+(`desktop-0.7.0`) until the `v0.8.0` release is published.
+
 **Phase 1 — working MVP:** accounts, multi-provider AI with automatic model routing and
 fallback, streaming chat, conversation history (search, rename, pin, export, delete),
 regenerate / edit-and-resend / stop, Markdown with code highlighting, light & dark themes,

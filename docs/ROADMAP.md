@@ -143,7 +143,9 @@ as before.
 The goal from here: a public service anyone can download and sign up for, with Free / Plus / Pro
 plans. Work is split into milestones; each is shipped and tested before the next starts.
 
-### Milestone A — public accounts (this milestone)
+### Milestone A — public accounts (shipped in 0.8.0)
+
+Office documents created from chat (Word, PDF, Excel, CSV, PowerPoint, with in-app preview) shipped in the same release. See the Assistant tools table.
 
 | Feature | Status | Notes |
 |---|---|---|
