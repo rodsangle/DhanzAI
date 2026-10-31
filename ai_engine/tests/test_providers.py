@@ -113,6 +113,32 @@ async def test_gemini_stream():
     assert captured["json"]["contents"] == [{"role": "user", "parts": [{"text": "hi"}]}]
 
 
+async def test_ollama_requests_num_ctx_and_reports_it_as_the_context_window():
+    captured: dict = {}
+    provider = OllamaProvider(
+        "http://ollama:11434",
+        ["qwen3"],
+        num_ctx=16_384,
+        client=client_returning(b'{"done": true}\n', captured=captured),
+    )
+    assert provider.models()[0].context_window == 16_384
+    chunks = [chunk async for chunk in provider.stream("qwen3", MESSAGES, GenerationParams())]
+    assert captured["json"]["options"]["num_ctx"] == 16_384
+    assert chunks[-1].done
+
+
+async def test_read_timeout_defaults():
+    local = OllamaProvider("http://127.0.0.1:11434", ["llama3.1"])
+    cloud = OpenAIProvider("key", ["gpt-4.1"])
+    try:
+        assert local._client.timeout.read == 300
+        assert local.num_ctx == 16_384
+        assert cloud._client.timeout.read == 120
+    finally:
+        await local.aclose()
+        await cloud.aclose()
+
+
 async def test_ollama_ndjson_stream():
     lines = [
         {"message": {"role": "assistant", "content": "Lo"}, "done": False},

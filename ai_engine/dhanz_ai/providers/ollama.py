@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
-from dhanz_ai.providers.base import Provider, parse_json, tool_arguments
+from dhanz_ai.providers.base import OLLAMA_READ_TIMEOUT_SECONDS, Provider, parse_json, tool_arguments
 from dhanz_ai.types import (
     Capability,
     ChatMessage,
@@ -42,10 +42,19 @@ _TOOL_FAMILIES = (
 class OllamaProvider(Provider):
     name = "ollama"
 
-    def __init__(self, base_url: str | None, models: Sequence[str], client: httpx.AsyncClient | None = None):
-        super().__init__(client)
+    def __init__(
+        self,
+        base_url: str | None,
+        models: Sequence[str],
+        client: httpx.AsyncClient | None = None,
+        *,
+        num_ctx: int = 16_384,
+        read_timeout: float = OLLAMA_READ_TIMEOUT_SECONDS,
+    ):
+        super().__init__(client, read_timeout=read_timeout)
         self.base_url = (base_url or "").rstrip("/")
         self._models = list(models)
+        self.num_ctx = num_ctx
 
     def is_configured(self) -> bool:
         return bool(self.base_url) and bool(self._models)
@@ -58,7 +67,9 @@ class OllamaProvider(Provider):
                 caps.add(Capability.VISION)
             if any(m.startswith(f) for f in _TOOL_FAMILIES):
                 caps.add(Capability.TOOLS)
-            infos.append(ModelInfo(self.name, m, f"{m} (local)", frozenset(caps), CostTier.FREE, context_window=8_192))
+            infos.append(
+                ModelInfo(self.name, m, f"{m} (local)", frozenset(caps), CostTier.FREE, context_window=self.num_ctx)
+            )
         return infos
 
     async def stream(
@@ -68,7 +79,11 @@ class OllamaProvider(Provider):
             "model": model,
             "messages": [_to_ollama(m) for m in messages],
             "stream": True,
-            "options": {"temperature": params.temperature, "num_predict": params.max_tokens},
+            "options": {
+                "temperature": params.temperature,
+                "num_predict": params.max_tokens,
+                "num_ctx": self.num_ctx,
+            },
         }
         if tools:
             payload["tools"] = [

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
-from dhanz_ai.providers.base import Provider, iter_sse_data, parse_json, tool_arguments
+from dhanz_ai.providers.base import CLOUD_READ_TIMEOUT_SECONDS, Provider, iter_sse_data, parse_json, tool_arguments
 from dhanz_ai.types import (
     Capability,
     ChatMessage,
@@ -31,8 +31,10 @@ class OpenAIProvider(Provider):
         base_url: str = "https://api.openai.com/v1",
         client: httpx.AsyncClient | None = None,
         name: str | None = None,
+        *,
+        read_timeout: float = CLOUD_READ_TIMEOUT_SECONDS,
     ):
-        super().__init__(client)
+        super().__init__(client, read_timeout=read_timeout)
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self._models = list(models)

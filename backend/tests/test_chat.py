@@ -1,3 +1,4 @@
+from app.services.chat_service import attachment_context_budget, provider_failure_message
 from dhanz_ai import ProviderError
 from tests.conftest import parse_sse
 
@@ -73,12 +74,61 @@ def test_edit_and_resend_truncates(client, auth, provider):
     assert [m.content for m in provider.last_messages[1:]] == ["uno"]
 
 
-def test_provider_failure_is_reported_and_saved(client, auth, provider):
+async def test_orchestrator_uses_context_and_read_timeout_settings():
+    from app.core.config import Settings
+    from app.main import build_orchestrator
+
+    defaults = Settings(
+        _env_file=None, app_env="test", ollama_base_url="http://127.0.0.1:11434", ollama_models="llama3.1"
+    )
+    longer = Settings(
+        _env_file=None,
+        app_env="test",
+        provider_read_timeout_seconds=600,
+        ollama_num_ctx=32_768,
+        ollama_base_url="http://127.0.0.1:11434",
+        ollama_models="qwen3",
+    )
+    first = build_orchestrator(defaults)
+    second = build_orchestrator(longer)
+    try:
+        assert first.providers["ollama"].num_ctx == 16_384
+        assert first.providers["ollama"].models()[0].context_window == 16_384
+        assert first.providers["ollama"]._client.timeout.read == 300
+        assert first.providers["openai"]._client.timeout.read == 120
+        assert second.providers["ollama"].num_ctx == 32_768
+        assert second.providers["ollama"]._client.timeout.read == 600
+        assert second.providers["gemini"]._client.timeout.read == 600
+    finally:
+        for runtime in (first, second):
+            for provider in runtime.providers.values():
+                await provider.aclose()
+
+
+def test_attachment_budget_follows_the_model_context_window():
+    assert attachment_context_budget(16_384) == 32_768
+    assert attachment_context_budget(8_192) == 16_384
+    assert attachment_context_budget(128_000) == 40_000
+
+
+def test_provider_errors_become_specific_user_messages():
+    assert "API key" in provider_failure_message(ProviderError("xai", "nope", status_code=401))
+    assert "rate limit" in provider_failure_message(ProviderError("xai", "slow", status_code=429)).lower()
+    assert "timed out" in provider_failure_message(ProviderError("ollama", "Network error: ReadTimeout")).lower()
+    assert "context window" in provider_failure_message(
+        ProviderError("xai", "HTTP 400: context length exceeded", status_code=400)
+    )
+    assert "could not complete" in provider_failure_message(ProviderError("xai", "boom", status_code=500))
+
+
+def test_provider_failure_is_reported_and_saved(client, auth, provider, caplog):
     provider.fail_with = ProviderError("echo", "boom", status_code=401, retryable=False)
     cid = new_conv(client, auth)
     _, events = send(client, auth, cid, "hi")
     assert events[-1]["type"] == "error"
+    assert "API key" in events[-1]["detail"]
     assert "boom" not in events[-1]["detail"]  # raw provider errors are not leaked to clients
+    assert "provider=echo" in caplog.text and "model=" in caplog.text
     assert events[-1]["message"]["status"] == "error"
 
     # A failed reply is excluded from future context.
