@@ -12,7 +12,7 @@ Legend: ✅ implemented and tested · 🟡 partially implemented · ⬜ not star
 | Credit reservations, settlement/refunds, monthly plan allowances | ✅ | Server-side ledger, idempotency and concurrent requests tested on SQLite; PostgreSQL covered by CI configuration |
 | Payment checkout / purchased credit packs | ⬜ | Admin grants and per-user plan allowances exist; no payment gateway or webhook handler |
 | Private cloud media storage / expiring preview links / cleanup | 🟡 | Encrypted S3-compatible adapter and deletion outbox; simulated storage contract tests; live bucket verification pending |
-| Safety screening, consent, reports, admin takedown | 🟡 | Fail-closed prompt/reference and image-output screening, native provider video checks; no independent video-frame moderation or rights verification |
+| Safety screening, consent, reports, admin takedown | 🟡 | Fail-closed prompt/reference and image-output screening (OpenAI moderation or an OpenAI-compatible chat classifier). Native provider video checks; no independent video-frame moderation or rights verification |
 | Dedicated image upscaling / generated video audio | ⬜ | Generative enhancement exists; unsupported controls are not offered |
 
 See [Creative Studio](CREATIVE_STUDIO.md) for configuration, architecture, verification and limitations.

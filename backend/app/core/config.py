@@ -77,7 +77,13 @@ class Settings(BaseSettings):
     creative_image_model: str = "gpt-image-2.5-sunburst"
     creative_image_edits: bool = True
     creative_image_transparency: bool = True
-    creative_moderation_api_key: str | None = None  # falls back to OPENAI_API_KEY
+    # openai: OpenAI /moderations (CREATIVE_MODERATION_API_KEY or OPENAI_API_KEY).
+    # llm: OpenAI-compatible chat classifier. Key and base URL fall back to the image provider,
+    # so an xAI image key can screen prompts. Unset model on api.x.ai defaults to grok-4.7.
+    creative_moderation_provider: Literal["openai", "llm"] = "openai"
+    creative_moderation_api_key: str | None = None
+    creative_moderation_base_url: str | None = None
+    creative_moderation_model: str | None = None
     runway_api_key: str | None = None
     creative_storage: Literal["local", "s3"] = "local"
     creative_storage_dir: str = "./data/creations"
@@ -210,6 +216,12 @@ class Settings(BaseSettings):
                 raise ValueError("Production Creative Studio requires private S3 storage (CREATIVE_STORAGE=s3)")
             if self.creative_enabled and not self.creative_image_base_url.startswith("https://"):
                 raise ValueError("Production image generation requires an HTTPS provider endpoint")
+            if (
+                self.creative_enabled
+                and self.creative_moderation_base_url
+                and not self.creative_moderation_base_url.startswith("https://")
+            ):
+                raise ValueError("Production content moderation requires an HTTPS endpoint")
             if self.creative_s3_endpoint and not self.creative_s3_endpoint.startswith("https://"):
                 raise ValueError("Production S3 storage requires an HTTPS endpoint")
             if self.jwt_secret == _INSECURE_DEV_SECRET or len(self.jwt_secret) < 32:

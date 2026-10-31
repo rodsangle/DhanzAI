@@ -10,7 +10,7 @@ from datetime import timedelta
 
 from sqlalchemy import and_, or_, select, update
 
-from app.content_moderation import ModerationRejected, Moderator
+from app.content_moderation import ModerationRejected, build_moderator
 from app.credit_billing import lock_account, settle
 from app.db.base import utcnow
 from app.image_generation import ImageProvider
@@ -30,9 +30,12 @@ class CreativeRuntime:
         self.video = None
         self.moderator = None
         if settings.creative_enabled:
-            key = settings.creative_moderation_api_key or settings.openai_api_key
-            if key:
-                self.moderator = Moderator(key)
+            self.moderator = build_moderator(settings)
+            if self.moderator is None:
+                log.warning(
+                    "Creative Studio is enabled but content moderation is not configured; generation stays unavailable"
+                )
+            else:
                 image_key = settings.creative_image_api_key or settings.openai_api_key
                 if image_key:
                     self.image = ImageProvider(
