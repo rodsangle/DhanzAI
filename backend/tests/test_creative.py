@@ -657,6 +657,7 @@ def test_llm_screening_runs_before_image_generation(client, auth, studio):
 async def test_xai_only_settings_enable_image_and_llm_moderation(tmp_path):
     shared = dict(
         _env_file=None,
+        app_env="test",
         openai_api_key=None,
         creative_moderation_api_key=None,
         creative_enabled=True,
