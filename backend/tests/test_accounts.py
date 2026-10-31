@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 from app.core import mfa
+from app.core.config import Settings
 from app.core.rate_limit import limiter
 from app.main import create_app
 from app.services.oauth import IdTokenVerifier
@@ -303,6 +304,25 @@ def social(settings, knowledge, issuer):
 
 def oauth(client, provider, token, **body):
     return client.post(f"{API}/auth/oauth/{provider}", json={"id_token": token, **body})
+
+
+async def test_id_token_is_checked_on_a_freshly_booted_host(monkeypatch):
+    """A monotonic clock near zero must not look like a recent JWKS fetch."""
+    monkeypatch.setattr("app.services.oauth.time.monotonic", lambda: 5.0)
+    issuer = FakeIssuer()
+    configured = Settings(
+        _env_file=None,
+        app_env="test",
+        google_client_ids="web-client.apps.googleusercontent.com",
+        apple_client_ids="ai.dhanz.app",
+    )
+    verifier = IdTokenVerifier(configured, http=httpx.AsyncClient(transport=issuer.transport()))
+    try:
+        identity = await verifier.verify("google", issuer.token())
+    finally:
+        await verifier.aclose()
+    assert identity.email == "ada@example.com" and identity.subject == "g-123"
+    assert issuer.fetches == 1
 
 
 def test_google_sign_up_then_sign_in(social, issuer):
