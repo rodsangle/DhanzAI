@@ -14,6 +14,17 @@ Future<List<PickedFile>> pickFiles() async {
 /// Saves bytes through the platform "save as" dialog (or share sheet on mobile).
 /// Returns false if the user cancelled.
 Future<bool> saveBytes(String fileName, Uint8List bytes, {String mimeType = 'application/octet-stream'}) async {
+  if (mimeType == 'application/octet-stream') {
+    mimeType = switch (fileName.split('.').last.toLowerCase()) {
+      'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'pptx' => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'pdf' => 'application/pdf',
+      'csv' => 'text/csv',
+      'txt' => 'text/plain',
+      _ => mimeType,
+    };
+  }
   final uri = await FilePicker.saveFile(
     fileName: fileName,
     bytes: bytes,

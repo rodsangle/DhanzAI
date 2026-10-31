@@ -4,7 +4,7 @@
 ; Output: dist\dhanz-ai-<version>-windows-setup.exe
 
 #ifndef AppVersion
-  #define AppVersion "0.8.1"
+  #define AppVersion "0.8.2"
 #endif
 #define AppName "DHANZ AI"
 #define AppExe "dhanz_ai.exe"

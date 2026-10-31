@@ -40,6 +40,7 @@ class ChatState {
     this.uploading = 0,
     this.notice,
     this.temporary = false,
+    this.viewRevision = 0,
   });
 
   final String? conversationId;
@@ -69,6 +70,9 @@ class ChatState {
   /// Temporary chat: not remembered, not added to the library, deleted after a day.
   final bool temporary;
 
+  /// Changes when opening a chat so its message draft and scroll state start fresh.
+  final int viewRevision;
+
   ChatState copyWith({
     String? conversationId,
     String? title,
@@ -97,6 +101,7 @@ class ChatState {
     uploading: uploading ?? this.uploading,
     notice: notice != null ? notice() : this.notice,
     temporary: temporary ?? this.temporary,
+    viewRevision: viewRevision,
   );
 }
 
@@ -127,10 +132,16 @@ class ChatController extends Notifier<ChatState> {
     _stopLocal();
     final token = ++_loadToken;
     if (id == null) {
-      state = ChatState(modelKey: state.modelKey, webMode: state.webMode);
+      state = ChatState(modelKey: state.modelKey, webMode: state.webMode, viewRevision: state.viewRevision + 1);
       return;
     }
-    state = ChatState(conversationId: id, loading: true, modelKey: state.modelKey, webMode: state.webMode);
+    state = ChatState(
+      conversationId: id,
+      loading: true,
+      modelKey: state.modelKey,
+      webMode: state.webMode,
+      viewRevision: state.viewRevision + 1,
+    );
     try {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
@@ -210,7 +221,7 @@ class ChatController extends Notifier<ChatState> {
   void clearError() => state = state.copyWith(error: () => null);
 
   /// Sends [text]. Returns the conversation id (created on first send).
-  Future<String?> send(String text) async {
+  Future<String?> send(String text, {bool? webOverride}) async {
     if (state.streaming || text.trim().isEmpty) return state.conversationId;
     var id = state.conversationId;
     final attachments = state.attachments;
@@ -237,7 +248,7 @@ class ChatController extends Notifier<ChatState> {
           id!,
           content: text,
           modelKey: state.modelKey,
-          web: state.webMode.asRequest,
+          web: webOverride ?? state.webMode.asRequest,
           attachmentIds: [for (final a in attachments) a.id],
         ),
       );

@@ -13,6 +13,7 @@ import '../conversations/conversation_panel.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
 import 'composer.dart';
+import 'daily_news_button.dart';
 import 'message_tile.dart';
 
 const _wideBreakpoint = 900.0;
@@ -55,8 +56,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Future.microtask(() => ref.read(chatControllerProvider.notifier).open(widget.conversationId));
   }
 
-  Future<void> _send(String text) async {
-    final id = await ref.read(chatControllerProvider.notifier).send(text);
+  Future<void> _send(String text, {bool? webOverride}) async {
+    final id = await ref.read(chatControllerProvider.notifier).send(text, webOverride: webOverride);
     if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
   }
 
@@ -107,7 +108,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         Expanded(
-          child: _MessageList(state: chat, onEdit: _edit, onSuggestion: _send),
+          child: _MessageList(key: ValueKey(chat.viewRevision), state: chat, onEdit: _edit, onSuggestion: _send),
         ),
         SafeArea(
           top: false,
@@ -118,7 +119,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Composer(onSend: _send),
+                  DailyNewsButton(enabled: !chat.streaming, onSend: (text) => _send(text, webOverride: true)),
+                  Composer(key: ValueKey(chat.viewRevision), onSend: _send),
                   const SizedBox(height: 6),
                   Text(
                     'Dhanz can make mistakes. Verify important information.',
@@ -177,7 +179,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onPressed: () => ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary),
           ),
         IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
-        IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: () => context.go('/chat')),
+        IconButton(
+          tooltip: 'New chat',
+          icon: const Icon(Icons.edit_square),
+          onPressed: () {
+            ref.read(chatControllerProvider.notifier).open(null);
+            context.go('/chat');
+          },
+        ),
       ],
     );
 
@@ -203,7 +212,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 }
 
 class _MessageList extends ConsumerWidget {
-  const _MessageList({required this.state, required this.onEdit, required this.onSuggestion});
+  const _MessageList({super.key, required this.state, required this.onEdit, required this.onSuggestion});
 
   final ChatState state;
   final ValueChanged<ChatMessage> onEdit;

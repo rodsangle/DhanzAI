@@ -53,4 +53,5 @@ abstract final class StoreKeys {
   static const pushEnabled = 'push_enabled';
   static const pushToken = 'push_token';
   static const minimizeToTray = 'minimize_to_tray';
+  static const newsLocation = 'news_location';
 }

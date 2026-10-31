@@ -152,7 +152,10 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               child: FilledButton.icon(
-                onPressed: () => _go('/chat'),
+                onPressed: () {
+                  ref.read(chatControllerProvider.notifier).open(null);
+                  _go('/chat');
+                },
                 icon: const Icon(Icons.add),
                 label: const Text('New chat'),
               ),

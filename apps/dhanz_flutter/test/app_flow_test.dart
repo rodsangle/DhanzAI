@@ -105,4 +105,57 @@ void main() {
     expect(state.messages.last.content, backend.reply);
     expect(state.messages.first.id, isNot('pending-user'));
   });
+
+  testWidgets('daily local news remembers the chosen area and forces live search', (tester) async {
+    final api = ApiClient(store: store, baseUrl: 'http://test', clientFactory: backend.client);
+    await api.register('news@example.com', 'correct-horse-9', 'Reader');
+    await store.write(StoreKeys.newsLocation, 'Orlando, Florida, USA');
+    await pumpApp(tester, size: const Size(400, 800));
+    final container = ProviderScope.containerOf(tester.element(find.byType(Scaffold).last));
+    container.read(chatControllerProvider.notifier).setWebMode(WebMode.off);
+    await tester.pump();
+    await tester.tap(find.text('Daily local news'));
+    await tester.pumpAndSettle();
+    expect(find.text('Orlando, Florida, USA'), findsOneWidget);
+    await tester.enterText(find.widgetWithText(TextField, 'City or area, state and country'), 'Tampa, Florida, USA');
+    await tester.tap(find.text('Get today’s news'));
+    await tester.pumpAndSettle();
+    expect(await store.read(StoreKeys.newsLocation), 'Tampa, Florida, USA');
+    expect(backend.chatBodies.last['content'], contains('Tampa, Florida, USA'));
+    expect(backend.chatBodies.last['content'], contains('last 24 hours'));
+    expect(backend.chatBodies.last['web'], isTrue);
+    expect(container.read(chatControllerProvider).webMode, WebMode.off);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('both New chat buttons show a fresh view and clear drafts repeatedly', (tester) async {
+    final api = ApiClient(store: store, baseUrl: 'http://test', clientFactory: backend.client);
+    await api.register('ada@example.com', 'correct-horse-9', 'Ada');
+    await pumpApp(tester);
+    final input = find.widgetWithText(TextField, 'Message Dhanz…');
+    await tester.enterText(input, 'Keep this conversation');
+    await tester.pump();
+    await tester.tap(find.byTooltip('Send'));
+    await tester.pumpAndSettle();
+    expect(backend.conversations, hasLength(1));
+
+    await tester.enterText(input, 'Unsent draft');
+    await tester.tap(find.text('New chat'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Hello from', findRichText: true), findsNothing);
+    expect(find.text("Hello! I'm Dhanz, your personal AI assistant. How can I help you today?"), findsOneWidget);
+    expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+    expect(backend.conversations, hasLength(1));
+
+    // Already on /chat: navigation alone would leave this draft unchanged.
+    await tester.enterText(input, 'Another draft');
+    await tester.tap(find.byTooltip('New chat'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+    await tester.enterText(input, 'Third draft');
+    await tester.tap(find.text('New chat'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(input).controller!.text, isEmpty);
+    expect(backend.conversations, hasLength(1));
+  });
 }

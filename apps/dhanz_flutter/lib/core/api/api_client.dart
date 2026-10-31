@@ -438,6 +438,9 @@ class ApiClient {
     return res.bodyBytes;
   }
 
+  Future<Map<String, dynamic>> previewFile(String documentId) async =>
+      await _json('GET', '/files/$documentId/preview') as Map<String, dynamic>;
+
   Future<KnowledgeDocument> moveDocument(String documentId, String? projectId) async => KnowledgeDocument.fromJson(
     await _json('PATCH', '/knowledge/documents/$documentId', body: {'project_id': projectId}) as Map<String, dynamic>,
   );

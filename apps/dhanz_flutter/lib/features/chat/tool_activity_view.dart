@@ -9,6 +9,7 @@ import '../../core/api/api_client.dart';
 import '../../core/files.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
+import 'attachment_chip.dart';
 
 const _toolIcons = {
   'calculate': Icons.calculate_outlined,
@@ -78,6 +79,13 @@ class ToolActivityView extends ConsumerWidget {
             const SizedBox(height: 8),
             if (a.action!['type'] == 'reminder') _reminderCard(context, ref, a.action!),
             if (a.action!['type'] == 'email') _emailCard(context, a.action!),
+            if (a.action!['type'] == 'download_file')
+              AttachmentChip(
+                documentId: a.action!['id'] as String,
+                previewEnabled: true,
+                filename: a.action!['filename'] as String,
+                fileType: a.action!['file_type'] as String?,
+              ),
           ],
         ],
       ),

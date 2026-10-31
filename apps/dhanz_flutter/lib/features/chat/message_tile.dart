@@ -130,6 +130,19 @@ class MessageTile extends StatelessWidget {
                   ),
                 ),
               if (message.toolActivity.isNotEmpty) ToolActivityView(activity: message.toolActivity),
+              for (final attachment in message.attachments)
+                if (!message.toolActivity.any(
+                  (a) => a.action?['type'] == 'download_file' && a.action?['id'] == attachment.id,
+                ))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: AttachmentChip(
+                      documentId: attachment.id,
+                      filename: attachment.filename,
+                      fileType: attachment.fileType,
+                      previewEnabled: true,
+                    ),
+                  ),
               if (message.citations.isNotEmpty) SourcesView(citations: message.citations),
               if (message.status == MessageStatus.error)
                 Container(
