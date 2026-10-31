@@ -15,6 +15,8 @@ class FakeBackend {
   String? validRefresh;
   String reply = 'Hello from **Dhanz**.';
   final documents = <Map<String, dynamic>>[];
+  final filePreviews = <String, Map<String, dynamic>>{};
+  final filePreviewPages = <String, List<List<int>>>{};
   final uploads = <String>[]; // raw multipart bodies
   final projects = <Map<String, dynamic>>[];
   final memories = <Map<String, dynamic>>[];
@@ -117,6 +119,22 @@ class FakeBackend {
       status,
       headers: {'content-type': 'application/json'},
     );
+
+    final filePreview = RegExp(r'^/files/([^/]+)/preview$').firstMatch(path);
+    if (filePreview != null && req.method == 'GET') {
+      final found = filePreviews[filePreview.group(1)];
+      if (found == null) return json({'detail': 'File not found'}, 404);
+      return json(found);
+    }
+    final filePage = RegExp(r'^/files/([^/]+)/preview/pages/(\d+)$').firstMatch(path);
+    if (filePage != null && req.method == 'GET') {
+      final pages = filePreviewPages[filePage.group(1)];
+      final index = int.parse(filePage.group(2)!) - 1;
+      if (pages == null || index < 0 || index >= pages.length) {
+        return json({'detail': 'That page is not in the file.'}, 404);
+      }
+      return http.StreamedResponse(Stream.value(pages[index]), 200, headers: {'content-type': 'image/png'});
+    }
 
     if (path == '/auth/register') {
       final user = {

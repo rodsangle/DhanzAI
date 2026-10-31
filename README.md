@@ -52,7 +52,8 @@ The standalone local chat mode does not provide this library action.
 **Phase 3 — advanced assistant:** upload and analyse PDF, Word, Excel, PowerPoint, CSV, text,
 code and images (vision models), compare documents, exact spreadsheet statistics, optional ClamAV
 malware scanning, project workspaces with standing instructions, opt-in long-term memory, a
-voice assistant (speech-to-text, spoken replies, hands-free mode, "Hey Dhanz"), and PDF export.
+voice assistant (speech-to-text, spoken replies, hands-free mode, "Hey Dhanz"), conversation export,
+and creating Word, Excel, PowerPoint, CSV and PDF files from the chat (saved to your library).
 
 **Phase 4 — platform distribution:** answers keep generating when you leave the app and a
 push notification (Android FCM / iOS APNs) says when they are ready; explicit Stop that works across

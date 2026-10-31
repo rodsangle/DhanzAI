@@ -36,6 +36,10 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
 
   void _go(String location) {
     final router = GoRouter.of(context);
+    if (location == '/chat') {
+      // The blank /chat screen stays mounted under /chat/:id and does not reset itself.
+      ref.read(chatControllerProvider.notifier).open(null);
+    }
     if (widget.inDrawer) Navigator.of(context).pop();
     router.go(location);
   }

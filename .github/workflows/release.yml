@@ -18,6 +18,14 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build. A version tag always builds every platform.
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
 
 permissions:
   contents: read
@@ -30,6 +38,7 @@ env:
 
 jobs:
   android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +94,7 @@ jobs:
           path: ${{ env.APP_DIR }}/dist/*
 
   windows:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'windows'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,7 +141,12 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          if ($version -notmatch '^\d') { $version = "0.0.0-dev" }
+          # A branch name is not a version. Use pubspec so a manual build keeps the
+          # same AppVersion as the installed app and Inno replaces that install.
+          if ($version -notmatch '^\d+\.\d+\.\d+') {
+            $match = Select-String -Path "${{ env.APP_DIR }}/pubspec.yaml" -Pattern '^version:\s*(\d+\.\d+\.\d+)'
+            if ($match) { $version = $match.Matches[0].Groups[1].Value } else { $version = "0.0.0-dev" }
+          }
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "scripts\windows\dhanz_ai.iss"
           Compress-Archive -Path "${{ env.APP_DIR }}\build\windows\x64\runner\Release\*" -DestinationPath "dist\dhanz-ai-$version-windows-portable.zip"
       - name: Sign the installer
@@ -154,6 +169,7 @@ jobs:
           path: dist/*
 
   ios:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -222,6 +238,7 @@ jobs:
           path: ${{ env.APP_DIR }}/dist/*
 
   macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

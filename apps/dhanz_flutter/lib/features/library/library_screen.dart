@@ -11,6 +11,7 @@ import '../../core/providers.dart';
 import '../../core/files.dart';
 import '../chat/attachment_chip.dart';
 import '../chat/file_icons.dart';
+import '../files/file_preview_dialog.dart';
 import '../../models/models.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
@@ -250,6 +251,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _openItem(KnowledgeDocument d) async {
+    if (d.isFile && previewableFileTypes.contains(d.fileType)) {
+      await showFilePreview(context, ref, documentId: d.id, filename: d.title);
+      return;
+    }
+    await _preview(d);
+  }
+
   Future<void> _preview(KnowledgeDocument d) async {
     try {
       final full = await ref.read(apiClientProvider).document(d.id);
@@ -430,16 +439,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    onTap: () => _preview(d),
+                                    onTap: () => _openItem(d),
                                     trailing: PopupMenuButton<String>(
                                       tooltip: 'Document options',
                                       onSelected: (a) => switch (a) {
+                                        'preview' => _openItem(d),
                                         'open' => _open(d.url),
                                         'download' => downloadAndSave(context, ref, d.id, d.title),
                                         'move' => _move(d),
                                         _ => _delete(d),
                                       },
                                       itemBuilder: (context) => [
+                                        if (d.isFile && previewableFileTypes.contains(d.fileType))
+                                          const PopupMenuItem(value: 'preview', child: Text('Preview')),
                                         if (d.isFile)
                                           const PopupMenuItem(value: 'download', child: Text('Download'))
                                         else

@@ -118,6 +118,18 @@ void main() {
       {'tool': 'calculate', 'summary': '12*7 = 84', 'error': false, 'action': null},
       reminderActivity('r1'),
       emailActivity,
+      {
+        'tool': 'create_spreadsheet',
+        'summary': 'Excel workbook: Budget.xlsx',
+        'error': false,
+        'action': {
+          'type': 'file',
+          'document_id': 'doc-1',
+          'filename': 'Budget.xlsx',
+          'file_type': 'xlsx',
+          'size_bytes': 4096,
+        },
+      },
     ];
     await tester.pumpWidget(ProviderScope(overrides: overrides(), child: const DhanzApp()));
     await tester.pumpAndSettle();
@@ -132,6 +144,38 @@ void main() {
     expect(find.text('Lunch'), findsOneWidget);
     expect(find.text('To bob@example.com · not sent yet'), findsOneWidget);
     expect(find.text('Open in email app'), findsOneWidget);
+    expect(find.text('Budget.xlsx'), findsOneWidget);
+    expect(find.textContaining('Saved to your library'), findsOneWidget);
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.text('Preview'), findsOneWidget);
+
+    backend.filePreviews['doc-1'] = {
+      'filename': 'Budget.xlsx',
+      'file_type': 'xlsx',
+      'kind': 'spreadsheet',
+      'note': null,
+      'truncated': false,
+      'page_count': 0,
+      'blocks': [],
+      'slides': [],
+      'sheets': [
+        {
+          'name': 'Budget',
+          'rows': [
+            ['Item', 'Amount'],
+            ['Rent', 1200],
+          ],
+        },
+      ],
+    };
+    await tester.ensureVisible(find.text('Preview'));
+    await tester.tap(find.text('Preview'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rent'), findsOneWidget);
+    expect(find.text('1200'), findsOneWidget);
+    expect(find.text('1 sheet'), findsOneWidget);
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('All reminders'));
     await tester.pumpAndSettle();
@@ -172,6 +216,54 @@ void main() {
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
     expect(backend.reminders, isEmpty);
+  });
+
+  testWidgets('a library spreadsheet opens the same preview', (tester) async {
+    tester.view.physicalSize = const Size(1280, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final now = DateTime.now().toUtc().toIso8601String();
+    backend.documents.add({
+      'id': 'doc-lib',
+      'kind': 'file',
+      'url': 'generated:doc-lib',
+      'title': 'Budget.xlsx',
+      'site_name': null,
+      'author': null,
+      'published_at': null,
+      'retrieved_at': now,
+      'added_via': 'generated',
+      'created_at': now,
+      'file_type': 'xlsx',
+      'size_bytes': 100,
+    });
+    backend.filePreviews['doc-lib'] = {
+      'filename': 'Budget.xlsx',
+      'file_type': 'xlsx',
+      'kind': 'spreadsheet',
+      'note': null,
+      'truncated': false,
+      'page_count': 0,
+      'blocks': [],
+      'slides': [],
+      'sheets': [
+        {
+          'name': 'Budget',
+          'rows': [
+            ['Item', 'Amount'],
+            ['Rent', 1200],
+          ],
+        },
+      ],
+    };
+    await tester.pumpWidget(ProviderScope(overrides: overrides(), child: const DhanzApp()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Knowledge library').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Budget.xlsx'));
+    await tester.pumpAndSettle();
+    expect(find.text('Rent'), findsOneWidget);
+    expect(find.text('1200'), findsOneWidget);
   });
 
   test('desktop: due reminders become system notifications, once', () async {

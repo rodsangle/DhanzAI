@@ -1,14 +1,17 @@
-"""Tools Dhanz can call while answering: calculator, unit conversion, time and dates, reminders, email drafts.
+"""Tools Dhanz can call while answering: calculator, unit conversion, time and dates, reminders,
+email drafts, and Office files (Word, PDF, Excel, CSV, PowerPoint).
 
 Every tool is deterministic server code. Nothing here acts outside DHANZ AI: reminders are stored
 for the user (and announced by push notification), email drafts are handed to the user's own email
-app to review and send. Inputs come from the model, so each tool validates them and reports problems
-back to the model as an error result instead of failing the reply.
+app to review and send, and documents are saved into the user's private library for download.
+Inputs come from the model, so each tool validates them and reports problems back to the model as
+an error result instead of failing the reply.
 """
 
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import math
 import operator
@@ -23,9 +26,24 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import Settings
 from app.db.base import utcnow
 from app.models import Reminder
+from app.services.files_service import FilesRuntime
+from app.services.office_files import (
+    DocumentBuildError,
+    build_csv,
+    build_docx,
+    build_pdf,
+    build_pptx,
+    build_xlsx,
+    filename_for,
+    parse_sections,
+    parse_sheets,
+    parse_slides,
+)
 from dhanz_ai import ToolCall, ToolResult, ToolSpec
+from dhanz_knowledge import Embedder
 
 MAX_ACTIVE_REMINDERS = 200
 
@@ -48,6 +66,9 @@ class ToolContext:
     conversation_id: uuid.UUID | None
     # The user's UTC offset from their device clock, for times given without one.
     local_offset: timedelta | None = None
+    files: FilesRuntime | None = None
+    embedder: Embedder | None = None
+    settings: Settings | None = None
 
 
 ToolFn = Callable[[ToolContext, dict], Awaitable[ToolOutcome]]
@@ -420,6 +441,95 @@ async def _cancel_reminder(ctx: ToolContext, args: dict) -> ToolOutcome:
     return ToolOutcome({"cancelled": True, "id": str(rid)}, f"Reminder cancelled: {reminder.text[:80]}")
 
 
+# ---------------------------------------------------------------------------------- office files
+
+
+def _title(args: dict, fallback: str) -> str:
+    title = str(args.get("title") or "").replace("\x00", "").strip()[:300]
+    if not title:
+        raise ToolInputError(f"{fallback} is required.")
+    return title
+
+
+async def _save_office_file(ctx: ToolContext, filename: str, data: bytes, summary: str) -> ToolOutcome:
+    if ctx.files is None or ctx.settings is None:
+        raise ToolInputError("Saving files is not available on this server.")
+    from app.services.files_service import store_generated
+
+    async with ctx.maker() as db:
+        try:
+            doc = await store_generated(
+                db,
+                ctx.settings,
+                ctx.files,
+                ctx.embedder,
+                user_id=ctx.user_id,
+                filename=filename,
+                data=data,
+            )
+            await db.commit()
+            saved = {
+                "document_id": str(doc.id),
+                "filename": doc.title,
+                "file_type": doc.file_type,
+                "size_bytes": doc.size_bytes,
+            }
+        except DocumentBuildError as exc:
+            raise ToolInputError(str(exc)) from None
+    return ToolOutcome(
+        {**saved, "saved": True, "note": "Saved to the user's library. They can download it; nothing was emailed."},
+        summary,
+        {"type": "file", **saved},
+    )
+
+
+async def _create_word_document(ctx: ToolContext, args: dict) -> ToolOutcome:
+    fmt = str(args.get("format") or "docx")
+    if fmt not in ("docx", "pdf"):
+        raise ToolInputError("format must be docx or pdf.")
+    title = _title(args, "title")
+    try:
+        sections = parse_sections(args.get("sections"))
+        name = filename_for(str(args.get("filename") or title), fmt)
+        data = await asyncio.to_thread(build_pdf if fmt == "pdf" else build_docx, title, sections)
+    except DocumentBuildError as exc:
+        raise ToolInputError(str(exc)) from None
+    label = "PDF" if fmt == "pdf" else "Word document"
+    return await _save_office_file(ctx, name, data, f"{label}: {name}")
+
+
+async def _create_spreadsheet(ctx: ToolContext, args: dict) -> ToolOutcome:
+    fmt = str(args.get("format") or "xlsx")
+    if fmt not in ("xlsx", "csv"):
+        raise ToolInputError("format must be xlsx or csv.")
+    title = str(args.get("filename") or args.get("title") or "Spreadsheet")
+    try:
+        sheets = parse_sheets(args.get("sheets"))
+        if fmt == "csv" and len(sheets) != 1:
+            raise DocumentBuildError("CSV is one sheet. Use format xlsx for several sheets.")
+        name = filename_for(title, fmt)
+        if fmt == "csv":
+            data = await asyncio.to_thread(build_csv, sheets[0]["columns"], sheets[0]["rows"])
+        else:
+            data = await asyncio.to_thread(build_xlsx, sheets)
+    except DocumentBuildError as exc:
+        raise ToolInputError(str(exc)) from None
+    label = "CSV" if fmt == "csv" else "Excel workbook"
+    return await _save_office_file(ctx, name, data, f"{label}: {name}")
+
+
+async def _create_presentation(ctx: ToolContext, args: dict) -> ToolOutcome:
+    title = _title(args, "title")
+    subtitle = str(args.get("subtitle") or "").replace("\x00", "").strip()[:300]
+    try:
+        slides = parse_slides(args.get("slides"))
+        name = filename_for(str(args.get("filename") or title), "pptx")
+        data = await asyncio.to_thread(build_pptx, title, subtitle, slides)
+    except DocumentBuildError as exc:
+        raise ToolInputError(str(exc)) from None
+    return await _save_office_file(ctx, name, data, f"PowerPoint: {name}")
+
+
 # ---------------------------------------------------------------------------------- email drafts
 
 
@@ -553,6 +663,96 @@ TOOLS: dict[str, Tool] = {
             ),
             "Drafting an email",
             _draft_email,
+        ),
+        Tool(
+            ToolSpec(
+                "create_word_document",
+                "Create a real Word (.docx) or PDF file and save it to the user's library, with a download button. "
+                "Use this when they ask for a document, report, letter or PDF. Put the actual content in sections "
+                "(heading, paragraphs, bullets). No images, tables or tracked changes. Do not claim the file exists "
+                "unless this tool succeeds.",
+                _obj(
+                    {
+                        "title": _S,
+                        "filename": {**_S, "description": "File name without a path. The extension is added."},
+                        "format": {**_S, "enum": ["docx", "pdf"], "description": "Default docx"},
+                        "sections": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "heading": _S,
+                                    "paragraphs": {"type": "array", "items": _S},
+                                    "bullets": {"type": "array", "items": _S},
+                                },
+                            },
+                        },
+                    },
+                    ["title", "sections"],
+                ),
+            ),
+            "Creating a document",
+            _create_word_document,
+        ),
+        Tool(
+            ToolSpec(
+                "create_spreadsheet",
+                "Create a real Excel workbook (.xlsx) or a CSV file and save it to the user's library. "
+                "Use this for tables, budgets, lists and schedules. Each sheet has columns (header names) and rows "
+                "(arrays of cell values in that order). Numbers should be numbers, not strings. "
+                "Formulas are not supported and are stored as text. CSV allows one sheet. Several sheets need xlsx.",
+                _obj(
+                    {
+                        "filename": _S,
+                        "format": {**_S, "enum": ["xlsx", "csv"], "description": "Default xlsx"},
+                        "sheets": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": _S,
+                                    "columns": {"type": "array", "items": _S},
+                                    "rows": {"type": "array", "items": {"type": "array"}},
+                                },
+                                "required": ["columns", "rows"],
+                            },
+                        },
+                    },
+                    ["filename", "sheets"],
+                ),
+            ),
+            "Creating a spreadsheet",
+            _create_spreadsheet,
+        ),
+        Tool(
+            ToolSpec(
+                "create_presentation",
+                "Create a real PowerPoint (.pptx) and save it to the user's library. "
+                "A title slide plus one slide per item (title and bullets, optional speaker notes). "
+                "No images, charts or animations.",
+                _obj(
+                    {
+                        "title": _S,
+                        "filename": _S,
+                        "subtitle": _S,
+                        "slides": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "title": _S,
+                                    "bullets": {"type": "array", "items": _S},
+                                    "notes": _S,
+                                },
+                                "required": ["title"],
+                            },
+                        },
+                    },
+                    ["title", "slides"],
+                ),
+            ),
+            "Creating a presentation",
+            _create_presentation,
         ),
     ]
 }
