@@ -495,7 +495,12 @@ async def request_stop(db: AsyncSession, conv: Conversation, turns) -> uuid.UUID
 
 
 def _toolbox(
-    maker: async_sessionmaker[AsyncSession], settings: Settings, orchestrator: Orchestrator, turn: PreparedTurn
+    maker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    orchestrator: Orchestrator,
+    turn: PreparedTurn,
+    files: FilesRuntime | None = None,
+    embedder=None,
 ) -> ToolBox | None:
     """Tools for this reply, when enabled and the model expected to answer can call functions."""
     if not settings.assistant_tools_enabled:
@@ -512,6 +517,9 @@ def _toolbox(
             turn.user_id,
             turn.conversation_id,
             local_offset=turn.client_time.utcoffset() if turn.client_time else None,
+            files=files,
+            embedder=embedder,
+            settings=settings,
         )
     )
 
@@ -556,7 +564,14 @@ async def run_turn(
         if turn.saved_memory:
             yield {"type": "memory", "action": "saved", "content": turn.saved_memory}
         memories = [*turn.memories, *([turn.saved_memory] if turn.saved_memory else [])]
-        toolbox = _toolbox(maker, settings, orchestrator, turn)
+        toolbox = _toolbox(
+            maker,
+            settings,
+            orchestrator,
+            turn,
+            files=files,
+            embedder=knowledge.embedder if knowledge is not None else None,
+        )
         system = build_system_prompt(
             sources=research.sources,
             research_notes=research.notes,

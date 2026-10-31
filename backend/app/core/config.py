@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     # App updates (Phase 4): JSON manifest written by the release workflow (latest.json).
     update_manifest_file: str | None = None
 
-    # Assistant tools (calculator, units, dates, reminders, email drafts) for models that support them.
+    # Assistant tools (calculator, units, dates, reminders, email drafts, Office files) for models that support them.
     assistant_tools_enabled: bool = True
     reminder_check_seconds: int = Field(default=30, ge=5, le=3600)
 

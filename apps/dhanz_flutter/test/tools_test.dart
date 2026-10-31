@@ -118,6 +118,18 @@ void main() {
       {'tool': 'calculate', 'summary': '12*7 = 84', 'error': false, 'action': null},
       reminderActivity('r1'),
       emailActivity,
+      {
+        'tool': 'create_spreadsheet',
+        'summary': 'Excel workbook: Budget.xlsx',
+        'error': false,
+        'action': {
+          'type': 'file',
+          'document_id': 'doc-1',
+          'filename': 'Budget.xlsx',
+          'file_type': 'xlsx',
+          'size_bytes': 4096,
+        },
+      },
     ];
     await tester.pumpWidget(ProviderScope(overrides: overrides(), child: const DhanzApp()));
     await tester.pumpAndSettle();
@@ -132,6 +144,9 @@ void main() {
     expect(find.text('Lunch'), findsOneWidget);
     expect(find.text('To bob@example.com · not sent yet'), findsOneWidget);
     expect(find.text('Open in email app'), findsOneWidget);
+    expect(find.text('Budget.xlsx'), findsOneWidget);
+    expect(find.textContaining('Saved to your library'), findsOneWidget);
+    expect(find.text('Download'), findsOneWidget);
 
     await tester.tap(find.text('All reminders'));
     await tester.pumpAndSettle();

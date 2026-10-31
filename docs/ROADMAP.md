@@ -70,7 +70,7 @@ features that work.
 | Images / technical drawings | ✅ | Sent to a vision-capable model (OpenAI, Claude, Gemini, LLaVA-type Ollama models); routing refuses non-vision models |
 | Scanned PDFs (OCR) | 🟡 | Optional local Poppler + Tesseract when `OCR_ENABLED=true`; no external OCR service. Tests simulate the engines; recognition quality needs a server with both installed ([OCR.md](OCR.md)) |
 | Uploaded files in the knowledge library (search, download, move to project, delete) | ✅ | Files are private; downloads are always `attachment` + `nosniff` |
-| Generate downloadable files | 🟡 | Conversations can be saved as PDF, Markdown or text; generating new reports/spreadsheets as files is not implemented |
+| Generate downloadable files | 🟡 | Conversations export as PDF, Markdown or text. Dhanz can also create Word, PDF, Excel, CSV and PowerPoint from the chat (headings, paragraphs, bullets, tables of values, slides). No charts, images, animations or spreadsheet formulas |
 | Project workspaces | ✅ | Group chats and documents, standing instructions added to the prompt, project chats only search that project's documents |
 | Opt-in long-term memory | ✅ | Off by default; "Remember that …" in chat or manual entries; view, edit, delete, delete all, disable; included in data export |
 | Voice assistant | ✅ | Record → server speech-to-text (OpenAI-compatible, e.g. Whisper) → answer → device text-to-speech; voice picker and speed; automatic end-of-speech detection; hands-free loop; optional "Hey Dhanz" wake phrase |
@@ -133,6 +133,7 @@ as before.
 | Reminders | ✅ | "Remind me to … tomorrow at 9" resolved in the user's time zone (the app sends its UTC offset); push notification when due (desktop: system notification while the app runs); Reminders screen |
 | Calendar | 🟡 | Reminders/events export as `.ics` (*Add to calendar*) for any calendar app. No direct Google/Outlook calendar access (would need OAuth sign-in to those services) |
 | Email drafting | ✅ | Draft card with *Open in email app* and *Copy*; Dhanz never sends email — the user reviews and sends it from their own app |
+| Office files | 🟡 | `create_word_document` (docx/pdf), `create_spreadsheet` (xlsx/csv) and `create_presentation` (pptx) write real files into the user's library with a download button. Cells that look like formulas are stored as text. No charts, images or animations |
 | Approval for external actions | ✅ | No tool acts outside DHANZ AI; anything leaving the app is a button the user presses |
 | Native tool-calling verified against live provider APIs | 🟡 | Wire formats are tested against recorded examples, not against the live services in this milestone |
 

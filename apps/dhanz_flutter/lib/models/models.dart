@@ -436,7 +436,7 @@ class ToolActivity {
   final String summary;
   final bool error;
 
-  /// Something the app can offer: {"type": "reminder", "id", ...} or {"type": "email", "mailto", ...}.
+  /// Something the app can offer: {"type": "reminder"|"email"|"file", ...}.
   final Map<String, dynamic>? action;
 }
 
