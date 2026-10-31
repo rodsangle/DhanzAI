@@ -15,13 +15,23 @@ standalone Ollama chat cannot generate media. Existing assistant functions remai
    download, share, regenerate a variation, report, cancel, or delete the result. Older history
    is paginated. Progress shows queue/provider stages rather than an invented completion estimate.
 
-Images use the OpenAI Images API contract, including multipart reference edits. The default
-model is `gpt-image-2.5-sunburst`; the administrator can configure another compatible model
-and HTTPS API endpoint. Supported controls are PNG/JPEG/WebP, low/medium/high quality and
-1:1 (1024×1024), 3:2 (1536×1024), or 2:3 (1024×1536) output. Natural-language edits cover
-background/object replacement or removal and generative enhancement. Logos, artwork, product
-mockups and social graphics are prompt-based uses of this workflow. Enhancement is not a
-dedicated deterministic upscaler. Providers can refuse requests or lack model access.
+Images use the OpenAI Images API contract, including multipart reference edits, when the
+base URL is not `api.x.ai`. The default model is `gpt-image-2.5-sunburst`; the administrator
+can configure another compatible model and HTTPS API endpoint. Supported controls are
+PNG/JPEG/WebP, low/medium/high quality and 1:1 (1024×1024), 3:2 (1536×1024), or 2:3
+(1024×1536) output. Natural-language edits cover background/object replacement or removal
+and generative enhancement. Logos, artwork, product mockups and social graphics are
+prompt-based uses of this workflow. Enhancement is not a dedicated deterministic upscaler.
+Providers can refuse requests or lack model access.
+
+`https://api.x.ai` uses xAI's Imagine request instead: `aspect_ratio`, `n`, and
+`response_format=b64_json`. The server does not send OpenAI-only fields (`size`,
+`output_format`, `moderation`, `background`, `safety_identifier`). `quality` is sent only
+for `grok-imagine-image-2.0` (`low` or `medium`; the app's `high` is sent as `medium`).
+xAI does not choose PNG/JPEG/WebP, so the server re-encodes the returned image into the
+format the app requested. Reference edits and transparent backgrounds are not offered on
+this host. xAI's pricing page still lists `grok-imagine-image`; its current recommended
+image model is `grok-imagine-image-2.0`.
 
 Video uses Runway Gen-4.5 text-to-video and image-to-video tasks: landscape/portrait at
 720p, 5 or 10 seconds, MP4. Audio generation, video-input editing and additional video
@@ -52,13 +62,15 @@ Before starting, set these in `backend/.env` for a native server, or root `.env`
 CREATIVE_ENABLED=true
 CREATIVE_WORKER_ENABLED=true
 OPENAI_API_KEY=your-server-side-key
-# Optional independent image/moderation credentials instead of OPENAI_API_KEY:
+# Optional independent image credentials instead of OPENAI_API_KEY:
 # CREATIVE_IMAGE_API_KEY=...
-# CREATIVE_MODERATION_API_KEY=...
 CREATIVE_IMAGE_BASE_URL=https://api.openai.com/v1
 CREATIVE_IMAGE_MODEL=gpt-image-2.5-sunburst
 CREATIVE_IMAGE_EDITS=true
 CREATIVE_IMAGE_TRANSPARENCY=true
+# openai (default) uses OpenAI /moderations. llm uses a chat model and fails closed.
+CREATIVE_MODERATION_PROVIDER=openai
+# CREATIVE_MODERATION_API_KEY=...
 RUNWAY_API_KEY=your-server-side-runway-key
 CREATIVE_STORAGE=local
 CREATIVE_STORAGE_DIR=./data/creations
@@ -71,10 +83,32 @@ CREATIVE_MONTHLY_ALLOWANCE=100
 ```
 
 Image and video providers are unavailable until moderation is configured. Omit `RUNWAY_API_KEY`
-to offer images only. The compatible image adapter requires the documented GPT Image parameters
-and base64 response shape; for another vendor verify its contract and disable edits or
-transparent backgrounds if unsupported. Implement a separate adapter for a different schema.
-Never put provider credentials in Flutter defines or application binaries.
+to offer images only. Never put provider credentials in Flutter defines or application binaries.
+
+### xAI-only images
+
+Use this when the server has an xAI key and no OpenAI key. Screening stays on: `llm` sends
+each prompt, reference image and generated image to a Grok chat model and rejects the job if
+the call fails, times out, or does not answer `allow` or `block`.
+
+```dotenv
+CREATIVE_ENABLED=true
+CREATIVE_WORKER_ENABLED=true
+CREATIVE_IMAGE_API_KEY=xai-...
+CREATIVE_IMAGE_BASE_URL=https://api.x.ai/v1
+CREATIVE_IMAGE_MODEL=grok-imagine-image
+CREATIVE_IMAGE_EDITS=false
+CREATIVE_IMAGE_TRANSPARENCY=false
+CREATIVE_MODERATION_PROVIDER=llm
+CREATIVE_MODERATION_MODEL=grok-4.7
+```
+
+Leave `OPENAI_API_KEY` and `CREATIVE_MODERATION_API_KEY` empty. The classifier then uses the
+image key and `CREATIVE_IMAGE_BASE_URL`. `CREATIVE_MODERATION_MODEL` defaults to `grok-4.7`
+when the base URL host is `api.x.ai`. Set `CREATIVE_IMAGE_MODEL=grok-imagine-image-2.0` to
+use xAI's current recommended image model (`quality` is then sent). Checked against the
+[xAI image generation guide](https://docs.x.ai/developers/model-capabilities/images/generation)
+and the [models page](https://docs.x.ai/developers/models).
 
 The default API process starts a durable queue worker when enabled. To run it separately,
 set `CREATIVE_WORKER_ENABLED=false` on the API and run from `backend`:
@@ -178,10 +212,13 @@ An eventual verified payment integration must reuse its stable receipt/event ID 
 
 ## Moderation, rights and limitations
 
-OpenAI moderation screens prompts and reference images before generation, then screens image
-outputs. Runway's provider moderation applies to generated video. Screening is fail-closed;
-errors or refusals release internal credits. Additional rules reject explicit nonconsensual
-intimate-content and deceptive-impersonation requests. Usage rights/consent confirmation,
+`CREATIVE_MODERATION_PROVIDER=openai` screens prompts and reference images with OpenAI's
+moderation endpoint, then screens image outputs. `llm` does the same job with an
+OpenAI-compatible chat model (Grok, when the image host is xAI). Runway's provider moderation
+applies to generated video. Screening is fail-closed: errors, timeouts, unclear answers or
+refusals release internal credits and do not skip the check. Additional rules reject explicit
+nonconsensual intimate-content and deceptive-impersonation requests before the provider is
+called. Usage rights/consent confirmation,
 per-account limits, active-job caps, reporting and administrator takedown supplement screening.
 These controls cannot establish ownership, consent, identity or every copyright violation.
 There is no independent video-frame/audio moderation pipeline. A public launch still needs

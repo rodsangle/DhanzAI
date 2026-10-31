@@ -11,10 +11,12 @@ import pytest
 from PIL import Image
 from sqlalchemy import select, update
 
-from app.content_moderation import Moderator
+from app.content_moderation import LlmModerator, ModerationRejected, Moderator, parse_decision
+from app.core.config import Settings
 from app.db.base import utcnow
-from app.generation_jobs import cleanup, process_one
+from app.generation_jobs import CreativeRuntime, cleanup, process_one
 from app.image_generation import ImageProvider
+from app.media_storage import validate_image
 from app.models import GenerationJob
 from app.services.storage import FileStorage
 from app.video_generation import VideoProvider
@@ -474,3 +476,209 @@ async def test_runway_submission_contract_and_download_security():
                 await provider.download(url, 1000)
     finally:
         await provider.aclose()
+
+
+class _ImageJob:
+    def __init__(self, model="grok-imagine-image", **options):
+        self.model = model
+        self.prompt = "A calm mountain landscape"
+        self.user_id = "user-1"
+        self.reference_mime = "image/png"
+        self.options = {"ratio": "3:2", "quality": "high", "format": "png", "operation": "generate", **options}
+
+
+def _b64_image(format):
+    return base64.b64encode(image_bytes(format)).decode()
+
+
+async def test_xai_image_request_uses_imagine_fields_and_reencodes():
+    seen = {}
+
+    def images(request):
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"data": [{"b64_json": _b64_image("jpeg")}]})
+
+    provider = ImageProvider(
+        "xai-test",
+        "https://api.x.ai/v1",
+        "grok-imagine-image",
+        edits=True,
+        transparency=True,
+        transport=httpx.MockTransport(images),
+    )
+    try:
+        caps = provider.capabilities()
+        assert provider.style == "xai" and caps["provider"] == "xai"
+        assert caps["operations"] == ["generate"] and caps["qualities"] == ["medium"]
+        data = await provider.generate(_ImageJob())
+        assert validate_image(data) == "image/png"
+        body = seen["body"]
+        assert seen["url"] == "https://api.x.ai/v1/images/generations"
+        assert body == {
+            "model": "grok-imagine-image",
+            "prompt": "A calm mountain landscape",
+            "n": 1,
+            "aspect_ratio": "3:2",
+            "response_format": "b64_json",
+        }
+        with pytest.raises(ValueError, match="reference edits"):
+            await provider.generate(_ImageJob(operation="edit"), png())
+    finally:
+        await provider.aclose()
+
+
+async def test_xai_image_2_0_sends_quality_but_not_openai_fields():
+    seen = {}
+
+    def images(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"data": [{"b64_json": _b64_image("jpeg")}]})
+
+    provider = ImageProvider(
+        "xai-test",
+        "https://api.x.ai/v1/",
+        "grok-imagine-image-2.0",
+        edits=False,
+        transport=httpx.MockTransport(images),
+    )
+    try:
+        assert provider.capabilities()["qualities"] == ["low", "medium"]
+        await provider.generate(_ImageJob(model="grok-imagine-image-2.0", quality="high", format="jpeg"))
+        body = seen["body"]
+        assert body["quality"] == "medium" and body["aspect_ratio"] == "3:2"
+        assert body["response_format"] == "b64_json"
+        for omitted in ("size", "output_format", "moderation", "background", "safety_identifier"):
+            assert omitted not in body
+
+        def url_only(request):
+            return httpx.Response(200, json={"data": [{"url": "https://example.invalid/image.jpg"}]})
+
+        await provider.aclose()
+        provider = ImageProvider(
+            "xai-test",
+            "https://api.x.ai/v1",
+            "grok-imagine-image-2.0",
+            transport=httpx.MockTransport(url_only),
+        )
+        with pytest.raises(ValueError, match="base64"):
+            await provider.generate(_ImageJob(model="grok-imagine-image-2.0", format="jpeg"))
+    finally:
+        await provider.aclose()
+
+
+async def test_non_xai_host_keeps_openai_image_fields_even_for_a_grok_model_name():
+    seen = {}
+
+    def images(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"data": [{"b64_json": _b64_image("png")}]})
+
+    provider = ImageProvider(
+        "image-key", "https://images.example/v1", "grok-imagine-image", transport=httpx.MockTransport(images)
+    )
+    try:
+        await provider.generate(_ImageJob(quality="high"))
+        assert seen["body"]["size"] == "1536x1024" and seen["body"]["moderation"] == "auto"
+        assert seen["body"]["output_format"] == "png" and "aspect_ratio" not in seen["body"]
+    finally:
+        await provider.aclose()
+
+
+def test_moderation_decision_parser_fails_closed():
+    assert parse_decision("allow") is True
+    assert parse_decision("Block.") is False
+    assert parse_decision('{"allowed": true}') is True
+    assert parse_decision("block\nThe image is unsafe") is False
+    for text in ("sure, allow this", "allow please", '{"allowed": "true"}', "", "```\nmaybe\n```"):
+        with pytest.raises(ModerationRejected):
+            parse_decision(text)
+
+
+async def test_llm_moderator_fail_closed_and_local_rules():
+    calls = []
+
+    def chat(request):
+        calls.append(json.loads(request.content))
+        reply = calls[-1]["messages"][1]["content"]
+        if isinstance(reply, str) and reply == "down":
+            return httpx.Response(503)
+        if isinstance(reply, str) and reply == "garbage":
+            content = "I can help with that"
+        elif isinstance(reply, str) and reply == "blocked":
+            content = "block"
+        else:
+            content = "allow"
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    moderator = LlmModerator("xai-test", "https://api.x.ai/v1", "grok-4.7", transport=httpx.MockTransport(chat))
+    try:
+        with pytest.raises(ModerationRejected, match="nonconsensual"):
+            await moderator.check("please nudify this photo")
+        with pytest.raises(ModerationRejected, match="impersonation"):
+            await moderator.check("impersonate a public figure")
+        assert not calls
+        await moderator.check("A calm mountain landscape")
+        assert calls[0]["model"] == "grok-4.7" and calls[0]["messages"][0]["role"] == "system"
+        with pytest.raises(ModerationRejected, match="blocked"):
+            await moderator.check("blocked")
+        with pytest.raises(ModerationRejected, match="unavailable"):
+            await moderator.check("down")
+        with pytest.raises(ModerationRejected, match="did not return a decision"):
+            await moderator.check("garbage")
+        await moderator.check("Screen generated image for safety", png(), "image/png")
+        image_part = calls[-1]["messages"][1]["content"][1]["image_url"]["url"]
+        assert image_part.startswith("data:image/png;base64,")
+        await moderator.check("Screen generated image for safety", image_bytes("webp"), "image/webp")
+        webp_part = calls[-1]["messages"][1]["content"][1]["image_url"]["url"]
+        assert webp_part.startswith("data:image/png;base64,")
+    finally:
+        await moderator.aclose()
+
+
+def test_llm_screening_runs_before_image_generation(client, auth, studio):
+    calls = []
+
+    def chat(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "block"}}]})
+
+    runtime = client.app.state.creative
+    old = runtime.moderator
+    runtime.moderator = LlmModerator("xai-test", "https://api.x.ai/v1", "grok-4.7", transport=httpx.MockTransport(chat))
+    client.portal.call(old.aclose)
+    queued = generate(client, auth)
+    work(client)
+    failed = job(client, auth, queued["id"])
+    assert failed["status"] == "failed" and "blocked" in failed["error"]
+    assert not studio["image_calls"] and calls
+
+
+async def test_xai_only_settings_enable_image_and_llm_moderation(tmp_path):
+    shared = dict(
+        _env_file=None,
+        openai_api_key=None,
+        creative_moderation_api_key=None,
+        creative_enabled=True,
+        creative_image_api_key="xai-test",
+        creative_image_base_url="https://api.x.ai/v1",
+        creative_image_model="grok-imagine-image",
+        creative_image_edits=False,
+        creative_image_transparency=False,
+        creative_storage_dir=str(tmp_path),
+    )
+    openai_only = CreativeRuntime(Settings(**shared, creative_moderation_provider="openai"))
+    assert openai_only.moderator is None and openai_only.image is None
+    with_openai = {**shared, "openai_api_key": "sk-moderation", "creative_moderation_provider": "openai"}
+    openai_key = CreativeRuntime(Settings(**with_openai))
+    xai = CreativeRuntime(Settings(**shared, creative_moderation_provider="llm"))
+    try:
+        assert isinstance(xai.moderator, LlmModerator)
+        assert xai.moderator.model == "grok-4.7"
+        assert xai.moderator.client.headers["authorization"] == "Bearer xai-test"
+        assert xai.image is not None and xai.image.style == "xai"
+        assert xai.image.capabilities()["model"] == "grok-imagine-image"
+        assert isinstance(openai_key.moderator, Moderator) and openai_key.image is not None
+    finally:
+        await openai_key.aclose()
+        await xai.aclose()

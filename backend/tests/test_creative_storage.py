@@ -70,6 +70,15 @@ def test_production_requires_cloud_storage_and_tls():
             jwt_secret="x" * 40,
             database_url="postgresql+asyncpg://db/dhanz",
         )
+    with pytest.raises(ValidationError, match="moderation"):
+        Settings(
+            app_env="production",
+            creative_enabled=True,
+            creative_storage="s3",
+            creative_moderation_base_url="http://moderation.example",
+            jwt_secret="x" * 40,
+            database_url="postgresql+asyncpg://db/dhanz",
+        )
 
 
 async def test_video_download_no_credentials_redirects_or_oversized_files(monkeypatch):
