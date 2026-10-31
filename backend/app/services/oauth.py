@@ -68,7 +68,10 @@ class IdTokenVerifier:
             "apple": settings.apple_client_id_list,
         }
         self._http = http
-        self._keys: dict[str, tuple[float, dict[str, jwt.PyJWK]]] = {}
+        # None means the provider's keys have never been fetched. A monotonic timestamp of 0
+        # is not that signal: on a host that booted less than a minute ago it looks like a
+        # recent fetch, so the first sign-in would skip JWKS and reject every token.
+        self._keys: dict[str, tuple[float | None, dict[str, jwt.PyJWK]]] = {}
         self._lock = asyncio.Lock()
 
     def enabled(self, provider: str) -> bool:
@@ -97,9 +100,9 @@ class IdTokenVerifier:
 
     async def _key(self, provider: str, kid: str) -> jwt.PyJWK:
         async with self._lock:
-            fetched_at, keys = self._keys.get(provider, (0.0, {}))
-            age = time.monotonic() - fetched_at
-            if age > JWKS_TTL_SECONDS or (kid not in keys and age > JWKS_REFRESH_MIN_SECONDS):
+            fetched_at, keys = self._keys.get(provider, (None, {}))
+            age = None if fetched_at is None else time.monotonic() - fetched_at
+            if age is None or age > JWKS_TTL_SECONDS or (kid not in keys and age > JWKS_REFRESH_MIN_SECONDS):
                 keys = await self._fetch(provider)
                 self._keys[provider] = (time.monotonic(), keys)
         if kid not in keys:
