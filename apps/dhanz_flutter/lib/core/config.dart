@@ -15,7 +15,8 @@ class AppConfig {
   static String resolveSavedApiUrl(String? savedUrl) {
     final url = savedUrl?.trim().replaceAll(RegExp(r'/+$'), '');
     if (url == null || url.isEmpty) return defaultApiUrl;
-    if (kReleaseMode && const {'http://localhost:8000', 'http://127.0.0.1:8000', 'http://10.0.2.2:8000'}.contains(url)) {
+    if (kReleaseMode &&
+        const {'http://localhost:8000', 'http://127.0.0.1:8000', 'http://10.0.2.2:8000'}.contains(url)) {
       return defaultApiUrl;
     }
     return url;
