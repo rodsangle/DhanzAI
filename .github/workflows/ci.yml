@@ -22,7 +22,7 @@ jobs:
     name: Backend + AI engine (lint, unit tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -49,7 +49,7 @@ jobs:
     name: Dependency vulnerability audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -79,7 +79,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://dhanz:dhanz@localhost:5432/dhanz
       JWT_SECRET: ci-only-secret-0123456789-abcdefghijklmnopqrstuvwxyz
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -118,7 +118,7 @@ jobs:
     name: Backend Docker image
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build
         run: docker build -f backend/Dockerfile -t dhanz-api:ci .
 
@@ -129,7 +129,7 @@ jobs:
       run:
         working-directory: apps/dhanz_flutter
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
