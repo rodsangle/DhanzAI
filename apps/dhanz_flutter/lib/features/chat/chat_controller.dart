@@ -29,7 +29,7 @@ enum WebMode {
 enum AssistantMode { general, coding }
 
 class ChatState {
-  const ChatState({}
+  const ChatState({
     this.conversationId,
     this.title,
     this.messages = const [],
