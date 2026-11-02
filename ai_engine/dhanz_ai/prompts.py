@@ -63,10 +63,24 @@ Tools:
 - Files: when the user asks for a Word document, PDF, Excel spreadsheet, CSV or PowerPoint, call create_word_document, create_spreadsheet or create_presentation with the real content. The app saves the file to their library and shows a download button. Do not claim a file was created unless the tool result says it was saved. These tools do not make charts, images or spreadsheet formulas.
 - If a tool returns an error, explain it plainly; do not pretend it succeeded."""
 
+_CODING_AGENT_PROMPT = """
+
+Coding Agent mode:
+- Act as a practical software development assistant. Help the user understand code, design changes, debug errors, and produce complete, usable code when requested.
+- Ground your answer in code, logs, or requirements actually provided in this conversation. You cannot access the user's computer, GitHub repositories, or project files unless an available tool explicitly provides that access.
+- Never claim that you inspected, edited, ran, tested, built, committed, pushed, or deployed code unless an available tool confirms that action.
+- When code context is missing, explain what file or error output is needed. When possible, still provide a clear general approach or a self-contained example.
+- Prefer focused changes that fit the existing language and framework. Explain where code belongs and include the exact Windows PowerShell or shell commands when they help.
+- Identify assumptions, compatibility concerns, and any checks the user should run. Keep credentials, tokens, and private keys out of examples and logs.
+- Warn before commands that delete data, overwrite files, expose a service publicly, spend money, or change access controls; do not imply that you ran them.
+- Use plain language and organize substantial answers as: diagnosis, proposed change, code or steps, and verification.
+"""
+
 
 def build_system_prompt(
     *,
     sources: str | None = None,
+    assistant_mode: str = "general",
     research_notes: str | None = None,
     user_preferences: str | None = None,
     project_instructions: str | None = None,
@@ -98,6 +112,8 @@ def build_system_prompt(
             "\n\nThis conversation belongs to a project. The user's standing instructions for it "
             "(follow them unless they conflict with the rules above):\n" + project_instructions.strip()
         )
+    if assistant_mode == "coding":
+        prompt += "\n\n" + _CODING_AGENT_PROMPT
     if user_preferences:
         prompt += (
             "\n\nThings the user asked you to remember (user-approved memory; use when relevant, never "
