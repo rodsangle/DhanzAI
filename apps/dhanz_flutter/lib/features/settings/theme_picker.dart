@@ -43,8 +43,6 @@ class ThemePicker extends ConsumerWidget {
                         button: true,
                         selected: selected == style,
                         label: '${style.label} theme. ${style.description}',
-                        excludeSemantics: true,
-                        onTap: () => _select(context, ref, style),
                         child: Material(
                           color: scheme.surfaceContainer,
                           shape: RoundedRectangleBorder(
@@ -57,28 +55,31 @@ class ThemePicker extends ConsumerWidget {
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
                             key: ValueKey('theme-${style.name}'),
-                            excludeFromSemantics: true,
                             onTap: () => _select(context, ref, style),
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  _Preview(style: style, mode: mode),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(child: Text(style.label, style: Theme.of(context).textTheme.titleSmall)),
-                                      Icon(
-                                        selected == style ? Icons.check_circle : Icons.circle_outlined,
-                                        color: selected == style ? scheme.primary : scheme.onSurfaceVariant,
-                                        size: 22,
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(style.description, style: Theme.of(context).textTheme.bodySmall),
-                                ],
+                            child: ExcludeSemantics(
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    _Preview(style: style, mode: mode),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(style.label, style: Theme.of(context).textTheme.titleSmall),
+                                        ),
+                                        Icon(
+                                          selected == style ? Icons.check_circle : Icons.circle_outlined,
+                                          color: selected == style ? scheme.primary : scheme.onSurfaceVariant,
+                                          size: 22,
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(style.description, style: Theme.of(context).textTheme.bodySmall),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

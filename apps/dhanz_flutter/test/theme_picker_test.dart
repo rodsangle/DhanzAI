@@ -8,6 +8,7 @@ import 'package:dhanz_ai/core/theme.dart';
 import 'package:dhanz_ai/features/settings/theme_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -152,6 +153,17 @@ void main() {
       Theme.of(tester.element(find.byType(ThemePicker))).colorScheme.primary,
       midnightGoldTheme.colorScheme.primary,
     );
+  });
+
+  testWidgets('theme cards can be selected with the keyboard', (tester) async {
+    final store = MemorySecureStore();
+    await tester.pumpWidget(appearanceApp(store));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(store.values[StoreKeys.themeStyle], 'midnightGold');
   });
 
   testWidgets('appearance picker fits a narrow screen with large text', (tester) async {
