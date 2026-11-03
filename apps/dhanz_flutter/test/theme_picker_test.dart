@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dhanz_ai/core/providers.dart';
@@ -195,6 +196,23 @@ void main() {
   });
 
   if (const bool.fromEnvironment('DHANZ_THEME_SCREENSHOTS')) {
+    setUpAll(() async {
+      // Widget tests substitute Ahem by default. Load SDK fonts so published
+      // previews show readable text and icons rather than test-font rectangles.
+      final executable = Platform.resolvedExecutable.replaceAll('\\', '/');
+      final marker = executable.indexOf('/bin/cache/');
+      final sdk = Platform.environment['FLUTTER_ROOT'] ?? (marker < 0 ? null : executable.substring(0, marker));
+      if (sdk == null) throw StateError('Set FLUTTER_ROOT to render theme previews with SDK fonts.');
+      final fonts = '$sdk/bin/cache/artifacts/material_fonts';
+      final text = FontLoader('Roboto');
+      for (final name in ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf']) {
+        text.addFont(File('$fonts/$name').readAsBytes().then(ByteData.sublistView));
+      }
+      await text.load();
+      final icons = FontLoader('MaterialIcons')
+        ..addFont(File('$fonts/MaterialIcons-Regular.otf').readAsBytes().then(ByteData.sublistView));
+      await icons.load();
+    });
     for (final style in [DhanzThemeStyle.midnightGold, DhanzThemeStyle.arcticLight, DhanzThemeStyle.auroraTeal]) {
       testWidgets('capture ${style.label} appearance preview', (tester) async {
         tester.view.physicalSize = const Size(800, 1100);

@@ -183,22 +183,30 @@ async def test_write_flag_required(github_settings):
         await github.change_repository(github_settings, {}, "branch")
 
 
-async def test_nonadmin_cannot_use_server_token(client, auth, github_settings, monkeypatch):
+def test_nonadmin_cannot_use_server_token(client, auth, github_settings, monkeypatch):
     from app.models import User
 
     uid = uuid.UUID(auth["user"]["id"])
     maker = client.app.state.sessionmaker
-    async with maker() as db:
-        user = await db.get(User, uid)
-        user.role = "user"
-        await db.commit()
 
     async def forbidden(*a, **kw):
         pytest.fail("Non-admin must never reach GitHub")
 
     monkeypatch.setattr(github, "request_json", forbidden)
-    box = ToolBox(ToolContext(maker, uid, None, settings=github_settings))
-    result = await box.run(ToolCall("1", "github_read_file", {"repository": "rodsangle/DhanzAI", "path": "README.md"}))
+
+    async def check_permission():
+        # asyncpg connections belong to the app's event loop. Use the same portal
+        # as other database-backed tool tests instead of pytest's separate loop.
+        async with maker() as db:
+            user = await db.get(User, uid)
+            user.role = "user"
+            await db.commit()
+        box = ToolBox(ToolContext(maker, uid, None, settings=github_settings))
+        return await box.run(
+            ToolCall("1", "github_read_file", {"repository": "rodsangle/DhanzAI", "path": "README.md"})
+        )
+
+    result = client.portal.call(check_permission)
     assert result.is_error
     assert "administrator" in result.content.lower()
 
