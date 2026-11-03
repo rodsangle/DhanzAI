@@ -51,6 +51,13 @@ def patch_source(source):
     research = functions.get("_research")
     if reader is None or _digest(reader) != _EXPECTED_READER_SHA or research is None:
         raise ValueError("The attachment reader differs from the supported baseline. The API was left unchanged.")
+    if not {"orchestrator", "turn"}.issubset({arg.arg for arg in research.args.args}):
+        raise ValueError("The custom research interface is different. The API was left unchanged.")
+    imports = {
+        alias.asname or alias.name for node in tree.body if isinstance(node, ast.ImportFrom) for alias in node.names
+    }
+    if not {"Orchestrator", "NoModelAvailableError", "classify_task"}.issubset(imports):
+        raise ValueError("The custom model-routing interface is different. The API was left unchanged.")
     calls = [n for n in ast.walk(research) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
     reads = [n for n in calls if n.func.id == "_attachment_passages"]
     budgets = [n for n in calls if n.func.id == "attachment_context_budget"]

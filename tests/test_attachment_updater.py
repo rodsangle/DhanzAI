@@ -15,7 +15,9 @@ spec.loader.exec_module(updater)
 def baseline():
     reader = (ROOT / "tests/fixtures/attachment_reader_before.txt").read_text()
     return (
-        "from __future__ import annotations\nATTACHMENT_CONTEXT_BUDGET = 40000\n" + reader + "\n\n"
+        "from __future__ import annotations\n"
+        "from dhanz_ai import Orchestrator, NoModelAvailableError, classify_task\n"
+        "ATTACHMENT_CONTEXT_BUDGET = 40000\n" + reader + "\n\n"
         "async def _research(maker, orchestrator, turn, notes):\n"
         "    async with maker() as db:\n"
         "        attached, images = await _attachment_passages(db, turn, notes)\n"

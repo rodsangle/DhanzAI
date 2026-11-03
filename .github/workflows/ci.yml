@@ -69,7 +69,7 @@ jobs:
         working-directory: knowledge_engine
         run: pytest -q --cov=dhanz_knowledge --cov-report=term-missing:skip-covered --cov-fail-under=85
       - name: Deployment helper tests
-        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py
+        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py
       - name: Backend tests (coverage >= 80%)
         working-directory: backend
         run: pytest -q --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=80
@@ -168,17 +168,6 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
       - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"
-      - name: Publish Flutter diagnostics
-        if: failure()
-        shell: python
-        run: |
-          import os, pathlib
-          report = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
-          for name in ["analysis", "tests"]:
-              path = pathlib.Path(os.environ["RUNNER_TEMP"]) / f"dhanz-flutter-{name}.log"
-              if path.exists():
-                  with report.open("a") as output:
-                      output.write(f"## Flutter {name}\n\n```text\n" + path.read_text()[-30000:] + "\n```\n")
       - uses: actions/upload-artifact@v4
         with:
           name: dhanz-theme-previews
@@ -186,8 +175,19 @@ jobs:
       - name: Browser API origin configuration
         run: flutter test --platform chrome test/config_test.dart
       - name: Build Creative Studio web client
-        run: flutter build web --release --no-web-resources-cdn
+        run: flutter build web --release --no-web-resources-cdn 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-build.log"
       - uses: actions/upload-artifact@v4
         with:
           name: dhanz-web
           path: apps/dhanz_flutter/build/web
+      - name: Publish Flutter diagnostics
+        if: failure()
+        shell: python
+        run: |
+          import os, pathlib
+          report = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          for name in ["analysis", "tests", "build"]:
+              path = pathlib.Path(os.environ["RUNNER_TEMP"]) / f"dhanz-flutter-{name}.log"
+              if path.exists():
+                  with report.open("a") as output:
+                      output.write(f"## Flutter {name}\n\n```text\n" + path.read_text()[-30000:] + "\n```\n")

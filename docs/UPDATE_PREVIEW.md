@@ -6,6 +6,17 @@ for the custom AWS 0010 image. The stable application version remains unchanged.
 
 ## Included
 
+- Send a typed instruction while a file is still being read/uploaded: it queues
+  until file upload and extraction finish, then sends text and attachment IDs in
+  one request. Failed uploads keep the draft and block a file-less send; changing
+  chat, project or account cancels the queued request. File-only sends ask for intent.
+- Explicit document conversions receive ordered extracted text within the selected
+  model's bounded context budget instead of top-ranked snippets. Partial coverage
+  and unreadable attachments are reported honestly. This does not add layout OCR.
+- Guarded attachment-backend and checksum-verified web update helpers preserve
+  the custom AWS image/features and back up its browser client. See
+  `docs/ATTACHMENTS_AND_CONVERSION.md` before applying.
+
 - Windows control panel with enlarged topmost approval dialogs, explicit selected
   window, mouse/keyboard support, opt-in bounded automatic navigation, stop controls
   and a screenshot-based task client. Windows execution requires local setup/testing.
