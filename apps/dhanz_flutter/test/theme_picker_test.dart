@@ -193,12 +193,14 @@ void main() {
         final store = MemorySecureStore()..values[StoreKeys.themeStyle] = style.name;
         await tester.pumpWidget(appearanceApp(store, screenshotKey: key));
         await tester.pumpAndSettle();
-        final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
-        final image = await boundary.toImage();
-        final data = await image.toByteData(format: ui.ImageByteFormat.png);
-        await Directory('build/theme-previews').create(recursive: true);
-        await File('build/theme-previews/${style.name}.png').writeAsBytes(data!.buffer.asUint8List());
-        image.dispose();
+        await tester.runAsync(() async {
+          final boundary = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final image = await boundary.toImage();
+          final data = await image.toByteData(format: ui.ImageByteFormat.png);
+          await Directory('build/theme-previews').create(recursive: true);
+          await File('build/theme-previews/${style.name}.png').writeAsBytes(data!.buffer.asUint8List());
+          image.dispose();
+        });
         expect(tester.takeException(), isNull);
       });
     }
