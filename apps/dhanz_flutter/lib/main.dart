@@ -114,12 +114,13 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
   Widget build(BuildContext context) {
     ref.listen(pushControllerProvider, (_, _) {}); // keeps push registration alive while signed in
     ref.listen(reminderWatcherProvider, (_, _) {}); // desktop: due reminders as system notifications
+    final style = ref.watch(themeStyleProvider);
     return MaterialApp.router(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
-      theme: dhanzLightTheme,
-      darkTheme: dhanzDarkTheme,
-      themeMode: ref.watch(themeModeProvider),
+      theme: style.theme(Brightness.light),
+      darkTheme: style.theme(Brightness.dark),
+      themeMode: style.mode(ref.watch(themeModeProvider)),
       routerConfig: ref.watch(routerProvider),
       builder: (context, child) => UpdateBanner(
         child: CreativeActivityShell(

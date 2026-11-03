@@ -4,6 +4,14 @@
 seven workflow references. It aims for useful general-assistant behavior; it is
 not OpenAI's private prompt or a guarantee of ChatGPT feature parity.
 
+The updated source backend now bundles this exact pack in the AI-engine wheel and
+uses it for chat replies by default (`ASSISTANT_SKILL_PACK_ENABLED=true`). The
+master rules and at most two relevant workflow guides are included in each model
+request. No runtime download or file-reading tool is needed; instructions do not
+grant tools or permissions. Set the flag to `false` to retain the previous prompt.
+The deployment must run the updated backend/AI engine before this takes effect.
+See `docs/THEMES_AND_SKILLS.md` in the source repository for deployment details.
+
 In an existing Dhanz installation with a Skills editor/import feature, import or
 paste the master skill and make the reference files available using that editor's
 document/reference mechanism. This public checkout does not include the custom

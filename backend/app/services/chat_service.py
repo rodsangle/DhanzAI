@@ -655,6 +655,7 @@ async def run_turn(
                 today=turn.client_time.date() if turn.client_time else None,
                 local_time=turn.client_time.isoformat(timespec="minutes") if turn.client_time else None,
                 tools=toolbox is not None,
+                skill_question=turn.question if settings.assistant_skill_pack_enabled else None,
             )
             history = list(turn.history)
             routing = turn.routing

@@ -4,11 +4,11 @@
 
 ## Download for Windows
 
-The [2026-11-03 update preview](https://github.com/rodsangle/DhanzAI/releases/tag/updates-2026-11-03-preview.1)
+The [2026-11-03 update preview](https://github.com/rodsangle/DhanzAI/releases/tag/updates-2026-11-03-preview.2)
 contains the prepared source updates, Windows companion, targeted server updater
-scripts, general-assistant skills and theme concepts. Read its validation and
+scripts, bundled general-assistant skills and three selectable themes. Read its validation and
 deployment notes before using it. It does not automatically upgrade the live AWS
-server; themes are mockups, and PDF layout fidelity is not implemented.
+server; PDF layout fidelity is not implemented.
 
 [Download the DHANZ AI 0.7.0 Windows installer / update](https://github.com/rodsangle/DhanzAI/releases/download/desktop-0.7.0/dhanz-ai-0.7.0-windows-setup.exe)
 

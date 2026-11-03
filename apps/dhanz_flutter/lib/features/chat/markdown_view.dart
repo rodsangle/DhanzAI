@@ -78,7 +78,10 @@ class CodeBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final hlTheme = dark ? atomOneDarkTheme : atomOneLightTheme;
+    final hlTheme = {
+      ...(dark ? atomOneDarkTheme : atomOneLightTheme),
+      'root': TextStyle(color: theme.colorScheme.onSurface, backgroundColor: theme.colorScheme.surfaceContainerLow),
+    };
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(

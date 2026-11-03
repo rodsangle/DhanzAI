@@ -165,7 +165,11 @@ jobs:
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
-      - run: flutter test
+      - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhanz-theme-previews
+          path: apps/dhanz_flutter/build/theme-previews
       - name: Browser API origin configuration
         run: flutter test --platform chrome test/config_test.dart
       - name: Build Creative Studio web client

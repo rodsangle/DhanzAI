@@ -15,6 +15,7 @@ import '../../widgets/dhanz_logo.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
+import 'theme_picker.dart';
 
 /// Profile, appearance, AI model preferences, privacy controls and account.
 class SettingsScreen extends ConsumerWidget {
@@ -125,7 +126,6 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final user = ref.watch(authControllerProvider).value;
-    final themeMode = ref.watch(themeModeProvider);
     final models = ref.watch(modelsProvider);
     final push = ref.watch(pushControllerProvider);
     final isDesktop = ref.watch(desktopShellProvider) is! NoDesktopShell;
@@ -161,18 +161,7 @@ class SettingsScreen extends ConsumerWidget {
                 onTap: () => _editName(context, ref, user),
               ),
               section('Appearance'),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: SegmentedButton<ThemeMode>(
-                  segments: const [
-                    ButtonSegment(value: ThemeMode.dark, icon: Icon(Icons.dark_mode_outlined), label: Text('Dark')),
-                    ButtonSegment(value: ThemeMode.light, icon: Icon(Icons.light_mode_outlined), label: Text('Light')),
-                    ButtonSegment(value: ThemeMode.system, icon: Icon(Icons.brightness_auto), label: Text('System')),
-                  ],
-                  selected: {themeMode},
-                  onSelectionChanged: (s) => ref.read(themeModeProvider.notifier).set(s.first),
-                ),
-              ),
+              const ThemePicker(),
               if (push.supported || isDesktop) section('Notifications & window'),
               if (push.supported)
                 SwitchListTile(

@@ -127,6 +127,7 @@ class Settings(BaseSettings):
 
     # Assistant tools (calculator, units, dates, reminders, email drafts, Office files) for models that support them.
     assistant_tools_enabled: bool = True
+    assistant_skill_pack_enabled: bool = True
     direct_tools_enabled: bool = True
     github_token: str | None = None
     github_allowed_repositories: str = ""

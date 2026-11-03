@@ -89,8 +89,9 @@ def build(root, destination, version):
         + "\n".join(f"- `{p.name}`" for p in files if p.suffix == ".zip")
         + "\n\nSource/helper packages are not Android APKs or full desktop-app installers. "
         "Extract the Windows companion source into a NEW folder and follow its README. "
-        "Preserve the existing working helper and AWS configuration. Skills require import; "
-        "themes are mockups only. See RELEASE_NOTES.md for validation and limitations.\n"
+        "Preserve the existing working helper and AWS configuration. The updated source backend "
+        "bundles the skills pack; custom deployments can import it separately. Themes are "
+        "implemented in the updated Flutter source. See RELEASE_NOTES.md for validation and limitations.\n"
         "\nIf separate web/Windows executable build jobs pass, they add their own assets and checksum files.\n",
         encoding="utf-8",
     )
@@ -104,8 +105,8 @@ def build(root, destination, version):
                 "source_commit": git(root, "rev-parse", "HEAD").decode().strip(),
                 "working_tree_dirty": bool(git(root, "status", "--porcelain").strip()),
                 "automatic_deployment": False,
-                "theme_status": "concepts-only",
-                "skills_status": "instruction-pack-requires-import",
+                "theme_status": "implemented-requires-updated-client",
+                "skills_status": "bundled-runtime-requires-updated-backend",
                 "pdf_layout_engine": "not-implemented",
                 "packages": [{"name": p.name, "bytes": p.stat().st_size, "sha256": digest(p)} for p in files],
             },

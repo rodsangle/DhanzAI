@@ -1,6 +1,42 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
+/// Stored names are stable preference IDs. Original retains the previous mode choice.
+enum DhanzThemeStyle { original, midnightGold, arcticLight, auroraTeal, system }
+
+extension DhanzThemeStyleInfo on DhanzThemeStyle {
+  String get label => switch (this) {
+    DhanzThemeStyle.original => 'Original Dhanz',
+    DhanzThemeStyle.midnightGold => 'Midnight Gold',
+    DhanzThemeStyle.arcticLight => 'Arctic Light',
+    DhanzThemeStyle.auroraTeal => 'Aurora Teal',
+    DhanzThemeStyle.system => 'Follow system',
+  };
+
+  String get description => switch (this) {
+    DhanzThemeStyle.original => 'Classic navy and gold, with your existing light/dark setting.',
+    DhanzThemeStyle.midnightGold => 'Deep midnight surfaces with warm gold accents.',
+    DhanzThemeStyle.arcticLight => 'Bright, airy surfaces with crisp blue accents.',
+    DhanzThemeStyle.auroraTeal => 'Rich teal surfaces with a soft mint accent.',
+    DhanzThemeStyle.system => 'Arctic Light in light mode; Midnight Gold in dark mode.',
+  };
+
+  ThemeMode mode(ThemeMode originalMode) => switch (this) {
+    DhanzThemeStyle.original => originalMode,
+    DhanzThemeStyle.arcticLight => ThemeMode.light,
+    DhanzThemeStyle.midnightGold || DhanzThemeStyle.auroraTeal => ThemeMode.dark,
+    DhanzThemeStyle.system => ThemeMode.system,
+  };
+
+  ThemeData theme(Brightness brightness) => switch (this) {
+    DhanzThemeStyle.original => brightness == Brightness.light ? dhanzLightTheme : dhanzDarkTheme,
+    DhanzThemeStyle.midnightGold => midnightGoldTheme,
+    DhanzThemeStyle.arcticLight => arcticLightTheme,
+    DhanzThemeStyle.auroraTeal => auroraTealTheme,
+    DhanzThemeStyle.system => brightness == Brightness.light ? arcticLightTheme : midnightGoldTheme,
+  };
+}
+
 /// DHANZ AI brand palette: dark navy, gold accents, white text, black secondary surfaces.
 abstract final class DhanzColors {
   static const navy = Color(0xFF0B1A33);
@@ -20,6 +56,12 @@ ThemeData _base(ColorScheme scheme) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: scheme.surface,
+    textSelectionTheme: TextSelectionThemeData(
+      cursorColor: scheme.primary,
+      selectionColor: scheme.primary.withValues(alpha: 0.25),
+      selectionHandleColor: scheme.primary,
+    ),
+    dividerTheme: DividerThemeData(color: scheme.outlineVariant, thickness: 1),
     visualDensity: VisualDensity.adaptivePlatformDensity,
     appBarTheme: AppBarTheme(
       backgroundColor: scheme.surface,
@@ -108,4 +150,72 @@ final ThemeData dhanzLightTheme = _base(
     outline: Color(0xFFB9C3D6),
     outlineVariant: Color(0xFFD9DFEA),
   ),
+);
+
+ThemeData _conceptTheme({
+  required Brightness brightness,
+  required Color background,
+  required Color surface,
+  required Color accent,
+  required Color text,
+  required Color muted,
+  required Color elevated,
+  required Color border,
+}) {
+  final dark = brightness == Brightness.dark;
+  final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness).copyWith(
+    primary: accent,
+    onPrimary: dark ? background : Colors.white,
+    secondary: accent,
+    onSecondary: dark ? background : Colors.white,
+    primaryContainer: dark ? elevated : const Color(0xFFDCE8FF),
+    onPrimaryContainer: text,
+    secondaryContainer: dark ? elevated : const Color(0xFFDCE8FF),
+    onSecondaryContainer: text,
+    surface: background,
+    onSurface: text,
+    onSurfaceVariant: muted,
+    surfaceContainerLowest: background,
+    surfaceContainerLow: surface,
+    surfaceContainer: surface,
+    surfaceContainerHigh: elevated,
+    surfaceContainerHighest: elevated,
+    outline: border,
+    outlineVariant: border.withValues(alpha: 0.55),
+    surfaceTint: accent,
+  );
+  return _base(scheme);
+}
+
+final midnightGoldTheme = _conceptTheme(
+  brightness: Brightness.dark,
+  background: const Color(0xFF0B1020),
+  surface: const Color(0xFF182033),
+  accent: const Color(0xFFE6BD63),
+  text: const Color(0xFFF3F4F6),
+  muted: const Color(0xFFB7C1D5),
+  elevated: const Color(0xFF253149),
+  border: const Color(0xFF697991),
+);
+
+final arcticLightTheme = _conceptTheme(
+  brightness: Brightness.light,
+  background: const Color(0xFFF7FAFF),
+  surface: Colors.white,
+  accent: const Color(0xFF176BFF),
+  text: const Color(0xFF14213D),
+  muted: const Color(0xFF4B5C77),
+  elevated: const Color(0xFFE8EFFA),
+  border: const Color(0xFF71819B),
+);
+
+final auroraTealTheme = _conceptTheme(
+  brightness: Brightness.dark,
+  background: const Color(0xFF062B33),
+  surface: const Color(0xFF103F49),
+  accent: const Color(0xFF65E8CF),
+  text: const Color(0xFFEDFFFA),
+  muted: const Color(0xFFB2D6D5),
+  elevated: const Color(0xFF19515A),
+  border: const Color(0xFF699EAA),
 );

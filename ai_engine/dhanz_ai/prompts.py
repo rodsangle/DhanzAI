@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
+from .skill_pack import general_assistant_instructions
+
 GREETING = "Hello! I'm Dhanz, your personal AI assistant. How can I help you today?"
 
 _BASE_PROMPT = """You are Dhanz, the AI assistant inside the DHANZ AI app ("Your World. Your Knowledge. Your AI.").
@@ -74,6 +76,7 @@ def build_system_prompt(
     today: date | None = None,
     local_time: str | None = None,
     tools: bool = False,
+    skill_question: str | None = None,
 ) -> str:
     """System prompt for Dhanz.
 
@@ -90,6 +93,8 @@ def build_system_prompt(
         prompt += f"\nThe user's local date and time is {local_time} (ISO 8601 with UTC offset)."
     if tools:
         prompt += _TOOL_RULES
+    if skill_question is not None:
+        prompt += general_assistant_instructions(skill_question)
     if sources:
         prompt += _SOURCE_RULES.format(sources=sources)
     if research_notes:

@@ -29,6 +29,8 @@ jobs:
       - run: ruff format --check backend ai_engine knowledge_engine tests scripts apps/windows_companion
       - run: pytest -q --cov=app --cov-fail-under=80
         working-directory: backend
+      - run: pytest -q --cov=dhanz_ai --cov-fail-under=85
+        working-directory: ai_engine
       - run: pytest -q apps/windows_companion tests/test_update_bundle.py
 
   publish-source:
@@ -70,7 +72,7 @@ jobs:
         working-directory: apps/dhanz_flutter
       - run: flutter analyze
         working-directory: apps/dhanz_flutter
-      - run: flutter test
+      - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true
         working-directory: apps/dhanz_flutter
       - run: flutter build web --release --no-web-resources-cdn
         working-directory: apps/dhanz_flutter
@@ -90,6 +92,11 @@ jobs:
                   if path.is_file():
                       archive.write(path, path.relative_to(root))
           package.with_name(package.name + ".sha256").write_text(hashlib.sha256(package.read_bytes()).hexdigest() + "  " + package.name + "\n")
+          previews = output / f"dhanz-theme-previews-{os.environ['RELEASE_ID']}.zip"
+          with zipfile.ZipFile(previews, "w", zipfile.ZIP_DEFLATED) as archive:
+              for path in sorted(pathlib.Path("apps/dhanz_flutter/build/theme-previews").glob("*.png")):
+                  archive.write(path, path.name)
+          previews.with_name(previews.name + ".sha256").write_text(hashlib.sha256(previews.read_bytes()).hexdigest() + "  " + previews.name + "\n")
           PY
           gh release upload "$RELEASE_ID" dist/*
 
