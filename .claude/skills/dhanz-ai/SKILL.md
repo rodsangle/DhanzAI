@@ -53,6 +53,14 @@ name `dhanzai`).
   `tool_activity_view.dart`, `pubspec.yaml`, `assistant_tools.py`, `chat_service.py`,
   `scripts/windows/dhanz_ai.iss`, and its migration `0008_github_connections.py` collides with
   `0008_public_accounts.py` (renumber to `0009`, `down_revision` = public accounts).
+- **Themes (unreleased, on `claude/dhanz-ai-universal-assistant-k0xwhz`):** `lib/core/theme.dart`
+  defines `DhanzPalette` (Midnight Gold, Arctic Light, Aurora Teal), one `buildDhanzTheme` for all
+  component themes, `DhanzSemanticColors` (success, warning, code background) and
+  `ThemePreference` (system + the three). Stored under `app_theme`; the old `theme_mode` key is
+  migrated and still written. Settings selector: `features/settings/theme_selector.dart`. Use
+  `colorScheme` roles or `DhanzSemanticColors.of(context)` — never hard-coded colours (only the
+  logo and the QR code's white background are fixed). `test/theme_test.dart` enforces contrast.
+- No PC-control screens exist in the repository yet (checked all branches, 2026-11-03).
 - **Open PR #37** "Add Coding Agent mode" (`feature/coding-agent-mode`, 7 commits, up to date with
   main): backend + Flutter green except `dart format` (one file unformatted) — fix with
   `dart format lib test` in `apps/dhanz_flutter`.
@@ -147,3 +155,5 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
   and GitHub-assist releases 0.8.1/0.8.2/desktop-0.9.0 on an unmerged branch.
 - 2026-11-02 — (owner) PR #37 Coding Agent mode opened.
 - 2026-11-03 — Reviewed repo state; created this skill.
+- 2026-11-03 — Three selectable themes + Follow system, preference migration, contrast tests
+  (Flutter only; not yet merged or released).

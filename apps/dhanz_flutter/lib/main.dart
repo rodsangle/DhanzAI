@@ -11,7 +11,6 @@ import 'core/platform/push.dart';
 import 'core/platform/updates.dart';
 import 'core/providers.dart';
 import 'core/storage/secure_store.dart';
-import 'core/theme.dart';
 import 'features/chat/chat_controller.dart';
 import 'features/reminders/reminder_watcher.dart';
 import 'router.dart';
@@ -108,12 +107,13 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
   Widget build(BuildContext context) {
     ref.listen(pushControllerProvider, (_, _) {}); // keeps push registration alive while signed in
     ref.listen(reminderWatcherProvider, (_, _) {}); // desktop: due reminders as system notifications
+    final themePreference = ref.watch(themePreferenceProvider);
     return MaterialApp.router(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
-      theme: dhanzLightTheme,
-      darkTheme: dhanzDarkTheme,
-      themeMode: ref.watch(themeModeProvider),
+      theme: themePreference.lightTheme,
+      darkTheme: themePreference.darkTheme,
+      themeMode: themePreference.themeMode,
       routerConfig: ref.watch(routerProvider),
       builder: (context, child) => UpdateBanner(child: child ?? const SizedBox.shrink()),
     );

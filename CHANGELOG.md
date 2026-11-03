@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Themes
+
+- Settings → Appearance → **Theme** offers three themes with live previews: **Midnight Gold**
+  (deep navy and warm gold), **Arctic Light** (crisp daytime theme) and **Aurora Teal** (blue-green
+  with mint and violet), plus **Follow system** (Arctic Light in light mode, Midnight Gold in dark mode).
+- The choice is saved on the device (Windows, Android, browsers) and applied immediately.
+- The previous Light / Dark / System setting carries over: Light → Arctic Light, Dark → Midnight
+  Gold, System → Follow system. No other setting changes.
+- All screens take their colours from one shared theme (buttons, inputs, cards, dialogs, menus,
+  tables, tabs, chips, switches, code blocks). Text, borders and focus colours are checked for
+  readable contrast; a few mockup shades were adjusted for that (Arctic blue, Aurora violet text).
+
 ## 0.8.0
 
 App version `0.8.0+8`. API version `0.8.0`.

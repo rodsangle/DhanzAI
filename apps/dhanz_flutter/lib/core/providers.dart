@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api/api_client.dart';
 import 'config.dart';
+import 'theme.dart';
 import 'storage/secure_store.dart';
 
 /// Overridden in tests with [MemorySecureStore].
@@ -14,23 +14,38 @@ final apiClientProvider = Provider<ApiClient>((ref) {
   return client;
 });
 
-class ThemeModeController extends Notifier<ThemeMode> {
+/// The theme the user picked (Settings → Appearance), stored on the device.
+///
+/// Older versions stored only light/dark/system under `theme_mode`; that is converted on first
+/// load (light → Arctic Light, dark → Midnight Gold, system → Follow system) and saved under
+/// `app_theme`. The old key is kept up to date so an older build on the same device still works.
+class ThemePreferenceController extends Notifier<ThemePreference> {
   @override
-  ThemeMode build() {
+  ThemePreference build() {
     _load();
-    return ThemeMode.dark;
+    return ThemePreference.midnightGold;
   }
 
   Future<void> _load() async {
-    final saved = await ref.read(secureStoreProvider).read(StoreKeys.themeMode);
-    final mode = ThemeMode.values.asNameMap()[saved];
-    if (mode != null && ref.mounted) state = mode;
+    final store = ref.read(secureStoreProvider);
+    try {
+      final stored = await store.read(StoreKeys.appTheme);
+      final preference = ThemePreference.fromStored(stored: stored, legacy: await store.read(StoreKeys.themeMode));
+      if (stored != preference.name) await store.write(StoreKeys.appTheme, preference.name); // migrate once
+      if (ref.mounted) state = preference;
+    } catch (_) {
+      // Storage unavailable (e.g. blocked browser storage): keep the default theme.
+    }
   }
 
-  Future<void> set(ThemeMode mode) async {
-    state = mode;
-    await ref.read(secureStoreProvider).write(StoreKeys.themeMode, mode.name);
+  Future<void> set(ThemePreference preference) async {
+    state = preference;
+    final store = ref.read(secureStoreProvider);
+    await store.write(StoreKeys.appTheme, preference.name);
+    await store.write(StoreKeys.themeMode, preference.legacyName);
   }
 }
 
-final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
+final themePreferenceProvider = NotifierProvider<ThemePreferenceController, ThemePreference>(
+  ThemePreferenceController.new,
+);

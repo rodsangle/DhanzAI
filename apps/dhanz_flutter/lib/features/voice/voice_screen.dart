@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/theme.dart';
 import '../../widgets/dhanz_logo.dart';
 import '../chat/chat_controller.dart';
 import '../chat/markdown_view.dart';
@@ -132,7 +131,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: DhanzColors.gold.withValues(alpha: listening ? 0.35 + 0.65 * pulse : 0.25),
+                        color: theme.colorScheme.primary.withValues(alpha: listening ? 0.35 + 0.65 * pulse : 0.25),
                         width: 4 + 14 * pulse,
                       ),
                     ),
