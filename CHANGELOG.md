@@ -13,6 +13,8 @@
 - All screens take their colours from one shared theme (buttons, inputs, cards, dialogs, menus,
   tables, tabs, chips, switches, code blocks). Text, borders and focus colours are checked for
   readable contrast; a few mockup shades were adjusted for that (Arctic blue, Aurora violet text).
+- Following the theme concepts: the open conversation in the sidebar is highlighted in the theme's
+  accent tint, and the message composer has a faint accent edge.
 
 ## 0.8.0
 
