@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:dhanz_ai/core/providers.dart';
@@ -204,14 +203,13 @@ void main() {
       final sdk = Platform.environment['FLUTTER_ROOT'] ?? (marker < 0 ? null : executable.substring(0, marker));
       if (sdk == null) throw StateError('Set FLUTTER_ROOT to render theme previews with SDK fonts.');
       final fonts = '$sdk/bin/cache/artifacts/material_fonts';
-      final text = FontLoader('Roboto');
       for (final name in ['Roboto-Regular.ttf', 'Roboto-Medium.ttf', 'Roboto-Bold.ttf']) {
-        text.addFont(File('$fonts/$name').readAsBytes().then(ByteData.sublistView));
+        await ui.loadFontFromList(await File('$fonts/$name').readAsBytes(), fontFamily: 'Roboto');
       }
-      await text.load();
-      final icons = FontLoader('MaterialIcons')
-        ..addFont(File('$fonts/MaterialIcons-Regular.otf').readAsBytes().then(ByteData.sublistView));
-      await icons.load();
+      await ui.loadFontFromList(
+        await File('$fonts/MaterialIcons-Regular.otf').readAsBytes(),
+        fontFamily: 'MaterialIcons',
+      );
     });
     for (final style in [DhanzThemeStyle.midnightGold, DhanzThemeStyle.arcticLight, DhanzThemeStyle.auroraTeal]) {
       testWidgets('capture ${style.label} appearance preview', (tester) async {
