@@ -49,7 +49,10 @@ abstract final class StoreKeys {
   static const accessToken = 'access_token';
   static const refreshToken = 'refresh_token';
   static const apiUrl = 'api_url';
+
+  /// Pre-0.9 light/dark/system choice; still written for older builds.
   static const themeMode = 'theme_mode';
+  static const appTheme = 'app_theme';
   static const pushEnabled = 'push_enabled';
   static const pushToken = 'push_token';
   static const minimizeToTray = 'minimize_to_tray';

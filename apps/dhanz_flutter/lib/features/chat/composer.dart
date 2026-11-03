@@ -68,7 +68,10 @@ class _ComposerState extends ConsumerState<Composer> {
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        // A faint accent edge, as in the theme concepts; the text field inside shows focus.
+        border: Border.all(
+          color: Color.alphaBlend(theme.colorScheme.primary.withValues(alpha: 0.3), theme.colorScheme.outlineVariant),
+        ),
       ),
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
       child: Column(

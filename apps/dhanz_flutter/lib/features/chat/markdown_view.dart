@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_highlight/flutter_highlight.dart';
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
@@ -7,6 +8,8 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:highlight/languages/all.dart' show allLanguages;
 import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
+
+import '../../core/theme.dart';
 
 /// Renders assistant Markdown with syntax-highlighted, copyable code blocks.
 class MarkdownView extends StatelessWidget {
@@ -78,11 +81,20 @@ class CodeBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dark = theme.brightness == Brightness.dark;
-    final hlTheme = dark ? atomOneDarkTheme : atomOneLightTheme;
+    final codeBackground = DhanzSemanticColors.of(context).codeBackground;
+    // Syntax colours from the One Dark / One Light schemes, on the theme's own code background.
+    final base = dark ? atomOneDarkTheme : atomOneLightTheme;
+    final hlTheme = {
+      ...base,
+      'root': (base['root'] ?? const TextStyle()).copyWith(
+        backgroundColor: codeBackground,
+        color: theme.colorScheme.onSurface,
+      ),
+    };
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: hlTheme['root']?.backgroundColor,
+        color: codeBackground,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),

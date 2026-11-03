@@ -207,7 +207,8 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
                           return ListTile(
                             dense: true,
                             selected: c.id == currentId,
-                            selectedTileColor: theme.colorScheme.surfaceContainerHighest,
+                            selectedTileColor: theme.colorScheme.primaryContainer,
+                            selectedColor: theme.colorScheme.onPrimaryContainer,
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             leading: Icon(
                               c.pinned
