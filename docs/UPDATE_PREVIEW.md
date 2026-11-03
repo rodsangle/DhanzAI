@@ -25,6 +25,9 @@ for the custom AWS 0010 image. The stable application version remains unchanged.
   Appearance, with previews and saved selection. Original Dhanz preserves existing
   light/dark/system preferences. Follow system switches between Arctic Light and
   Midnight Gold as device brightness changes.
+- An OCR activation helper for existing custom Compose deployments. It preserves
+  the current API image and configuration files, checks installed OCR tools, and
+  enables OCR only when explicitly run with `--apply`. Re-upload PDFs afterward.
 
 ## Validation and limits
 

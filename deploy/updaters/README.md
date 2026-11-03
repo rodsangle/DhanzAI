@@ -23,3 +23,16 @@ changing chats is different from restarting the service processing them.
 Do not substitute the older public checkout for the custom AWS image. The user
 owns its configuration and any activation decision; publishing this source bundle
 does not deploy it or transfer secrets.
+# Enable existing PDF OCR
+
+`enable_pdf_ocr.py` checks the running API's OCR support and installed Tesseract /
+Poppler tools, discovers its actual Compose files/project, and prepares an additive
+`docker-compose.ocr.json` overlay. It pins a local snapshot of the running image;
+no replacement backend, package installation, database migration or secret-file edit
+is performed. Existing language, page and time limits are preserved.
+
+Run `python3 enable_pdf_ocr.py` to prepare only, or add `--apply` to recreate only
+the API and verify OCR is enabled. Finish current replies/generations before apply.
+The helper uses Ubuntu's `/usr/bin/sudo` and `/usr/bin/docker`. It prints no keys or
+Compose environment values. Existing PDFs must be uploaded again after activation.
+OCR makes scanned text readable; it does not guarantee faithful Excel table layout.

@@ -4,7 +4,7 @@
 
 ## Download for Windows
 
-The [2026-11-03 update preview](https://github.com/rodsangle/DhanzAI/releases/tag/updates-2026-11-03-preview.3)
+The [2026-11-03 update preview](https://github.com/rodsangle/DhanzAI/releases/tag/updates-2026-11-03-preview.4)
 contains the prepared source updates, Windows companion, targeted server updater
 scripts, bundled general-assistant skills and three selectable themes. Read its validation and
 deployment notes before using it. It does not automatically upgrade the live AWS
