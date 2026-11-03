@@ -1,0 +1,38 @@
+async def _attachment_passages(
+    db: AsyncSession, turn: PreparedTurn, notes: list[str]
+) -> tuple[list[Passage], list[KnowledgeDocument]]:
+    """Text passages from attached documents (whole text when short, best-matching chunks otherwise)."""
+    passages: list[Passage] = []
+    images: list[KnowledgeDocument] = []
+    for doc_id in turn.attachment_ids:
+        doc = await db.get(KnowledgeDocument, doc_id)
+        if doc is None:
+            continue
+        if doc.file_type == "image":
+            images.append(doc)
+            continue
+        if doc.notes:
+            notes.append(f"About the attached file {doc.title}: {doc.notes}")
+
+        def passage(text: str, doc: KnowledgeDocument = doc) -> Passage:
+            return Passage(text=text, url=doc.url, title=doc.title, retrieved_at=doc.created_at, origin="file")
+
+        if not doc.content:
+            continue
+        if len(doc.content) <= ATTACHMENT_FULL_TEXT_CHARS:
+            passages.append(passage(doc.content))
+            continue
+        chunks = list(
+            await db.scalars(
+                select(KnowledgeChunk).where(KnowledgeChunk.document_id == doc.id).order_by(KnowledgeChunk.ordinal)
+            )
+        )
+        scores = bm25_scores(turn.question, [c.text for c in chunks])
+        best = sorted(range(len(chunks)), key=lambda k: scores[k], reverse=True)[:6]
+        keep = sorted({0, *best})  # the opening chunk gives context (title, abstract, headers)
+        passages += [passage(chunks[k].text) for k in keep]
+        notes.append(
+            f"The attached file {doc.title} is long; you were given its opening and the {len(keep) - 1} passages most "
+            "relevant to the question, not the whole document."
+        )
+    return passages, images

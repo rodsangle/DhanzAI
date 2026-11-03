@@ -369,7 +369,7 @@ class ChatController extends Notifier<ChatState> {
     } finally {
       if (ref.mounted && epoch == _draftEpoch && ticket == _sendTicket) state = state.copyWith(sending: false);
     }
-    unawaited(ref.read(conversationsProvider.notifier).refresh());
+    if (ref.mounted && epoch == _draftEpoch) unawaited(ref.read(conversationsProvider.notifier).refresh());
     return id;
   }
 
