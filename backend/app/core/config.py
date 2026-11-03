@@ -127,6 +127,11 @@ class Settings(BaseSettings):
 
     # Assistant tools (calculator, units, dates, reminders, email drafts, Office files) for models that support them.
     assistant_tools_enabled: bool = True
+    direct_tools_enabled: bool = True
+    github_token: str | None = None
+    github_allowed_repositories: str = ""
+    github_write_enabled: bool = False
+    desktop_planner_enabled: bool = False
     reminder_check_seconds: int = Field(default=30, ge=5, le=3600)
 
     # ---- Production readiness (Phase 5) ----

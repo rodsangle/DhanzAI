@@ -17,6 +17,7 @@ from app.api.routes import (
     auth,
     conversations,
     creative,
+    desktop,
     devices,
     files,
     memories,
@@ -234,6 +235,7 @@ def create_app(
     ]
     for router in (
         meta.router,
+        desktop.router,
         auth.router,
         users.router,
         conversations.router,

@@ -233,6 +233,29 @@ def test_video_persists_between_polls_and_cannot_double_charge(client, auth, stu
     assert len(studio["video_calls"]) == 1
 
 
+@pytest.mark.parametrize("kind", ["image", "video"])
+def test_generation_survives_switching_and_starting_chats(client, auth, studio, kind):
+    queued = generate(client, auth, kind=kind)
+    if kind == "video":
+        work(client)
+        assert job(client, auth, queued["id"])["status"] == "processing"
+    # Opening a different chat and starting a new one must not cancel a durable creative job.
+    first = client.post("/api/v1/conversations", headers=auth["headers"], json={}).json()
+    second = client.post("/api/v1/conversations", headers=auth["headers"], json={}).json()
+    assert first["id"] != second["id"]
+    assert client.get(f"/api/v1/conversations/{first['id']}", headers=auth["headers"]).status_code == 200
+    assert job(client, auth, queued["id"])["status"] in ("queued", "processing")
+    if kind == "video":
+        ready_to_poll(client, queued["id"])
+        studio["video_status"] = "SUCCEEDED"
+    work(client)
+    assert job(client, auth, queued["id"])["status"] == "completed"
+    gallery = client.get("/api/v1/creative/jobs", headers=auth["headers"]).json()
+    assert next(j for j in gallery if j["id"] == queued["id"])["has_media"] is True
+    assert studio["cancels"] == 0
+    assert len(studio["image_calls"] if kind == "image" else studio["video_calls"]) == 1
+
+
 def test_video_failed_and_canceled_remote_jobs_refund(client, auth, studio):
     first = generate(client, auth, kind="video")
     studio["video_status"] = "FAILED"

@@ -19,6 +19,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env (Let's Encrypt notices)}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../apps/dhanz_flutter/build/web:/srv/web:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on: [api]

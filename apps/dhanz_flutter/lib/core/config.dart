@@ -13,6 +13,8 @@ class AppConfig {
   /// Default backend URL. The Android emulator reaches the host machine via 10.0.2.2.
   static String get defaultApiUrl {
     if (_apiUrlOverride.isNotEmpty) return _apiUrlOverride;
+    // Hosted web builds share their HTTPS origin with the API reverse proxy.
+    if (kIsWeb) return Uri.base.origin;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:8000';
     }

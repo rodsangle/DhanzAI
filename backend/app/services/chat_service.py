@@ -24,6 +24,7 @@ from app.models import Conversation, KnowledgeChunk, KnowledgeDocument, Memory, 
 from app.schemas import MessageOut, RegenerateRequest, SendMessageRequest
 from app.services import knowledge_service
 from app.services.assistant_tools import ToolBox, ToolContext
+from app.services.direct_tools import direct_answer
 from app.services.files_service import FilesRuntime
 from app.services.knowledge_service import KnowledgeRuntime
 from dhanz_ai import (
@@ -597,76 +598,107 @@ async def run_turn(
     outcome, error = "stopped", None
     result: MessageOut | None = None
     try:
-        try:
-            async for event in _research(maker, knowledge, turn, research, orchestrator):
-                yield event
-        except Exception:  # noqa: BLE001 - research problems must not prevent an answer
-            log.exception("Research failed for turn %s", turn.assistant_message_id)
-            research.notes = "Research failed because of an internal error, so no sources were used."
-            yield {"type": "research", "stage": "error", "detail": "Research failed; answering without sources."}
-        if turn.saved_memory:
-            yield {"type": "memory", "action": "saved", "content": turn.saved_memory}
-        memories = [*turn.memories, *([turn.saved_memory] if turn.saved_memory else [])]
-        toolbox = _toolbox(
-            maker,
-            settings,
-            orchestrator,
-            turn,
-            files=files,
-            embedder=knowledge.embedder if knowledge is not None else None,
-        )
-        system = build_system_prompt(
-            sources=research.sources,
-            research_notes=research.notes,
-            user_preferences="\n".join(f"- {m}" for m in dict.fromkeys(memories)) or None,
-            project_instructions=turn.project_instructions,
-            today=turn.client_time.date() if turn.client_time else None,
-            local_time=turn.client_time.isoformat(timespec="minutes") if turn.client_time else None,
-            tools=toolbox is not None,
-        )
-        history = list(turn.history)
-        routing = turn.routing
-        if research.images and files is not None and history and history[-1].role == "user":
-            images = []
-            for d in research.images:
-                data = await files.storage.get(d.storage_key)
-                images.append(ImagePart(d.mime_type, base64.b64encode(data).decode()))
-            names = ", ".join(d.title for d in research.images)
-            history[-1] = ChatMessage("user", f"{history[-1].content}\n\n[Attached images: {names}]", tuple(images))
-            routing = dataclasses.replace(routing, required=routing.required | {Capability.VISION})
-        messages = [ChatMessage("system", system), *history]
-        params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
-        stream = orchestrator.stream_chat(
-            messages,
-            routing,
-            params,
-            tools=toolbox.specs if toolbox else (),
-            run_tool=toolbox.run if toolbox else None,
-        )
-        stopped = False
-        last_check = time.monotonic()
-        async for rc in stream:
-            # Stop requests may arrive at another server worker: they flag the row, we notice here.
-            if time.monotonic() - last_check > STOP_POLL_SECONDS:
-                last_check = time.monotonic()
-                if await _stop_requested(maker, turn.assistant_message_id):
-                    stopped = True
-                    await stream.aclose()
-                    break
-            if (rc.model.provider, rc.model.model) != (provider, model):
-                provider, model = rc.model.provider, rc.model.model
+        direct = None
+        if (
+            settings.assistant_tools_enabled
+            and settings.direct_tools_enabled
+            and not turn.attachment_ids
+            and turn.web is not True
+            and not turn.routing.explicit_provider
+            and not turn.routing.preferred_model_key
+            and not turn.project_instructions
+            and not turn.memories
+            and not turn.saved_memory
+            and not turn.memory_off_request
+            and not turn.temporary_memory_request
+        ):
+            direct = direct_answer(turn.question)
+        if direct is not None:
+            tool_name, text = direct
+            toolbox = ToolBox(ToolContext(maker, turn.user_id, turn.conversation_id))
+            if await _stop_requested(maker, turn.assistant_message_id):
+                outcome = "stopped"
+            else:
+                provider, model = "server", "direct-tools"
+                input_tokens = output_tokens = 0
                 yield {"type": "model", "provider": provider, "model": model}
-            if rc.chunk.text:
-                parts.append(rc.chunk.text)
-                yield {"type": "delta", "text": rc.chunk.text}
-            if rc.chunk.tool_calls:
-                labels = list(dict.fromkeys(ToolBox.label(c.name) for c in rc.chunk.tool_calls))
-                yield {"type": "tool", "stage": "running", "labels": labels}
-            if rc.tool_results and toolbox:
-                yield {"type": "tool", "stage": "done", "activity": toolbox.activity[-len(rc.tool_results) :]}
-            if rc.chunk.done:
-                input_tokens, output_tokens = rc.chunk.input_tokens, rc.chunk.output_tokens
-        outcome = "stopped" if stopped else "complete"
+                yield {"type": "tool", "stage": "running", "labels": [ToolBox.label(tool_name)]}
+                toolbox.activity.append({"tool": tool_name, "summary": text, "error": False, "action": None})
+                yield {"type": "tool", "stage": "done", "activity": toolbox.activity}
+                parts.append(text)
+                yield {"type": "delta", "text": text}
+                outcome = "complete"
+        else:
+            try:
+                async for event in _research(maker, knowledge, turn, research, orchestrator):
+                    yield event
+            except Exception:  # noqa: BLE001 - research problems must not prevent an answer
+                log.exception("Research failed for turn %s", turn.assistant_message_id)
+                research.notes = "Research failed because of an internal error, so no sources were used."
+                yield {"type": "research", "stage": "error", "detail": "Research failed; answering without sources."}
+            if turn.saved_memory:
+                yield {"type": "memory", "action": "saved", "content": turn.saved_memory}
+            memories = [*turn.memories, *([turn.saved_memory] if turn.saved_memory else [])]
+            toolbox = _toolbox(
+                maker,
+                settings,
+                orchestrator,
+                turn,
+                files=files,
+                embedder=knowledge.embedder if knowledge is not None else None,
+            )
+            system = build_system_prompt(
+                sources=research.sources,
+                research_notes=research.notes,
+                user_preferences="\n".join(f"- {m}" for m in dict.fromkeys(memories)) or None,
+                project_instructions=turn.project_instructions,
+                today=turn.client_time.date() if turn.client_time else None,
+                local_time=turn.client_time.isoformat(timespec="minutes") if turn.client_time else None,
+                tools=toolbox is not None,
+            )
+            history = list(turn.history)
+            routing = turn.routing
+            if research.images and files is not None and history and history[-1].role == "user":
+                images = []
+                for d in research.images:
+                    data = await files.storage.get(d.storage_key)
+                    images.append(ImagePart(d.mime_type, base64.b64encode(data).decode()))
+                names = ", ".join(d.title for d in research.images)
+                history[-1] = ChatMessage("user", f"{history[-1].content}\n\n[Attached images: {names}]", tuple(images))
+                routing = dataclasses.replace(routing, required=routing.required | {Capability.VISION})
+            messages = [ChatMessage("system", system), *history]
+            params = GenerationParams(temperature=settings.default_temperature, max_tokens=settings.default_max_tokens)
+            stream = orchestrator.stream_chat(
+                messages,
+                routing,
+                params,
+                tools=toolbox.specs if toolbox else (),
+                run_tool=toolbox.run if toolbox else None,
+            )
+            stopped = False
+            last_check = time.monotonic()
+            async for rc in stream:
+                # Stop requests may arrive at another server worker: they flag the row, we notice here.
+                if time.monotonic() - last_check > STOP_POLL_SECONDS:
+                    last_check = time.monotonic()
+                    if await _stop_requested(maker, turn.assistant_message_id):
+                        stopped = True
+                        await stream.aclose()
+                        break
+                if (rc.model.provider, rc.model.model) != (provider, model):
+                    provider, model = rc.model.provider, rc.model.model
+                    yield {"type": "model", "provider": provider, "model": model}
+                if rc.chunk.text:
+                    parts.append(rc.chunk.text)
+                    yield {"type": "delta", "text": rc.chunk.text}
+                if rc.chunk.tool_calls:
+                    labels = list(dict.fromkeys(ToolBox.label(c.name) for c in rc.chunk.tool_calls))
+                    yield {"type": "tool", "stage": "running", "labels": labels}
+                if rc.tool_results and toolbox:
+                    yield {"type": "tool", "stage": "done", "activity": toolbox.activity[-len(rc.tool_results) :]}
+                if rc.chunk.done:
+                    input_tokens, output_tokens = rc.chunk.input_tokens, rc.chunk.output_tokens
+            outcome = "stopped" if stopped else "complete"
     except NoModelAvailableError as exc:
         outcome, error = "error", str(exc)
     except ProviderError as exc:
