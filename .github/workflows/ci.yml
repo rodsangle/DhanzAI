@@ -164,7 +164,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
       - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"

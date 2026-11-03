@@ -13,7 +13,7 @@ from pathlib import Path, PurePosixPath
 from urllib.request import urlopen
 from zipfile import ZipFile
 
-RELEASE = "updates-2026-11-03-preview.5"
+RELEASE = "updates-2026-11-03-preview.6"
 BASE = f"https://github.com/rodsangle/DhanzAI/releases/download/{RELEASE}/"
 PACKAGE = f"dhanz-web-{RELEASE}.zip"
 
