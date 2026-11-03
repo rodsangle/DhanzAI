@@ -166,16 +166,16 @@ jobs:
           cache: true
       - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test
-      - run: flutter analyze 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
-      - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"
+      - run: flutter analyze --no-pub 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
+      - run: flutter test --no-pub --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"
       - uses: actions/upload-artifact@v4
         with:
           name: dhanz-theme-previews
           path: apps/dhanz_flutter/build/theme-previews
       - name: Browser API origin configuration
-        run: flutter test --platform chrome test/config_test.dart
+        run: flutter test --no-pub --platform chrome test/config_test.dart
       - name: Build Creative Studio web client
-        run: flutter build web --release --no-web-resources-cdn 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-build.log"
+        run: flutter build web --no-pub --release --no-web-resources-cdn 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-build.log"
       - uses: actions/upload-artifact@v4
         with:
           name: dhanz-web

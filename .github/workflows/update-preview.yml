@@ -70,11 +70,11 @@ jobs:
         working-directory: apps/dhanz_flutter
       - run: dart format --output=none --set-exit-if-changed lib test
         working-directory: apps/dhanz_flutter
-      - run: flutter analyze 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
+      - run: flutter analyze --no-pub 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
         working-directory: apps/dhanz_flutter
-      - run: flutter test --dart-define=DHANZ_THEME_SCREENSHOTS=true
+      - run: flutter test --no-pub --dart-define=DHANZ_THEME_SCREENSHOTS=true
         working-directory: apps/dhanz_flutter
-      - run: flutter build web --release --no-web-resources-cdn
+      - run: flutter build web --no-pub --release --no-web-resources-cdn
         working-directory: apps/dhanz_flutter
       - name: Publish failed Flutter analysis
         if: failure()
