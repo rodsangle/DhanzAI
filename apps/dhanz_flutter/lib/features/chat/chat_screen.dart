@@ -35,7 +35,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _dropped(DropDoneDetails details) async {
     setState(() => _dragging = false);
     final chat = ref.read(chatControllerProvider.notifier);
-    await Future.wait([for (final f in details.files) f.readAsBytes().then((b) => chat.attachFile(f.name, b))]);
+    await chat.attachFiles(() async => [for (final f in details.files) (name: f.name, bytes: await f.readAsBytes())]);
   }
 
   @override
@@ -65,9 +65,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     context.go('/chat');
   }
 
-  Future<void> _send(String text) async {
-    final id = await ref.read(chatControllerProvider.notifier).send(text);
+  Future<String?> _send(String text, VoidCallback onSubmitted) async {
+    final id = await ref.read(chatControllerProvider.notifier).send(text, onSubmitted: onSubmitted);
     if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
+    return id;
   }
 
   Future<void> _edit(ChatMessage message) async {

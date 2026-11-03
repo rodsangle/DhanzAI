@@ -357,6 +357,28 @@ class _Research:
 
 ATTACHMENT_FULL_TEXT_CHARS = 12_000  # shorter attachments are given to the model whole
 ATTACHMENT_CONTEXT_BUDGET = 40_000  # character cap, then limited by the chosen model's context window
+FULL_ATTACHMENT_CONTEXT_BUDGET = 160_000
+
+
+def _complete_attachment_requested(question: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(convert|extract|transcribe|excel|xlsx|spreadsheet|entire|whole)\b|\ball\b.{0,40}\b(pages|rows|tables)\b",
+            question,
+            re.I,
+        )
+    )
+
+
+def _attachment_budget_for_turn(orchestrator: Orchestrator, turn: PreparedTurn, *, window: int | None = None) -> int:
+    if window is None:
+        window = 8_192
+        try:
+            window = orchestrator.candidates(turn.routing, classify_task(turn.question))[0].context_window
+        except NoModelAvailableError:
+            pass
+    cap = FULL_ATTACHMENT_CONTEXT_BUDGET if _complete_attachment_requested(turn.question) else ATTACHMENT_CONTEXT_BUDGET
+    return min(cap, max(0, window) * 2)
 
 
 def attachment_context_budget(context_window: int) -> int:
@@ -392,11 +414,13 @@ def provider_failure_message(exc: ProviderError) -> str:
 
 
 async def _attachment_passages(
-    db: AsyncSession, turn: PreparedTurn, notes: list[str]
+    db: AsyncSession, turn: PreparedTurn, notes: list[str], *, budget_chars: int = ATTACHMENT_CONTEXT_BUDGET
 ) -> tuple[list[Passage], list[KnowledgeDocument]]:
     """Text passages from attached documents (whole text when short, best-matching chunks otherwise)."""
     passages: list[Passage] = []
     images: list[KnowledgeDocument] = []
+    complete = _complete_attachment_requested(turn.question)
+    remaining = budget_chars
     for doc_id in turn.attachment_ids:
         doc = await db.get(KnowledgeDocument, doc_id)
         if doc is None:
@@ -411,6 +435,21 @@ async def _attachment_passages(
             return Passage(text=text, url=doc.url, title=doc.title, retrieved_at=doc.created_at, origin="file")
 
         if not doc.content:
+            notes.append(
+                f"The file {doc.title} IS attached, but no readable text was extracted. "
+                "Do not say no file was attached."
+            )
+            continue
+        if complete:
+            text = doc.content[:remaining]
+            if len(text) < len(doc.content):
+                notes.append(
+                    f"Only {len(text)} of {len(doc.content)} extracted characters from {doc.title} fit this request. "
+                    "Do not claim a complete conversion. Explain the limit and request smaller batches."
+                )
+            if text:
+                passages.append(passage(text))
+                remaining -= len(text)
             continue
         if len(doc.content) <= ATTACHMENT_FULL_TEXT_CHARS:
             passages.append(passage(doc.content))
@@ -427,6 +466,14 @@ async def _attachment_passages(
         notes.append(
             f"The attached file {doc.title} is long; you were given its opening and the {len(keep) - 1} passages most "
             "relevant to the question, not the whole document."
+        )
+    if complete and turn.attachment_ids:
+        notes.append(
+            "Follow the user's requested operation on the attached files; "
+            "do not substitute a summary for a conversion. "
+            "Use available file-creation tools for a requested downloadable workbook. "
+            "Report OCR failures and incomplete coverage; "
+            "never claim a file was created without a successful tool result."
         )
     return passages, images
 
@@ -455,7 +502,9 @@ async def _research(
         )
 
     async with maker() as db:
-        attached, out.images = await _attachment_passages(db, turn, notes)
+        attached, out.images = await _attachment_passages(
+            db, turn, notes, budget_chars=_attachment_budget_for_turn(orchestrator, turn)
+        )
     passages += attached
     if attached or out.images:
         yield {"type": "research", "stage": "reading_files", "count": len(turn.attachment_ids)}
@@ -501,12 +550,7 @@ async def _research(
     if passages:
         budget = 14_000
         if attached:
-            window = 8_192
-            try:
-                window = orchestrator.candidates(turn.routing, classify_task(turn.question))[0].context_window
-            except NoModelAvailableError:
-                pass
-            budget = attachment_context_budget(window)
+            budget = _attachment_budget_for_turn(orchestrator, turn)
         context, citations = build_context(passages, budget_chars=budget)
         out.sources = context
         out.citations = [c.to_json() for c in citations]
