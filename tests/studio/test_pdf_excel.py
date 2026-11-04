@@ -1,20 +1,19 @@
 from io import BytesIO
 from threading import Event
 from unittest.mock import patch
-from zipfile import ZipFile
 
-from openpyxl import load_workbook
 import pytest
+from openpyxl import load_workbook
 
 from app.assistant_studio.pdf_excel import (
     Cell,
     ConversionError,
     Page,
+    extract_pdf,
     native_rows,
     ocr_rows,
     sheet_name,
     workbook,
-    extract_pdf,
 )
 
 

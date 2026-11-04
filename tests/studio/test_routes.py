@@ -1,20 +1,18 @@
 import uuid
-from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from fastapi import FastAPI, HTTPException, Request
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.deps import get_current_user
+from app.assistant_studio import builder
+from app.assistant_studio.models import BuilderLease, BuilderProject, ResponseFeedback
+from app.assistant_studio.routes import router
 from app.core.config import Settings
 from app.db.base import Base
-from app.models import User, Conversation, Message
-from app.assistant_studio.models import ResponseFeedback, BuilderProject, BuilderLease
-from app.assistant_studio.routes import router
-from app.assistant_studio import builder
+from app.models import Conversation, Message, User
 
 
 @pytest_asyncio.fixture

@@ -119,8 +119,11 @@ asyncio.run(main())
             raise ValueError('Unsafe embedded source path')
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source)
-    image = 'dhanz-api:assistant-studio-'+str(time.time_ns())
-    (build/'Dockerfile').write_text('FROM '+info['image']+'\nUSER root\nRUN python -m pip install --no-cache-dir "openpyxl==3.1.5"\nCOPY app/ '+str(root/'app')+'/\nCOPY alembic/ '+str(root/'alembic')+'/\n')
+    stamp = str(time.time_ns())
+    before_image = 'dhanz-api:before-assistant-studio-'+stamp
+    docker('tag',info['image'],before_image)
+    image = 'dhanz-api:assistant-studio-'+stamp
+    (build/'Dockerfile').write_text('FROM '+before_image+'\nUSER root\nRUN python -m pip install --no-cache-dir "openpyxl==3.1.5"\nCOPY app/ '+str(root/'app')+'/\nCOPY alembic/ '+str(root/'alembic')+'/\n')
     # The original effective user is restored, including non-root deployments.
     user = docker('inspect', 'deploy-api-1', '--format', '{{.Config.User}}')
     if user:

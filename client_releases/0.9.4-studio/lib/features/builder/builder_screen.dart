@@ -30,6 +30,8 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
   bool _creating = false;
   Timer? _poll;
   int _epoch = 0;
+  String? _requestKey;
+  String? _requestFingerprint;
 
   @override
   void initState() {
@@ -93,8 +95,12 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
       _creating = true;
       _error = null;
     });
-    final requestKey =
-        '${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 30)}';
+    final fingerprint = '$_kind|${_name.text.trim()}|${_prompt.text.trim()}|$_model';
+    if (_requestFingerprint != fingerprint || _requestKey == null) {
+      _requestFingerprint = fingerprint;
+      _requestKey = '${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 30)}';
+    }
+    final requestKey = _requestKey!;
     try {
       await ref.read(apiClientProvider).createBuilderProject({
         'name': _name.text.trim(),
@@ -103,6 +109,7 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
         'model': _model,
         'request_key': requestKey,
       });
+      _requestKey = null;
       await _loadProjects();
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);

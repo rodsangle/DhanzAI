@@ -6,6 +6,6 @@ for name in ("backend", "ai_engine", "knowledge_engine"):
     value = str(ROOT / name)
     if value not in sys.path:
         sys.path.append(value)
-import app
+import app  # noqa: E402 - choose the matching backend before importing its namespace.
 
 app.__path__.append(str(ROOT / "server_extensions"))
