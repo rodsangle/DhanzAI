@@ -128,6 +128,7 @@ class _ComposerState extends ConsumerState<Composer> {
                       onPressed: chat.streaming ? null : _attach,
                     ),
                     Flexible(child: _ModelPicker(selected: chat.modelKey)),
+                    _AssistantModePicker(mode: chat.assistantMode),
                     _WebModePicker(mode: chat.webMode),
                   ],
                 ),
@@ -208,6 +209,49 @@ class _ModelPicker extends ConsumerWidget {
       ),
     );
   }
+}
+
+class _AssistantModePicker extends ConsumerWidget {
+  const _AssistantModePicker({required this.mode});
+
+  final AssistantMode mode;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => PopupMenuButton<AssistantMode>(
+    tooltip: 'Choose assistant mode',
+    initialValue: mode,
+    onSelected: ref.read(chatControllerProvider.notifier).setAssistantMode,
+    itemBuilder: (context) => const [
+      PopupMenuItem(
+        value: AssistantMode.general,
+        child: ListTile(
+          leading: Icon(Icons.chat_bubble_outline),
+          title: Text('General'),
+          subtitle: Text('Everyday questions and tasks'),
+        ),
+      ),
+      PopupMenuItem(
+        value: AssistantMode.coding,
+        child: ListTile(
+          leading: Icon(Icons.code),
+          title: Text('Coding Agent'),
+          subtitle: Text('Code help, debugging, and implementation guidance'),
+        ),
+      ),
+    ],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(mode == AssistantMode.coding ? Icons.code : Icons.chat_bubble_outline, size: 18),
+          const SizedBox(width: 4),
+          Text(mode == AssistantMode.coding ? 'Coding' : 'General'),
+          const Icon(Icons.arrow_drop_down, size: 18),
+        ],
+      ),
+    ),
+  );
 }
 
 class _WebModePicker extends ConsumerWidget {

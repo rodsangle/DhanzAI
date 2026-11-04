@@ -269,6 +269,7 @@ class ConversationList(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
+    assistant_mode: Literal["general", "coding"] = "general"
     provider: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
     edit_message_id: uuid.UUID | None = Field(
@@ -289,6 +290,7 @@ class SendMessageRequest(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
+    assistant_mode: Literal["general", "coding"] = "general"
     provider: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=200)
     web: bool | None = None

@@ -25,6 +25,9 @@ enum WebMode {
   };
 }
 
+/// The focused assistant profile used for the next chat message.
+enum AssistantMode { general, coding }
+
 class ChatState {
   const ChatState({
     this.conversationId,
@@ -35,6 +38,7 @@ class ChatState {
     this.error,
     this.modelKey,
     this.webMode = WebMode.auto,
+    this.assistantMode = AssistantMode.general,
     this.researchStatus,
     this.attachments = const [],
     this.uploading = 0,
@@ -53,6 +57,9 @@ class ChatState {
   final String? modelKey;
 
   final WebMode webMode;
+
+  /// Specialized agent profile for upcoming messages.
+  final AssistantMode assistantMode;
 
   /// What Dhanz is doing before the reply starts ("Searching the web…"), or null.
   final String? researchStatus;
@@ -78,6 +85,7 @@ class ChatState {
     String? Function()? error,
     String? Function()? modelKey,
     WebMode? webMode,
+    AssistantMode? assistantMode,
     String? Function()? researchStatus,
     List<KnowledgeDocument>? attachments,
     int? uploading,
@@ -92,6 +100,7 @@ class ChatState {
     error: error != null ? error() : this.error,
     modelKey: modelKey != null ? modelKey() : this.modelKey,
     webMode: webMode ?? this.webMode,
+    assistantMode: assistantMode ?? this.assistantMode,
     researchStatus: researchStatus != null ? researchStatus() : this.researchStatus,
     attachments: attachments ?? this.attachments,
     uploading: uploading ?? this.uploading,
@@ -127,10 +136,16 @@ class ChatController extends Notifier<ChatState> {
     _stopLocal();
     final token = ++_loadToken;
     if (id == null) {
-      state = ChatState(modelKey: state.modelKey, webMode: state.webMode);
+      state = ChatState(modelKey: state.modelKey, webMode: state.webMode, assistantMode: state.assistantMode);
       return;
     }
-    state = ChatState(conversationId: id, loading: true, modelKey: state.modelKey, webMode: state.webMode);
+    state = ChatState(
+      conversationId: id,
+      loading: true,
+      modelKey: state.modelKey,
+      webMode: state.webMode,
+      assistantMode: state.assistantMode,
+    );
     try {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
@@ -185,6 +200,8 @@ class ChatController extends Notifier<ChatState> {
 
   void setWebMode(WebMode mode) => state = state.copyWith(webMode: mode);
 
+  void setAssistantMode(AssistantMode mode) => state = state.copyWith(assistantMode: mode);
+
   void clearNotice() => state = state.copyWith(notice: () => null);
 
   /// Uploads a file (into the selected project, if any) and attaches it to the next message.
@@ -238,6 +255,7 @@ class ChatController extends Notifier<ChatState> {
           content: text,
           modelKey: state.modelKey,
           web: state.webMode.asRequest,
+          assistantMode: state.assistantMode.name,
           attachmentIds: [for (final a in attachments) a.id],
         ),
       );
@@ -278,6 +296,7 @@ class ChatController extends Notifier<ChatState> {
           editMessageId: messageId,
           modelKey: state.modelKey,
           web: state.webMode.asRequest,
+          assistantMode: state.assistantMode.name,
         ),
       );
     } on ApiException catch (e) {
@@ -294,7 +313,11 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(messages: state.messages.sublist(0, lastUser + 1), error: () => null);
     try {
       await _stream(
-        () => _api.streamChat(id, regenerate: true, modelKey: state.modelKey, web: state.webMode.asRequest),
+        () => _api.streamChat(id, regenerate: true,
+          modelKey: state.modelKey,
+          web: state.webMode.asRequest,
+          assistantMode: state.assistantMode.name,
+        ),
       );
     } on ApiException catch (e) {
       state = state.copyWith(streaming: false, error: () => e.message);

@@ -612,6 +612,7 @@ class ApiClient {
     String? editMessageId,
     String? modelKey,
     bool? web,
+    String assistantMode = 'general',
     List<String> attachmentIds = const [],
     bool regenerate = false,
   }) async {
@@ -620,6 +621,7 @@ class ApiClient {
       'content': ?content,
       'edit_message_id': ?editMessageId,
       'web': ?web,
+      'assistant_mode': assistantMode,
       if (attachmentIds.isNotEmpty) 'attachment_ids': attachmentIds,
       'client_time': clientTimeNow(),
       if (parts != null && parts.length >= 2) 'provider': parts.first,

@@ -61,6 +61,7 @@ class PreparedTurn:
     web: bool | None  # True: always research, False: never, None: decide automatically
     auto_index: bool
     attachment_ids: list[uuid.UUID] = field(default_factory=list)
+    assistant_mode: str = "general"
     project_id: uuid.UUID | None = None
     project_instructions: str | None = None
     memories: list[str] = field(default_factory=list)
@@ -266,6 +267,7 @@ async def prepare_send(
         req.web,
         user.auto_index_web and not conv.temporary,
         attachment_ids=[d.id for d in docs],
+        assistant_mode=req.assistant_mode,
         client_time=parse_client_time(req.client_time),
         saved_memory=saved_memory,
         memory_off_request=memory_off_request,
@@ -306,6 +308,7 @@ async def prepare_regenerate(
         req.web,
         user.auto_index_web and not conv.temporary,
         attachment_ids=existing,
+        assistant_mode=req.assistant_mode,
         client_time=parse_client_time(req.client_time),
         **await _turn_context(db, user, conv),
     )
@@ -617,6 +620,7 @@ async def run_turn(
         )
         system = build_system_prompt(
             sources=research.sources,
+            assistant_mode=turn.assistant_mode,
             research_notes=research.notes,
             user_preferences="\n".join(f"- {m}" for m in dict.fromkeys(memories)) or None,
             project_instructions=turn.project_instructions,
