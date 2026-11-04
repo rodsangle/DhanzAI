@@ -37,7 +37,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Copy reply'), findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('unsupported sharing offers explicit copying and copies the actual reply', (tester) async {
     var clipboard = 'Keep until requested';
@@ -69,5 +69,5 @@ void main() {
     expect(clipboard, 'Reply to share');
     expect(find.text('Reply copied'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }
