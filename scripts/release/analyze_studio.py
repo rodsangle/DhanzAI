@@ -1,9 +1,14 @@
 """Run Flutter analysis and attach diagnostic codes/locations to the CI check."""
 
 import re
+import shutil
 import subprocess
 
-result = subprocess.run(["flutter", "analyze", "--no-pub", "lib", "test"], capture_output=True, text=True)
+result = subprocess.run(  # noqa: S603 - fixed Flutter analysis command, no shell.
+    [shutil.which("flutter") or "/missing-flutter", "analyze", "--no-pub", "lib", "test"],
+    capture_output=True,
+    text=True,
+)
 print(result.stdout, end="")
 print(result.stderr, end="")
 for line in (result.stdout + result.stderr).splitlines():

@@ -6,13 +6,10 @@ import '../../core/providers.dart';
 import '../auth/auth_controller.dart';
 
 typedef FeedbackKey = ({String user, String server, String message});
-final responseRatingProvider = FutureProvider.autoDispose
-    .family<String?, FeedbackKey>((ref, key) async {
-      final result = await ref
-          .watch(apiClientProvider)
-          .responseFeedback(key.message);
-      return result['rating'] as String?;
-    });
+final responseRatingProvider = FutureProvider.autoDispose.family<String?, FeedbackKey>((ref, key) async {
+  final result = await ref.watch(apiClientProvider).responseFeedback(key.message);
+  return result['rating'] as String?;
+});
 
 class ResponseRating extends ConsumerStatefulWidget {
   const ResponseRating({super.key, required this.messageId});
@@ -27,17 +24,16 @@ class _ResponseRatingState extends ConsumerState<ResponseRating> {
     setState(() => _saving = true);
     try {
       await ref.read(apiClientProvider).rateResponse(key.message, value);
-      if (!mounted || ref.read(authControllerProvider).value?.id != key.user)
+      if (!mounted || ref.read(authControllerProvider).value?.id != key.user) {
         return;
+      }
       await ref.refresh(responseRatingProvider(key).future);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Feedback saved to your account')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback saved to your account')));
     } on ApiException catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -47,11 +43,7 @@ class _ResponseRatingState extends ConsumerState<ResponseRating> {
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).value;
     if (user == null) return const SizedBox.shrink();
-    final key = (
-      user: user.id,
-      server: ref.watch(apiClientProvider).baseUrl,
-      message: widget.messageId,
-    );
+    final key = (user: user.id, server: ref.watch(apiClientProvider).baseUrl, message: widget.messageId);
     final rating = ref.watch(responseRatingProvider(key));
     final enabled = !_saving && rating.hasValue;
     return Row(
@@ -66,21 +58,13 @@ class _ResponseRatingState extends ConsumerState<ResponseRating> {
                 : 'Poor response',
             icon: Icon(
               value == 'up'
-                  ? (rating.value == value
-                        ? Icons.thumb_up
-                        : Icons.thumb_up_outlined)
-                  : (rating.value == value
-                        ? Icons.thumb_down
-                        : Icons.thumb_down_outlined),
+                  ? (rating.value == value ? Icons.thumb_up : Icons.thumb_up_outlined)
+                  : (rating.value == value ? Icons.thumb_down : Icons.thumb_down_outlined),
             ),
             iconSize: 18,
             visualDensity: VisualDensity.compact,
-            color: rating.value == value
-                ? Theme.of(context).colorScheme.primary
-                : null,
-            onPressed: enabled
-                ? () => _save(key, rating.value == value ? null : value)
-                : null,
+            color: rating.value == value ? Theme.of(context).colorScheme.primary : null,
+            onPressed: enabled ? () => _save(key, rating.value == value ? null : value) : null,
           ),
       ],
     );
