@@ -218,7 +218,9 @@ class MessageTile extends StatelessWidget {
                   child: Text('Stopped', style: muted),
                 ),
               if (!streaming)
-                Row(
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 4,
                   children: [
                     if (message.content.isNotEmpty)
                       _ActionIcon(
@@ -243,10 +245,12 @@ class MessageTile extends StatelessWidget {
                       ),
                     if (message.model != null) ...[
                       const SizedBox(width: 6),
-                      Flexible(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 200),
                         child: Text(
                           message.model!,
                           style: muted,
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
