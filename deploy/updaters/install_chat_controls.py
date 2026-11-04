@@ -9,10 +9,12 @@ import base64
 import gzip
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
 import time
+from html.parser import HTMLParser
 from pathlib import Path
 
 _PAYLOADS = {
@@ -202,6 +204,63 @@ def require_current_features(root, target):
             )
 
 
+def mounted_flutter_root(mounts, home):
+    live = [m for m in mounts if m.get("Destination") == "/srv/web" and m.get("Type") == "bind"]
+    if len(live) != 1:
+        raise ValueError("A single Caddy /srv/web bind mount is required. Nothing was changed.")
+    mounted = Path(live[0]["Source"]).resolve()
+    legacy = (home / "DhanzAI/apps/dhanz_flutter/build/web").resolve()
+    releases = (home / ".local/share/dhanz-server-sync/releases").resolve()
+    release_mount = (
+        mounted.name == "web-root"
+        and mounted.parent.parent == releases
+        and re.fullmatch(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12,64}", mounted.parent.name)
+    )
+    if mounted != legacy and not release_mount:
+        raise ValueError("The mounted web folder is outside the known Dhanz locations. Nothing was changed.")
+    required = ("index.html", "main.dart.js", "flutter_bootstrap.js")
+    for target in (mounted, mounted / "app"):
+        if all((target / name).is_file() for name in required) and target.resolve().is_relative_to(mounted):
+            return target.resolve()
+    raise ValueError("No complete Flutter build was found at the mount root or its app folder. Nothing was changed.")
+
+
+def require_matching_version(root, target):
+    metadata = target / "version.json"
+    if not metadata.is_file():
+        raise ValueError("Live Flutter version metadata is unavailable. Confirm source provenance before rebuilding.")
+    current = json.loads(metadata.read_text())
+    match = re.search(
+        r"^version:\s*['\"]?([0-9]+\.[0-9]+\.[0-9]+)(?:\+([0-9]+))?", (root / "pubspec.yaml").read_text(), re.M
+    )
+    if (
+        not match
+        or str(current.get("version")) != match[1]
+        or (match[2] and str(current.get("build_number")) != match[2])
+    ):
+        raise ValueError(
+            "The live Flutter version differs from this source. Use matching source with --source; nothing was changed."
+        )
+
+
+def current_base_href(target):
+    class BaseParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.hrefs = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() == "base":
+                self.hrefs.extend(value for key, value in attrs if key.lower() == "href")
+
+    parser = BaseParser()
+    parser.feed((target / "index.html").read_text())
+    href = parser.hrefs[0] if parser.hrefs else ("/app/" if target.name == "app" else "/")
+    if len(parser.hrefs) > 1 or not isinstance(href, str) or not re.fullmatch(r"/(?:[A-Za-z0-9_-]+/)*", href):
+        raise ValueError("The browser base URL needs review before rebuilding. Nothing was changed.")
+    return href
+
+
 def source_fingerprint(root):
     digest = hashlib.sha256()
     candidates = [root / "pubspec.yaml", root / "pubspec.lock"]
@@ -225,7 +284,7 @@ def web_fingerprint(target):
     return digest.hexdigest()
 
 
-def deploy_files(stage, target):
+def deploy_files(stage, target, *, backup_parent=None):
     files = [p for p in stage.rglob("*") if p.is_file()]
     if not {"index.html", "main.dart.js", "flutter_bootstrap.js"}.issubset({p.name for p in files}):
         raise ValueError("The checked web build is incomplete. Nothing was installed.")
@@ -233,7 +292,7 @@ def deploy_files(stage, target):
         destination = target / p.relative_to(stage)
         if not destination.resolve().is_relative_to(target.resolve()):
             raise ValueError("A target symlink escapes the web directory. Nothing was installed.")
-    backup = target.parent / ("web-before-read-aloud-" + str(time.time_ns()))
+    backup = (backup_parent or target.parent) / ("web-before-read-aloud-" + str(time.time_ns()))
     shutil.copytree(target, backup)
     backup.chmod(0o700)
     for source in sorted(files, key=lambda p: p.relative_to(stage).as_posix() == "index.html"):
@@ -251,8 +310,9 @@ def deploy_files(stage, target):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--source", type=Path, help="Flutter app source matching the live client")
     args = parser.parse_args()
-    root = Path.home() / "DhanzAI/apps/dhanz_flutter"
+    root = (args.source or Path.home() / "DhanzAI/apps/dhanz_flutter").resolve()
     tile = root / "lib/features/chat/message_tile.dart"
     composer = root / "lib/features/chat/composer.dart"
     if not tile.is_file() or not (root / "pubspec.lock").is_file():
@@ -271,7 +331,15 @@ def main():
     flutter = shutil.which("flutter")
     if flutter is None:
         flutter = next(
-            (str(p) for p in (Path.home() / "flutter/bin/flutter", Path("/opt/flutter/bin/flutter")) if p.is_file()),
+            (
+                str(p)
+                for p in (
+                    Path.home() / "flutter/bin/flutter",
+                    Path.home() / "tools/flutter/bin/flutter",
+                    Path("/opt/flutter/bin/flutter"),
+                )
+                if p.is_file()
+            ),
             None,
         )
     if flutter is None:
@@ -281,11 +349,10 @@ def main():
             ["/usr/bin/sudo", "/usr/bin/docker", "inspect", "deploy-caddy-1", "--format", "{{json .Mounts}}"], text=True
         )
     )
-    live = [m for m in mounts if m.get("Destination") == "/srv/web" and m.get("Type") == "bind"]
-    target = root / "build/web"
-    if len(live) != 1 or Path(live[0]["Source"]).resolve() != target.resolve() or not (target / "index.html").is_file():
-        raise ValueError("The live Caddy web mount is different. Nothing was changed.")
+    target = mounted_flutter_root(mounts, Path.home())
+    require_matching_version(root, target)
     require_current_features(root, target)
+    base_href = current_base_href(target)
     original_web = web_fingerprint(target)
     stage = Path(tempfile.mkdtemp(prefix="dhanz-reader-build-", dir=Path.home()))
     stage.chmod(0o700)
@@ -316,7 +383,14 @@ def main():
             "test/read_aloud_test.dart",
         ],
         ["test", "--no-pub", "test/read_aloud_test.dart", "test/draft_spelling_test.dart"],
-        ["build", "web", "--release", "--no-pub", "--dart-define=DHANZ_API_URL=https://dhanzai.com"],
+        [
+            "build",
+            "web",
+            "--release",
+            "--no-pub",
+            "--dart-define=DHANZ_API_URL=https://dhanzai.com",
+            "--base-href=" + base_href,
+        ],
     ]
     for command in commands:
         subprocess.run([flutter, *command], cwd=project, check=True)  # noqa: S603 - local SDK, argument list, no shell.
@@ -326,6 +400,15 @@ def main():
         return
     # Save the exact installed source as well as the live browser backup. Existing
     # unrelated Flutter source changes remain intact.
+    latest_mounts = json.loads(
+        subprocess.check_output(
+            ["/usr/bin/sudo", "/usr/bin/docker", "inspect", "deploy-caddy-1", "--format", "{{json .Mounts}}"], text=True
+        )
+    )
+    if mounted_flutter_root(latest_mounts, Path.home()) != target:
+        raise ValueError(
+            "Caddy switched releases during the build. Nothing was installed; retry against the current release."
+        )
     if web_fingerprint(target) != original_web:
         raise ValueError("The live browser build changed during validation. Nothing was installed; retry.")
     if source_fingerprint(root) != original_fingerprint:
@@ -335,7 +418,7 @@ def main():
     before = stage / "message_tile.before.dart"
     before.write_text(tile.read_text())
     (stage / "composer.before.dart").write_text(composer.read_text())
-    backup = deploy_files(project / "build/web", target)
+    backup = deploy_files(project / "build/web", target, backup_parent=stage)
     tile.write_text(patched)
     composer.write_text(patched_composer)
     (root / "lib/features/chat/draft_spelling.dart").write_text(asset("draft_spelling.dart"))

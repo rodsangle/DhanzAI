@@ -50,9 +50,33 @@ This installs the web client only. Native Android/Windows apps need rebuilt
 native releases to receive the same source changes.
 
 Validation: eight isolated Flutter spelling tests plus targeted analysis passed
-on the cached SDK. Six portable updater checks cover source patching, queued
-state, idempotence, bundled files and preserving Local News. Read aloud retains
+on the cached SDK. Ten portable updater checks cover source patching, queued
+state, bundled files, preserving Local News, synced nested mounts, version
+matching, base URLs and private backups. Read aloud retains
 its earlier five passing widget tests. The AWS updater must additionally pass
 analysis/tests and the full browser build against the actual deployment SDK and
 lock before it changes the live site; local full web compilation remains blocked
 by the missing cached web SDK artifacts, as recorded in READ_ALOUD_AND_SEARCH.md.
+
+
+## Server-sync release layouts
+
+The updater recognizes both the legacy build/web bind mount and a verified
+`~/.local/share/dhanz-server-sync/releases/<timestamp>-<hash>/web-root` bind.
+The Flutter build may be directly inside that mount or in its `app` subfolder.
+Only a folder containing index.html, main.dart.js and flutter_bootstrap.js is
+accepted. The wrapper index and outer service worker remain untouched. The
+existing local base href (such as /app/) is retained during compilation.
+
+The live folder's version.json must match the chosen Flutter source pubspec
+version/build. The source can be selected with --source. Metadata from an
+inactive ~/DhanzAI/.../build/web folder is not proof of the live client version.
+On the diagnosed deployment, the active nested client is 0.9.2+20, whereas the
+legacy checkout is 0.8.0+8. That checkout must not replace the live application.
+The synced source bundle contains backend code but no Flutter project.
+
+The updater rechecks Caddy's mount immediately before activation so a concurrent
+server-sync release switch aborts installation. Backups are saved in the private
+staging directory, outside the public web root. The SDK fallback also recognizes
+~/tools/flutter/bin/flutter. Matching source for the live release is still
+required; supporting its mount does not make older source safe to deploy.

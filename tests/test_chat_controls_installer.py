@@ -1,6 +1,7 @@
 """The combined updater changes only known controls and protects live Local News."""
 
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,6 +72,62 @@ class ControlsTests(unittest.TestCase):
                 helper.require_current_features(root, target)
             (root / "lib/news.dart").write_text('button("Daily local news")')
             helper.require_current_features(root, target)
+
+    def test_synced_app_mount_and_base_href_preserve_wrapper(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            mounted = home / ".local/share/dhanz-server-sync/releases/20261103T041017Z-5fb2c2e2a5c5/web-root"
+            target = mounted / "app"
+            target.mkdir(parents=True)
+            (mounted / "index.html").write_text("outer wrapper")
+            for name in ("index.html", "main.dart.js", "flutter_bootstrap.js"):
+                (target / name).write_text('<base href="/app/">')
+            mounts = [{"Type": "bind", "Source": str(mounted), "Destination": "/srv/web"}]
+            self.assertEqual(helper.mounted_flutter_root(mounts, home), target)
+            self.assertEqual(helper.current_base_href(target), "/app/")
+            stage = home / "checked-build"
+            stage.mkdir()
+            for name in ("index.html", "main.dart.js", "flutter_bootstrap.js"):
+                (stage / name).write_text("new")
+            private = home / "private-backups"
+            private.mkdir(mode=0o700)
+            inode = target.stat().st_ino
+            backup = helper.deploy_files(stage, target, backup_parent=private)
+            self.assertEqual(target.stat().st_ino, inode)
+            self.assertEqual((mounted / "index.html").read_text(), "outer wrapper")
+            self.assertEqual(backup.parent, private)
+            self.assertEqual((backup / "main.dart.js").read_text(), '<base href="/app/">')
+
+    def test_arbitrary_or_incomplete_mount_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            mounts = [{"Type": "bind", "Source": str(home / "unrelated"), "Destination": "/srv/web"}]
+            with self.assertRaises(ValueError):
+                helper.mounted_flutter_root(mounts, home)
+            mounts[0]["Source"] = str(home / "DhanzAI/apps/dhanz_flutter/build/web")
+            with self.assertRaises(ValueError):
+                helper.mounted_flutter_root(mounts, home)
+
+    def test_old_source_cannot_replace_new_live_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "pubspec.yaml").write_text("version: 0.8.0+8\n")
+            (root / "version.json").write_text(json.dumps({"version": "0.9.2", "build_number": "12"}))
+            with self.assertRaises(ValueError):
+                helper.require_matching_version(root, root)
+            (root / "pubspec.yaml").write_text("version: 0.9.2+12\n")
+            helper.require_matching_version(root, root)
+
+    def test_base_href_must_be_local_and_is_not_shared_between_calls(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary)
+            (target / "index.html").write_text('<base href="/app/">')
+            self.assertEqual(helper.current_base_href(target), "/app/")
+            (target / "index.html").write_text('<base href="/">')
+            self.assertEqual(helper.current_base_href(target), "/")
+            (target / "index.html").write_text('<base href="https://other.example/">')
+            with self.assertRaises(ValueError):
+                helper.current_base_href(target)
 
 
 if __name__ == "__main__":
