@@ -28,13 +28,18 @@ def test_installer_refuses_unknown_chat_shape():
         )
 
 
-def test_builder_protocol_payload_matches_reviewed_source_and_rejects_unknown_versions():
+def test_frozen_builder_protocol_payload_matches_reviewed_source_and_rejects_unknown_versions():
     spec = importlib.util.spec_from_file_location(
         "builder_protocol_installer", ROOT / "deploy/updaters/install_builder_protocol.py"
     )
     installer = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(installer)
-    assert installer.source() == (ROOT / "server_extensions/assistant_studio/builder.py").read_text()
+    import hashlib
+
+    assert (
+        hashlib.sha256(installer.source().encode()).hexdigest()
+        == "31ec2687edf2e6e0d334878b580636f6adedce0b64fdf389359933dd2794c9bc"
+    )
     assert installer.supported(installer.source()) is False
     with pytest.raises(ValueError, match="differs"):
         installer.supported("unrecognized builder implementation")

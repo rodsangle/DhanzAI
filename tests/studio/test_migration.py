@@ -25,3 +25,28 @@ def test_additive_migration_keeps_existing_records_and_seeds_worker_lease(tmp_pa
             migration.downgrade()
         assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
     engine.dispose()
+
+
+def test_coding_migration_is_additive_and_preserves_existing_project(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    engine = create_engine("sqlite:///" + str(tmp_path / "coding-migration.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id CHAR(32) PRIMARY KEY, email TEXT)"))
+        conn.execute(text("CREATE TABLE messages (id CHAR(32) PRIMARY KEY, content TEXT)"))
+        conn.execute(text("INSERT INTO users VALUES ('existing', 'keep@example.test')"))
+        for name in ("0011_assistant_studio.py", "0012_coding_workspace.py"):
+            spec = importlib.util.spec_from_file_location(
+                "migration_" + name[:4], root / "server_extensions/migrations" / name
+            )
+            migration = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(migration)
+            with Operations.context(MigrationContext.configure(conn)):
+                migration.upgrade()
+        assert "coding_drafts" in inspect(conn).get_table_names()
+        assert conn.scalar(text("SELECT id FROM builder_leases")) == 1
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.downgrade()
+        assert "builder_projects" in inspect(conn).get_table_names()
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+    engine.dispose()
