@@ -37,7 +37,7 @@ jobs:
         run: flutter pub get --enforce-lockfile
       - name: Analyze the actual client and controls tests
         working-directory: ${{ env.APP_DIR }}
-        run: flutter analyze --no-pub lib test
+        run: python ../../scripts/release/analyze_studio.py
       - name: Test spelling and existing read-aloud integration
         working-directory: ${{ env.APP_DIR }}
         run: flutter test --no-pub
