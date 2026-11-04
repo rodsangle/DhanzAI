@@ -46,7 +46,16 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
     super.initState();
     unawaited(_load());
     _poll = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!_busy && _drafts.any((d) => d['project_status'] == 'queued' || d['project_status'] == 'running')) {
+      if (!_busy &&
+          _drafts.any(
+            (d) =>
+                d['project_status'] == 'queued' ||
+                d['project_status'] == 'running' ||
+                (d['project_status'] == 'failed' &&
+                    d['auto_repair'] == true &&
+                    d['repair_count'] == 0 &&
+                    d['status'] == 'generating'),
+          )) {
         unawaited(_refresh());
       }
     });
