@@ -40,7 +40,14 @@ void main() {
   });
 
   testWidgets('unsupported sharing offers explicit copying and copies the actual reply', (tester) async {
-    await Clipboard.setData(const ClipboardData(text: 'Keep until requested'));
+    var clipboard = 'Keep until requested';
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        clipboard = (call.arguments as Map<dynamic, dynamic>)['text'] as String;
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null));
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -56,10 +63,10 @@ void main() {
     await tester.tap(find.byTooltip('Share reply'));
     await tester.pumpAndSettle();
     expect(find.text('Copy reply'), findsOneWidget);
-    expect((await Clipboard.getData('text/plain'))?.text, 'Keep until requested');
+    expect(clipboard, 'Keep until requested');
     await tester.tap(find.text('Copy reply'));
     await tester.pumpAndSettle();
-    expect((await Clipboard.getData('text/plain'))?.text, 'Reply to share');
+    expect(clipboard, 'Reply to share');
     expect(find.text('Reply copied'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
