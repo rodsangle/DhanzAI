@@ -5,6 +5,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.deps import get_current_user
@@ -26,6 +27,11 @@ class Reader:
     async def get(self, path, params=None):
         if "/commits/" in path:
             return {"sha": self.tip, "commit": {"tree": {"sha": "b" * 40}}}
+        if "/git/trees/" in path:
+            return {
+                "tree": [{"path": "agent.py", "type": "blob", "mode": "100755", "sha": "c" * 40}],
+                "truncated": False,
+            }
         if "/contents/" in path:
             return {
                 "type": "file",
@@ -321,3 +327,61 @@ def test_coding_installer_preserves_old_bootstrap_and_embedded_files_match():
             / ("assistant_studio/" + Path(path).name if path.startswith("app/") else "migrations/" + Path(path).name)
         )
         assert source.read_text() == content
+
+
+@pytest.mark.asyncio
+async def test_unselected_existing_files_get_real_before_after_diff(coding, monkeypatch):
+    client, maker, users, reader, writes = coding
+    data = await completed(client, maker)
+    async with maker() as db:
+        project = await db.get(BuilderProject, uuid.UUID(data["project_id"]))
+        project.files = [*project.files, {"path": "README.md", "content": "new readme\n"}]
+        await db.commit()
+    original_get = reader.get
+
+    async def get(path, params=None):
+        if "/git/trees/" in path:
+            result = await original_get(path, params)
+            return {
+                **result,
+                "tree": [*result["tree"], {"path": "README.md", "type": "blob", "mode": "100644", "sha": "e" * 40}],
+            }
+        if "/git/blobs/" in path:
+            return {"encoding": "base64", "size": 11, "content": base64.b64encode(b"old readme\n").decode()}
+        return await original_get(path, params)
+
+    monkeypatch.setattr(reader, "get", get)
+    path = "/api/v1/coding/drafts/" + data["id"]
+    review = (await client.post(path + "/review", headers={"x-test-user": "one"}, json={})).json()
+    diff = next(d["diff"] for d in review["diffs"] if d["path"] == "README.md")
+    assert "-old readme" in diff and "+new readme" in diff
+    response = await client.post(
+        path + "/publish", headers={"x-test-user": "one"}, json={"review_hash": review["review_hash"]}
+    )
+    assert response.status_code == 200
+    assert next(f["mode"] for f in writes[0][1]["tree"] if f["path"] == "agent.py") == "100755"
+
+
+@pytest.mark.asyncio
+async def test_obvious_credentials_are_rejected_before_model_queuing(coding):
+    client, maker, users, reader, writes = coding
+    response = await client.post(
+        "/api/v1/coding/drafts",
+        headers={"x-test-user": "one"},
+        json=body(repository="", paths=[], instructions="Use ghp_" + "x" * 35 + " to connect"),
+    )
+    assert response.status_code == 400 and "credentials" in response.text
+    assert "ghp_" not in response.text
+    async with maker() as db:
+        assert await db.scalar(select(BuilderProject.id)) is None
+
+
+def test_flutter_profile_and_monorepo_workdir_are_fixed_and_validated():
+    workflow = service.workflow("flutter", "apps/dhanz_flutter")
+    assert 'working-directory: "apps/dhanz_flutter"' in workflow
+    assert "flutter test" in workflow and "flutter build web --release" in workflow
+    assert "3.47.8" in workflow and "persist-credentials: false" in workflow
+    for directory in ("../escape", "/tmp", ".github", "app/../../escape", "app; echo bad", "${{ secrets.KEY }}"):
+        with pytest.raises(gh.GitHubError):
+            service.workflow("python", directory)
+    assert builder.validate_files([{"path": "lib/main.dart", "content": "void main() {}"}])

@@ -23,6 +23,7 @@ class CodingDraft(Base):
     base_branch: Mapped[str] = mapped_column(String(200), default="")
     base_sha: Mapped[str] = mapped_column(String(64), default="")
     baseline: Mapped[list] = mapped_column(JSON, default=list)
+    workdir: Mapped[str] = mapped_column(String(200), default="")
     runtime: Mapped[str] = mapped_column(String(20), default="python")
     auto_repair: Mapped[bool] = mapped_column(Boolean, default=False)
     repair_count: Mapped[int] = mapped_column(Integer, default=0)

@@ -20,6 +20,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
   final _branch = TextEditingController();
   final _paths = TextEditingController();
   final _browsePath = TextEditingController();
+  final _workdir = TextEditingController();
   List<String> _models = [];
   List<Map<String, dynamic>> _repositories = [];
   List<Map<String, dynamic>> _projects = [];
@@ -55,7 +56,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
   void dispose() {
     _poll?.cancel();
     _epoch++;
-    for (final controller in [_title, _instructions, _branch, _paths, _browsePath]) {
+    for (final controller in [_title, _instructions, _branch, _paths, _browsePath, _workdir]) {
       controller.dispose();
     }
     super.dispose();
@@ -116,7 +117,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
       _error = null;
     });
     final fingerprint =
-        '${_title.text}|${_instructions.text}|$_model|$_repository|${_branch.text}|${_paths.text}|$_project|$_runtime|$_automatic';
+        '${_title.text}|${_instructions.text}|$_model|$_repository|${_branch.text}|${_paths.text}|$_project|$_runtime|${_workdir.text}|$_automatic';
     if (_fingerprint != fingerprint || _requestKey == null) {
       _fingerprint = fingerprint;
       _requestKey = '${DateTime.now().microsecondsSinceEpoch}_${Random.secure().nextInt(1 << 30)}';
@@ -132,6 +133,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
         'paths': _paths.text.split(RegExp(r'[,\n]')).map((p) => p.trim()).where((p) => p.isNotEmpty).toSet().toList(),
         'project_id': _project,
         'runtime': _runtime,
+        'workdir': _workdir.text.trim(),
         'kind': _runtime == 'python' ? 'agent' : 'app',
         'auto_repair': _automatic,
       });
@@ -484,6 +486,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
                     items: const [
                       DropdownMenuItem(value: 'web', child: Text('Web / Node.js 22')),
                       DropdownMenuItem(value: 'python', child: Text('Python 3.12 / unittest')),
+                      DropdownMenuItem(value: 'flutter', child: Text('Flutter 3.47.8 / Dart')),
                     ],
                     onChanged: _busy ? null : (value) => setState(() => _runtime = value ?? 'web'),
                   ),
@@ -494,6 +497,13 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
                     decoration: const InputDecoration(labelText: 'Available API model'),
                     items: [for (final model in _models) DropdownMenuItem(value: model, child: Text(model))],
                     onChanged: _busy ? null : (value) => setState(() => _model = value),
+                  ),
+                  TextField(
+                    controller: _workdir,
+                    decoration: const InputDecoration(
+                      labelText: 'Check folder (blank = repository root)',
+                      hintText: 'apps/dhanz_flutter',
+                    ),
                   ),
                   TextField(
                     controller: _instructions,

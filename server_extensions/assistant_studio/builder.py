@@ -21,6 +21,8 @@ RESPONSES_URL = "https://api.openai.com/v1/responses"
 _catalog = {}
 ALLOWED = {
     ".html",
+    ".dart",
+    ".lock",
     ".css",
     ".js",
     ".mjs",

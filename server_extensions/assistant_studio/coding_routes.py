@@ -27,7 +27,8 @@ class DraftInput(BaseModel):
     paths: list[str] = Field(default_factory=list, max_length=12)
     project_id: uuid.UUID | None = None
     kind: Literal["app", "agent"] = "app"
-    runtime: Literal["python", "web"] = "web"
+    workdir: str = Field(default="", max_length=200)
+    runtime: Literal["python", "web", "flutter"] = "web"
     auto_repair: bool = False
 
 

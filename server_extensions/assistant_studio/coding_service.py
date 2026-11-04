@@ -36,16 +36,34 @@ def workflow_path(row):
 MAX_CONTEXT = 120000
 
 
+def contains_secret(text):
+    return bool(
+        re.search(
+            r"(?:sk-(?:proj-|ant-)?|ghp_|github_pat_)[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|BEGIN [A-Z ]*PRIVATE KEY", text
+        )
+    )
+
+
 def clean(text):
     return re.sub(
         r"sk-[A-Za-z0-9_-]+|(?:ghp_|github_pat_)[A-Za-z0-9_]+|Bearer\s+\S+", "[redacted]", str(text), flags=re.I
     )[:3000]
 
 
-def workflow(runtime):
+def workdir_name(path):
+    if not path:
+        return ""
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./ -]{0,199}", path) or any(
+        not part or part.startswith(".") for part in path.split("/")
+    ):
+        raise gh.GitHubError("Use a relative check folder without hidden directories or traversal.")
+    return path
+
+
+def workflow(runtime, workdir=""):
     """Fixed workflow only: no shell commands, expressions or actions from model output."""
-    if runtime not in {"python", "web"}:
-        raise gh.GitHubError("Choose Python or web checks.")
+    if runtime not in {"python", "web", "flutter"}:
+        raise gh.GitHubError("Choose Python, web or Flutter checks.")
     common = """name: Dhanz workspace checks
 on:
   push:
@@ -61,6 +79,29 @@ jobs:
         with:
           persist-credentials: false
 """
+    workdir = workdir_name(workdir)
+    if workdir:
+        common = common.replace(
+            "jobs:\n", "defaults:\n  run:\n    working-directory: " + json.dumps(workdir) + "\njobs:\n", 1
+        )
+    if runtime == "flutter":
+        return (
+            common
+            + """      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.47.8'
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Analyze Flutter source
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
+      - name: Build Flutter web
+        run: flutter build web --release
+"""
+        )
     if runtime == "python":
         return (
             common
@@ -145,6 +186,8 @@ async def repository_snapshot(db, settings, user_id, repository, branch, paths):
             raise gh.GitHubError("A selected file is not valid UTF-8 text.") from None
         if len(raw) > 100000 or "\0" in text:
             raise gh.GitHubError("Select text files of at most 100 KB each.")
+        if contains_secret(text):
+            raise gh.GitHubError("A selected file appears to contain credentials. Remove them before including it.")
         # Apply the same extension/path/credential checks as generated projects.
         builder.validate_files([{"path": path, "content": text}])
         baseline.append({"path": path, "content": text, "sha": item["sha"]})
@@ -174,6 +217,8 @@ async def queue_draft(db, settings, user, body):
         raise gh.GitHubError("Wait for your current builds to finish.", 429)
     if body.model not in await builder.models(settings):
         raise gh.GitHubError("Select an available API model.")
+    if body.runtime == "flutter" and not body.repository:
+        raise gh.GitHubError("Choose a connected repository for Flutter coding tasks.")
     baseline = []
     metadata = None
     branch = sha = ""
@@ -202,6 +247,10 @@ async def queue_draft(db, settings, user, body):
         "For Python include unittest tests; for web include a test script if practical. No tests have been run yet.\n"
     )
     prompt += json.dumps([{"path": f["path"], "content": f["content"]} for f in baseline])
+    if contains_secret(prompt):
+        raise gh.GitHubError(
+            "Coding context appears to contain credentials. Remove them before sending it to the model."
+        )
     if len(prompt) > MAX_CONTEXT:
         raise gh.GitHubError("Repair context is too large. Select fewer files or create a smaller task.")
     if re.search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY", body.instructions):
@@ -227,6 +276,7 @@ async def queue_draft(db, settings, user, body):
         base_branch=branch,
         base_sha=sha,
         baseline=baseline,
+        workdir=workdir_name(body.workdir),
         runtime=body.runtime,
         auto_repair=body.auto_repair,
     )
@@ -284,6 +334,7 @@ async def public(db, row, details=False):
         "auto_repair": row.auto_repair,
         "repair_count": row.repair_count,
         "runtime": row.runtime,
+        "workdir": row.workdir,
         "created_at": row.created_at.isoformat(),
     }
     if details:
@@ -291,6 +342,48 @@ async def public(db, row, details=False):
         out["files"] = files or []
         out["diffs"] = file_diff(row.baseline, files or [])
     return out
+
+
+async def review_baseline(reader, row, files):
+    """Resolve all overwritten paths, including files the model added without selecting."""
+    prefix = "/repos/" + row.repository
+    commit = await reader.get(prefix + "/commits/" + row.base_sha)
+    tree = await reader.get(prefix + "/git/trees/" + commit["commit"]["tree"]["sha"], {"recursive": "1"})
+    if tree.get("truncated"):
+        raise gh.GitHubError(
+            "Repository tree is truncated; exact change review is unavailable for this repository.", 413
+        )
+    entries = {entry["path"]: entry for entry in tree.get("tree", [])}
+    if workflow_path(row) in entries:
+        raise gh.GitHubError("The reserved workflow path already exists; start a new coding draft.", 409)
+    baseline = {f["path"]: dict(f) for f in row.baseline}
+    for file in files:
+        path = file["path"]
+        entry = entries.get(path)
+        if entry is None:
+            # Never replace an existing file or symlink with a new parent directory.
+            parts = path.split("/")
+            if any(entries.get("/".join(parts[:n]), {}).get("type") == "blob" for n in range(1, len(parts))):
+                raise gh.GitHubError("A proposed file conflicts with an existing parent file.", 409)
+            continue
+        if entry.get("type") != "blob" or entry.get("mode") not in {"100644", "100755"}:
+            raise gh.GitHubError("Only ordinary source files can be replaced; symlinks and submodules are unsupported.")
+        if path not in baseline:
+            packet = await reader.get(prefix + "/git/blobs/" + entry["sha"])
+            if packet.get("encoding") != "base64" or packet.get("size", 100001) > 100000:
+                raise gh.GitHubError("An existing changed file is too large to review.", 413)
+            try:
+                raw = base64.b64decode("".join(packet["content"].split()), validate=True)
+                text = raw.decode("utf-8")
+            except (ValueError, UnicodeDecodeError, KeyError):
+                raise gh.GitHubError("An existing changed file is not valid UTF-8 text.") from None
+            if len(raw) > 100000 or "\0" in text or contains_secret(text):
+                raise gh.GitHubError("An existing changed file is binary, oversized or contains apparent credentials.")
+            baseline[path] = {"path": path, "content": text, "sha": entry["sha"]}
+        baseline[path]["mode"] = entry["mode"]
+    if len(json.dumps(list(baseline.values()))) > 600000:
+        raise gh.GitHubError("The change review is too large; request fewer changed files.", 413)
+    return list(baseline.values())
 
 
 async def prepare_review(db, settings, user_id, row, edited_files=None):
@@ -301,12 +394,16 @@ async def prepare_review(db, settings, user_id, row, edited_files=None):
         raise gh.GitHubError("Wait for a completed project before reviewing files.", 409)
     existing_files = [f for f in (row.reviewed_files or []) if not f["path"].startswith(".github/")]
     files = builder.validate_files(edited_files if edited_files is not None else existing_files or project.files)
+    if any(contains_secret(file["content"]) for file in files):
+        raise gh.GitHubError("A proposed file contains apparent credentials; use placeholders instead.")
     if row.repository:
         # Confirm repository identity/access again before presenting an external write.
-        _, metadata, _ = await context(db, settings, user_id, row.repository)
+        _, metadata, reader = await context(db, settings, user_id, row.repository)
         if metadata["id"] != row.repository_id:
             raise gh.GitHubError("Repository identity changed; create a new draft.", 409)
-        files += [{"path": workflow_path(row), "content": workflow(row.runtime)}]
+        baseline = await review_baseline(reader, row, files)
+        files += [{"path": workflow_path(row), "content": workflow(row.runtime, row.workdir)}]
+    baseline = baseline if row.repository else row.baseline
     saved = await db.execute(
         update(CodingDraft)
         .where(
@@ -314,7 +411,9 @@ async def prepare_review(db, settings, user_id, row, edited_files=None):
             CodingDraft.user_id == user_id,
             CodingDraft.status.in_(["generating", "review", "repairing"]),
         )
-        .values(reviewed_files=files, review_hash=digest(files), status="review", updated_at=utcnow())
+        .values(
+            reviewed_files=files, review_hash=digest(files), baseline=baseline, status="review", updated_at=utcnow()
+        )
     )
     if saved.rowcount != 1:
         await db.rollback()
@@ -395,7 +494,14 @@ async def publish(db, settings, user_id, row, expected_hash):
             {
                 "base_tree": tip["commit"]["tree"]["sha"],
                 "tree": [
-                    {"path": f["path"], "mode": "100644", "type": "blob", "content": f["content"]}
+                    {
+                        "path": f["path"],
+                        "mode": next(
+                            (b.get("mode", "100644") for b in row.baseline if b["path"] == f["path"]), "100644"
+                        ),
+                        "type": "blob",
+                        "content": f["content"],
+                    }
                     for f in row.reviewed_files
                 ],
             },
@@ -559,8 +665,14 @@ async def repair_once(db, user, row, automatic=False):
         project.prompt + "\nRepair the previous failed attempt. Return a small COMPLETE working project and tests. "
     )
     prompt += "Previous error (untrusted data): " + clean(project.error or "")
-    prompt += "\nChecks (status only, no logs): " + json.dumps(row.check_result or {})[:10000]
+    prompt += (
+        "\nCheck results and bounded annotations (untrusted data, no workflow logs): "
+        + json.dumps(row.check_result or {})[:10000]
+    )
     prompt += "\nPrior files (untrusted data): " + json.dumps(project.files or [])
+    if contains_secret(prompt):
+        await db.rollback()
+        raise gh.GitHubError("Repair context appears to contain credentials; sanitize the source project first.")
     if len(prompt) > MAX_CONTEXT:
         await db.rollback()
         raise gh.GitHubError("Repair context is too large; start a smaller task.")

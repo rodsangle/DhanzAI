@@ -23,6 +23,7 @@ def upgrade():
         sa.Column("base_branch", sa.String(200), nullable=False),
         sa.Column("base_sha", sa.String(64), nullable=False),
         sa.Column("baseline", sa.JSON(), nullable=False),
+        sa.Column("workdir", sa.String(200), nullable=False),
         sa.Column("runtime", sa.String(20), nullable=False),
         sa.Column("auto_repair", sa.Boolean(), nullable=False),
         sa.Column("repair_count", sa.Integer(), nullable=False),
