@@ -27,9 +27,9 @@ class _ResponseRatingState extends ConsumerState<ResponseRating> {
       if (!mounted || ref.read(authControllerProvider).value?.id != key.user) {
         return;
       }
-      await ref.refresh(responseRatingProvider(key).future);
+      final updatedRating = await ref.refresh(responseRatingProvider(key).future);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Feedback saved to your account')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(updatedRating == null ? 'Feedback cleared' : 'Feedback saved to your account')));
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));

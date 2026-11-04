@@ -138,7 +138,7 @@ from app.assistant_studio.pdf_excel import workbook,Page,Cell
 from app.main import create_app
 from app.core.config import Settings
 app=create_app(Settings(app_env='test',_env_file=None))
-assert any('assistant-studio' in r.path for r in app.routes if hasattr(r,'path'))
+assert any('assistant-studio' in path for path in app.openapi()['paths'])
 assert all(shutil.which(n) for n in ('pdfinfo','pdftotext','pdftoppm','tesseract'))
 data,audit=workbook([('test.pdf',[Page(1,[[Cell(0,'00001')]])])])
 assert data.startswith(b'PK') and audit[0]['pages']==1
