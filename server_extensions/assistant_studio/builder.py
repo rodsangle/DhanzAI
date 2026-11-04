@@ -42,6 +42,88 @@ class BuildError(ValueError):
     pass
 
 
+PROJECT_TOOL = {
+    "type": "function",
+    "name": "publish_project",
+    "description": "Return the complete source files for the requested project. Code is saved, never executed.",
+    "strict": True,
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["summary", "files"],
+        "additionalProperties": False,
+    },
+}
+
+
+def provider_error(response):
+    """Use only allowlisted error codes/parameter names; never echo provider messages."""
+    try:
+        error = response.json().get("error") or {}
+        if not isinstance(error, dict):
+            error = {}
+    except (ValueError, AttributeError):
+        error = {}
+    code = error.get("code")
+    descriptions = {
+        "insufficient_quota": "OpenAI API quota is exhausted. Check API billing and project spending limits.",
+        "rate_limit_exceeded": "OpenAI rate limit reached. Wait before explicitly starting another build.",
+        "invalid_api_key": "OpenAI rejected the server API key. Update it privately on the server.",
+        "model_not_found": "This API account cannot use the selected model. Choose another listed model.",
+        "unsupported_parameter": "The selected model rejected a request parameter.",
+        "unsupported_value": "The selected model rejected a request setting.",
+        "invalid_value": "OpenAI rejected a request setting.",
+        "context_length_exceeded": "The project instructions exceed this model's context limit. Shorten the request.",
+    }
+    detail = descriptions.get(code, "OpenAI rejected the project request; check model access and API billing.")
+    safe_code = code if code in descriptions else "unclassified_error"
+    parameter = error.get("param")
+    suffix = (
+        f" Parameter: {parameter}."
+        if parameter
+        in {
+            "model",
+            "input",
+            "instructions",
+            "max_output_tokens",
+            "tools",
+            "tool_choice",
+            "store",
+            "text.format",
+            "reasoning.effort",
+        }
+        else ""
+    )
+    return f"OpenAI HTTP {response.status_code} ({safe_code}). {detail}{suffix}"
+
+
+def failure_message(exc):
+    if isinstance(exc, BuildError):
+        text = str(exc)
+        text = re.sub(r"sk-[A-Za-z0-9_-]+|Bearer\s+\S+", "[redacted]", text, flags=re.I)
+        return text[:500]
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return (
+            "The generation request timed out. No complete project was saved. Use a smaller task or retry explicitly."
+        )
+    if isinstance(exc, httpx.HTTPError):
+        return "The server could not reach OpenAI. No complete project was saved; retry explicitly after connectivity recovers."
+    return (
+        "An internal builder error prevented completion. No project was published; report this message for diagnosis."
+    )
+
+
 async def models(settings):
     if not settings.openai_api_key or settings.openai_base_url.rstrip("/") != "https://api.openai.com/v1":
         return []
@@ -109,7 +191,7 @@ async def generate(settings, job, *, client=None):
         async with httpx.AsyncClient(timeout=180, follow_redirects=False) as owned:
             return await generate(settings, job, client=owned)
     instructions = (
-        "Create a real downloadable project, not a description. Return only JSON with keys summary and files; "
+        "Create a compact working starter project, not a description. Call publish_project once with summary and files; "
         "files is an array of objects with path and content. At most 32 files/600KB total. Never include actual credentials, "
         "private keys or user tokens; use environment-variable placeholders and explain setup in README.md. "
         "Never claim deployment or tests were run. For an app include a usable static index.html, local CSS/JS for a sandboxed "
@@ -125,30 +207,57 @@ async def generate(settings, job, *, client=None):
             "input": f"Project type: {job.kind}\nName: {job.name}\nTask: {job.prompt}",
             "max_output_tokens": 12000,
             "store": False,
+            "tools": [PROJECT_TOOL],
+            "tool_choice": {"type": "function", "name": "publish_project"},
+            "parallel_tool_calls": False,
         },
     )
     if response.status_code >= 400:
-        raise BuildError(
-            f"The selected model could not build this project (HTTP {response.status_code}). Check model access and API quota."
-        )
+        raise BuildError(provider_error(response))
     if len(response.content) > 2000000:
         raise BuildError("The model response exceeded the safe limit.")
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError:
+        raise BuildError("OpenAI returned a non-JSON response. No project was published.") from None
+    if not isinstance(data, dict):
+        raise BuildError("OpenAI returned an invalid response object. No project was published.")
     if data.get("status") not in {None, "completed"}:
+        reason = (data.get("incomplete_details") or {}).get("reason")
+        if reason == "max_output_tokens":
+            raise BuildError(
+                "The model reached its output-token limit; no partial project was published. Request a smaller starter project."
+            )
+        if reason == "content_filter":
+            raise BuildError(
+                "The provider stopped this request under its content rules; no partial project was published."
+            )
         raise BuildError("The model did not finish; no partial project was published.")
+    output = data.get("output", [])
+    calls = [item for item in output if item.get("type") == "function_call"]
+    if calls and (len(calls) != 1 or calls[0].get("name") != "publish_project"):
+        raise BuildError("The model returned an unexpected file submission. No project was published.")
+    if any(part.get("type") == "refusal" for item in output for part in item.get("content", [])):
+        raise BuildError("The model declined this project request. No files were published.")
     text = "".join(
         p.get("text", "")
         for output in data.get("output", [])
         for p in output.get("content", [])
         if p.get("type") == "output_text"
     )
+    text = calls[0].get("arguments", "") if calls else text
+    if not isinstance(text, str):
+        raise BuildError("The model returned invalid file arguments. No project was published.")
+    text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
     try:
         parsed = json.loads(text)
     except ValueError:
-        raise BuildError("The model did not return a valid project. No files were published.") from None
+        raise BuildError(
+            "The model returned invalid project JSON. No files were published; try a smaller project or another model."
+        ) from None
     if not isinstance(parsed, dict):
         raise BuildError("The model did not return a project object.")
     files = validate_files(parsed.get("files"))
@@ -220,11 +329,8 @@ async def worker(maker, settings):
                     raise BuildError("External generation is disabled for this account.")
             files, summary = await asyncio.wait_for(generate(settings, job), timeout=210)
             values = {"files": files, "summary": summary, "status": "complete", "error": None}
-        except Exception:
-            values = {
-                "status": "failed",
-                "error": "The provider did not produce a valid complete project. Check model access, quota or retry explicitly.",
-            }
+        except Exception as exc:
+            values = {"status": "failed", "error": failure_message(exc)}
         try:
             async with maker() as db:
                 await db.execute(
@@ -240,3 +346,6 @@ async def worker(maker, settings):
                 await db.commit()
         except Exception:
             await asyncio.sleep(5)
+
+
+_DHANZ_BUILDER_PROTOCOL_VERSION = 2

@@ -121,3 +121,46 @@ async def test_only_one_worker_claims_a_job(service):
     first = await builder.claim(maker)
     second = await builder.claim(maker)
     assert first is not None and second is None
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_specific_safe_error_without_replaying_job(service, monkeypatch):
+    import asyncio
+    import contextlib
+    from unittest.mock import AsyncMock
+
+    _, maker, one, _, _ = service
+    async with maker() as db:
+        job = BuilderProject(
+            user_id=one.id,
+            request_key=str(uuid.uuid4()),
+            name="Test",
+            kind="agent",
+            prompt="Create an agent",
+            model="test-codex",
+        )
+        db.add(job)
+        await db.commit()
+        identifier = job.id
+    generate = AsyncMock(side_effect=builder.BuildError("OpenAI HTTP 429 (insufficient_quota). Check API billing."))
+    monkeypatch.setattr(builder, "generate", generate)
+    task = asyncio.create_task(builder.worker(maker, object()))
+
+    async def finished():
+        while True:
+            async with maker() as db:
+                row = await db.get(BuilderProject, identifier)
+                if row.status == "failed":
+                    assert "insufficient_quota" in row.error
+                    assert row.files is None
+                    assert (await db.get(BuilderLease, 1)).job_id is None
+                    return
+            await asyncio.sleep(0.02)
+
+    try:
+        await asyncio.wait_for(finished(), timeout=5)
+        assert generate.await_count == 1
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task

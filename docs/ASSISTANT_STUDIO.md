@@ -19,3 +19,9 @@ Keep the printed backup paths. Do not paste database dumps, `.env` files, keys o
 ## Verification
 
 Python tests cover authenticated ownership, persistence, idempotent builds, job claiming, actual ZIP output, unsafe paths, provider failures, migration preservation, page limits, cancellation, OCR confidence and a genuine 13-page PDF conversion. Flutter CI analyzes and tests the matching client and builds the compiled `/app/` package with Flutter 3.47.8. Neither suite establishes extraction accuracy for a particular user PDF that has not been supplied for testing.
+
+## Builder protocol repair
+
+`deploy/updaters/install_builder_protocol.py --apply` updates only the installed 0.9.4 builder module in a derived current image. It requires the expected source hash, refuses active builds, tests the image offline, preserves Compose overlays and records a rollback command. It makes no model request, changes no database schema and never replays old jobs.
+
+New requests submit project files through a strict `publish_project` function schema. Files are validated and saved, not executed. New failures preserve sanitized internal explanations and allowlisted provider error codes/parameter names, including quota, access, unsupported parameters, token exhaustion and timeouts. Raw provider error messages, private prompts and API keys are not copied to the UI. Existing failed records retain their previous generic message; one explicit new build is needed to see a new diagnosis. Provider compatibility is not established by mocked tests or model discovery alone.
