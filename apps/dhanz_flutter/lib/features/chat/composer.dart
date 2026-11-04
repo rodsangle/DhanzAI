@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import 'file_icons.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
+import 'draft_spelling.dart';
 
 /// Message input with model picker and send/stop button.
 /// Enter sends; Shift+Enter inserts a newline.
@@ -23,6 +24,7 @@ class Composer extends ConsumerStatefulWidget {
 
 class _ComposerState extends ConsumerState<Composer> {
   final _controller = TextEditingController();
+  bool _deviceAutocorrect = true;
   int _submitVersion = 0;
   late final FocusNode _focus = FocusNode(onKeyEvent: _onKey);
 
@@ -121,6 +123,8 @@ class _ComposerState extends ConsumerState<Composer> {
           TextField(
             readOnly: chat.sending,
             controller: _controller,
+            autocorrect: _deviceAutocorrect,
+            enableSuggestions: _deviceAutocorrect,
             focusNode: _focus,
             minLines: 1,
             maxLines: 8,
@@ -146,6 +150,12 @@ class _ComposerState extends ConsumerState<Composer> {
               Expanded(
                 child: Row(
                   children: [
+                    DraftSpellingButton(
+                      enabled: !chat.sending,
+                      controller: _controller,
+                      deviceAutocorrect: _deviceAutocorrect,
+                      onDeviceAutocorrectChanged: (value) => setState(() => _deviceAutocorrect = value),
+                    ),
                     IconButton(
                       tooltip: 'Attach files',
                       icon: const Icon(Icons.attach_file),
