@@ -1,0 +1,60 @@
+name: Build matching 0.9.9 web client
+
+on:
+  push:
+    branches: ["codex/background-uploads-099"]
+    paths:
+      - "client_releases/0.9.9-uploads/**"
+      - "scripts/release/package_background_uploads.py"
+      - ".github/workflows/background-uploads.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: background-uploads-099-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_DIR: client_releases/0.9.9-uploads
+  RELEASE_ID: background-uploads-0.9.9-preview.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+      - name: Resolve the existing locked dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get --enforce-lockfile
+      - name: Analyze the actual client and controls tests
+        working-directory: ${{ env.APP_DIR }}
+        run: python ../../scripts/release/analyze_background_uploads.py
+      - name: Test spelling and existing read-aloud integration
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter test --no-pub
+      - name: Compile the actual web client
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build web --release --no-pub --base-href=/app/ --dart-define=DHANZ_API_URL=https://dhanzai.com
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Package only the compiled web client
+        run: python scripts/release/package_background_uploads.py
+      - name: Publish the checked browser build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_ID" dist/background-uploads/* --clobber
+          else
+            gh release create "$RELEASE_ID" dist/background-uploads/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.9.9 web controls preview" --notes "Preserves existing 0.9.8 browser features. Replaces Codex setup dropdowns with guided chat, explained choices and selected-chat context import; retains spelling, read aloud, news and existing features. Preserves the 0.9.5 coding workspace and existing controls. Uploads continue across routes and new chats, with account/project scope, folder preparation and a shared progress queue. Requires existing 0.9.8 backend; no backend changes in this release. Web only: no API image, database, native APK, or stable update manifest is published."
+          fi
