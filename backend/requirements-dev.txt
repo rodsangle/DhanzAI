@@ -6,4 +6,4 @@ pytest-asyncio>=1.4.1
 ruff>=0.17.2
 pytest-cov>=7.1.0
 fakeredis>=2.23
-pip-audit>=2.7
+pip-audit>=2.10.1
