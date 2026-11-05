@@ -385,3 +385,40 @@ def test_flutter_profile_and_monorepo_workdir_are_fixed_and_validated():
         with pytest.raises(gh.GitHubError):
             service.workflow("python", directory)
     assert builder.validate_files([{"path": "lib/main.dart", "content": "void main() {}"}])
+
+
+@pytest.mark.asyncio
+async def test_standing_publication_is_scoped_and_remote_write_is_not_replayed(coding):
+    from datetime import timedelta
+    from app.db.base import utcnow
+    from app.assistant_studio.operations_models import OperationGrant
+    from app.assistant_studio.operations_service import publish_granted
+
+    client, maker, users, reader, writes = coding
+    data = await completed(client, maker)
+    async with maker() as db:
+        row = await db.get(CodingDraft, uuid.UUID(data["id"]))
+        grant = OperationGrant(
+            user_id=users[0].id,
+            kind="github_publish",
+            target="owner/demo",
+            scope={"branch": "main", "repository_id": 999},
+            remaining=1,
+            expires_at=utcnow() + timedelta(hours=1),
+            revoked=False,
+        )
+        db.add(grant)
+        await db.commit()
+        await publish_granted(db, Settings(app_env="test", _env_file=None), row, grant)
+        assert not writes  # same repository name with a different identity is insufficient
+        grant.scope = {"branch": "main", "repository_id": 123}
+        grant.revoked = True
+        await db.commit()
+        await publish_granted(db, Settings(app_env="test", _env_file=None), row, grant)
+        assert not writes
+        grant.revoked = False
+        await db.commit()
+        await publish_granted(db, Settings(app_env="test", _env_file=None), row, grant)
+        assert len(writes) == 4 and row.status == "published" and grant.remaining == 0
+        await publish_granted(db, Settings(app_env="test", _env_file=None), row, grant)
+        assert len(writes) == 4
