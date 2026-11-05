@@ -40,7 +40,7 @@ jobs:
         run: python ../../scripts/release/analyze_background_uploads.py
       - name: Test spelling and existing read-aloud integration
         working-directory: ${{ env.APP_DIR }}
-        run: flutter test --no-pub
+        run: python ../../scripts/release/test_background_uploads.py
       - name: Compile the actual web client
         working-directory: ${{ env.APP_DIR }}
         run: flutter build web --release --no-pub --base-href=/app/ --dart-define=DHANZ_API_URL=https://dhanzai.com

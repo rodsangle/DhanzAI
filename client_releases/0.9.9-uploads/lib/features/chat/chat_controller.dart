@@ -250,8 +250,9 @@ class ChatController extends Notifier<ChatState> {
     final id = state.conversationId;
     final token = _loadToken;
     _poll = Timer.periodic(pollInterval, (_) async {
-      if (id != state.conversationId || _active != null || token != _loadToken)
+      if (id != state.conversationId || _active != null || token != _loadToken) {
         return;
+      }
       await _reload();
       if (token != _loadToken) return;
       if (!_generatingOnServer && id == state.conversationId) {

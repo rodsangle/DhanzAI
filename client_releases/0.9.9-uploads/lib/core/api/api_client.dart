@@ -212,14 +212,16 @@ class ApiClient {
 
   /// Single-flight refresh so parallel 401s trigger only one rotation.
   Future<bool> _refresh({bool Function()? isCurrentSession}) {
-    if (isCurrentSession != null && !isCurrentSession())
+    if (isCurrentSession != null && !isCurrentSession()) {
       return Future.value(false);
+    }
     return _refreshing ??= () async {
       try {
         final refresh = await store.read(StoreKeys.refreshToken);
         if (refresh == null ||
-            (isCurrentSession != null && !isCurrentSession()))
+            (isCurrentSession != null && !isCurrentSession())) {
           return false;
+        }
         final res = await _client.post(
           _uri('/auth/refresh'),
           headers: await _headers(auth: false),
@@ -343,11 +345,12 @@ class ApiClient {
     bool auth = true,
   }) async {
     final res = await _send(method, path, body: body, query: query, auth: auth);
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     if (res.body.isEmpty) return null;
     return jsonDecode(utf8.decode(res.bodyBytes));
   }
@@ -604,11 +607,12 @@ class ApiClient {
 
   Future<String> exportMyData() async {
     final res = await _send('GET', '/users/me/export');
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return const JsonEncoder.withIndent('  ')
         .convert(jsonDecode(utf8.decode(res.bodyBytes)));
   }
@@ -753,11 +757,12 @@ class ApiClient {
       '/conversations/$id/export',
       query: {'format': format},
     );
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return res.bodyBytes;
   }
 
@@ -778,11 +783,12 @@ class ApiClient {
       fields: {'project_id': ?projectId},
       isCurrentSession: isCurrentSession,
     );
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return KnowledgeDocument.fromJson(
       jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>,
     );
@@ -790,11 +796,12 @@ class ApiClient {
 
   Future<Uint8List> downloadFile(String documentId) async {
     final res = await _send('GET', '/files/$documentId/download');
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return res.bodyBytes;
   }
 
@@ -892,11 +899,12 @@ class ApiClient {
           : 'audio/m4a',
       fields: {'language': ?language},
     );
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return (jsonDecode(utf8.decode(res.bodyBytes))
             as Map<String, dynamic>)['text']
         as String;
@@ -944,11 +952,12 @@ class ApiClient {
   /// The reminder as an .ics file for calendar apps.
   Future<Uint8List> reminderCalendarFile(String id) async {
     final res = await _send('GET', '/reminders/$id/calendar.ics');
-    if (res.statusCode >= 400)
+    if (res.statusCode >= 400) {
       throw ApiException(
         res.statusCode,
         _errorMessage(res.statusCode, res.body),
       );
+    }
     return res.bodyBytes;
   }
 
