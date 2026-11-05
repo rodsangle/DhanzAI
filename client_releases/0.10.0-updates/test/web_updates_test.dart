@@ -28,6 +28,7 @@ class UpdateApi extends ApiClient {
     : super(store: MemorySecureStore(), baseUrl: 'https://example.test');
   int checks = 0, starts = 0;
   bool authorizedHost = true;
+  String outcome = 'completed';
   Completer<Map<String, dynamic>>? waiting;
   final keys = <String>[];
   @override
@@ -55,7 +56,7 @@ class UpdateApi extends ApiClient {
 
   @override
   Future<Map<String, dynamic>> webUpdateStatus(String id) async =>
-      waiting == null ? {'id': id, 'status': 'completed'} : waiting!.future;
+      waiting == null ? {'id': id, 'status': outcome} : waiting!.future;
 }
 
 class Runtime extends WebUpdateRuntime {
@@ -91,6 +92,7 @@ Future<ProviderContainer> setup(
       authControllerProvider.overrideWith(UpdateAuth.new),
       apiClientProvider.overrideWithValue(api),
       webUpdateRuntimeProvider.overrideWithValue(runtime),
+      runningWebBuildProvider.overrideWithValue((version: '0.9.9', build: 27)),
       webUpdatePollDelayProvider.overrideWithValue(Duration.zero),
       if (uploads) uploadQueueProvider.overrideWith(BusyUploads.new),
     ],
@@ -119,6 +121,21 @@ void main() {
       expect(api.keys.single.length, 32);
     },
   );
+  test('a known failed task permits a fresh explicit retry without automatic replay', () async {
+    final api = UpdateApi()..outcome = 'failed';
+    final runtime = Runtime();
+    final container = await setup(api, runtime);
+    addTearDown(container.dispose);
+    final controller = container.read(webUpdateControllerProvider.notifier);
+    await controller.update();
+    expect(api.starts, 1);
+    expect(runtime.refreshes, 0);
+    api.outcome = 'completed';
+    await controller.update();
+    expect(api.starts, 2);
+    expect(api.keys[0], isNot(api.keys[1]));
+    expect(runtime.refreshes, 1);
+  });
   test(
     'regular user can refresh an already deployed build without a host task',
     () async {

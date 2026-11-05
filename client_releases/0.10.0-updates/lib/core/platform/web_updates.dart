@@ -167,6 +167,7 @@ class WebUpdateController extends Notifier<WebUpdateState> {
           final status = job['status'];
           if (status == 'completed') break;
           if (!const ['queued', 'executing'].contains(status)) {
+            if (status == 'failed' || status == 'cancelled') _requestKey = null;
             throw StateError(
               'Web update $status. Check Connected operations before retrying.',
             );

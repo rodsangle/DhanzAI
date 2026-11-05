@@ -147,3 +147,53 @@ def test_provision_preserves_existing_pairing_token_and_tasks(tmp_path, monkeypa
     updated = json.loads(config.read_text())
     assert updated["token"] == original["token"] and updated["tasks"]["health"] == original["tasks"]["health"]
     assert updated["tasks"]["update_web"]["verified_files"]
+
+
+def test_web_update_installer_only_adds_a_bootstrap_hook_and_freezes_public_modules():
+    import ast
+
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/updaters/install_web_updates.py"
+    spec = importlib.util.spec_from_file_location("web_update_installer", path)
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    source = (
+        "def install(app):\n    _install_connected_operations(app)\n"
+        "# private weather and OCR remain\n_DHANZ_CONNECTED_OPERATIONS_VERSION = 1\n"
+    )
+    patched = installer.patch_bootstrap(source)
+    assert "# private weather and OCR remain" in patched
+    assert "_install_connected_operations(app)" in patched and "_install_web_updates(app)" in patched
+    assert installer.patch_bootstrap(patched) == patched
+    with pytest.raises(ValueError, match="connected-operations"):
+        installer.patch_bootstrap("unknown bootstrap")
+    for relative, content in installer.payload().items():
+        if relative.startswith("app/"):
+            expected = root / "server_extensions" / relative.removeprefix("app/")
+        elif Path(relative).name == "web_release.py":
+            expected = root / "server_extensions/assistant_studio/web_release.py"
+        else:
+            assert relative.startswith("host/")
+            expected = root / "apps/server_companion" / Path(relative).name
+        assert content == expected.read_text()
+        compile(content, relative, "exec")
+    for node in ast.walk(ast.parse(path.read_text())):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith(("\nimport asyncio", "\nimport base64", "\nfrom app.main"))
+        ):
+            compile(node.value, "installer-runtime-probe", "exec")
+
+
+def test_old_workflow_reruns_cannot_overwrite_the_latest_web_channel():
+    root = Path(__file__).resolve().parents[2]
+    path = root / "scripts/release/promote_web_channel.py"
+    spec = importlib.util.spec_from_file_location("web_channel_promotion", path)
+    promotion = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(promotion)
+    current = {"version": "0.10.0", "build": 28}
+    assert promotion.should_publish(None, current)
+    assert not promotion.should_publish(current, current)
+    assert not promotion.should_publish(current, {"version": "0.9.9", "build": 100})
+    assert promotion.should_publish(current, {"version": "0.10.0", "build": 29})
