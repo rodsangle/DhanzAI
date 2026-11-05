@@ -8,6 +8,8 @@ class ChatPreviewTarget {
 }
 
 class ChatPreviewController extends ChangeNotifier {
+  final chatKey = GlobalKey();
+  final previewKey = GlobalKey();
   ChatPreviewTarget? target;
   bool visible = false;
   bool expanded = false;
@@ -82,7 +84,8 @@ class ChatPreviewHost extends StatelessWidget {
       child: child,
       builder: (context, child) => LayoutBuilder(
         builder: (context, constraints) {
-          if (!controller.visible) return child!;
+          final chatBody = KeyedSubtree(key: controller.chatKey, child: child!);
+          if (!controller.visible) return chatBody;
           final split = constraints.maxWidth >= 900 && !controller.expanded;
           final maximum = split
               ? constraints.maxWidth - 352
@@ -140,7 +143,7 @@ class ChatPreviewHost extends StatelessWidget {
                           ),
                         )
                       : KeyedSubtree(
-                          key: GlobalObjectKey(controller),
+                          key: controller.previewKey,
                           child: KeyedSubtree(
                             key: ValueKey(target.documentId),
                             child: previewBuilder(context, target),
@@ -153,7 +156,7 @@ class ChatPreviewHost extends StatelessWidget {
           final content = split
               ? Row(
                   children: [
-                    Expanded(child: child!),
+                    Expanded(child: chatBody),
                     Semantics(
                       label: 'Resize preview. Drag left to widen or right to narrow.',
                       onIncrease: () => controller.resize(-40, maximum),
@@ -186,7 +189,7 @@ class ChatPreviewHost extends StatelessWidget {
                 )
               : Stack(
                   children: [
-                    child!,
+                    chatBody,
                     Positioned.fill(
                       child: ModalBarrier(
                         dismissible: true,

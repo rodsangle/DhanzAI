@@ -21,19 +21,25 @@ void main() {
             previewBuilder: (_, target) => Column(
               children: [
                 Text('Content: ${target.documentId}'),
-                const TextField(),
+                const TextField(key: ValueKey('preview-input')),
               ],
             ),
             child: Builder(
               builder: (context) => Center(
-                child: FilledButton(
-                  onPressed: () => ChatPreviewScope.of(context)!.open(
-                    const ChatPreviewTarget(
-                      documentId: 'one',
-                      filename: 'Test.xlsx',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const TextField(key: ValueKey('chat-draft')),
+                    FilledButton(
+                      onPressed: () => ChatPreviewScope.of(context)!.open(
+                        const ChatPreviewTarget(
+                          documentId: 'one',
+                          filename: 'Test.xlsx',
+                        ),
+                      ),
+                      child: const Text('Preview file'),
                     ),
-                  ),
-                  child: const Text('Preview file'),
+                  ],
                 ),
               ),
             ),
@@ -50,8 +56,13 @@ void main() {
       addTearDown(controller.dispose);
       await app(tester, controller);
       expect(find.byKey(const ValueKey('chat-preview-panel')), findsNothing);
+      await tester.enterText(
+        find.byKey(const ValueKey('chat-draft')),
+        'Unsent draft',
+      );
       await tester.tap(find.text('Preview file'));
       await tester.pump();
+      expect(find.text('Unsent draft'), findsOneWidget);
       expect(find.text('Content: one'), findsOneWidget);
       expect(
         tester.getTopLeft(find.byKey(const ValueKey('chat-preview-panel'))).dx,
@@ -60,6 +71,7 @@ void main() {
       await tester.tap(find.byTooltip('Close preview'));
       await tester.pump();
       expect(find.text('Content: one'), findsNothing);
+      expect(find.text('Unsent draft'), findsOneWidget);
       await tester.tap(find.text('Preview file'));
       await tester.pump();
       expect(find.text('Content: one'), findsOneWidget);
@@ -89,7 +101,10 @@ void main() {
         tester.getSize(find.byKey(const ValueKey('preview-width'))).width,
         greaterThan(before),
       );
-      await tester.enterText(find.byType(TextField), 'Keep selection');
+      await tester.enterText(
+        find.byKey(const ValueKey('preview-input')),
+        'Keep selection',
+      );
       await tester.tap(find.byTooltip('Expand preview'));
       await tester.pump();
       expect(find.text('Keep selection'), findsOneWidget);

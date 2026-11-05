@@ -1,4 +1,4 @@
-# Chat file preview panel (web 0.10.1, build 31)
+# Chat file preview panel (web 0.10.1, build 32)
 
 Press **Preview** beside an uploaded or generated file to open its content in a
 panel on the right of chat. The panel starts closed and does not open when files
@@ -27,7 +27,7 @@ archive, backs up the static browser assets, and prints its rollback path.
 
 Refresh Edge with Ctrl+F5. For an older Android PWA, open
 `https://dhanzai.com/app/update.html`, refresh the installed app, then close and
-reopen it. Browser Settings should show 0.10.1 build 31 (or a newer checked build).
+reopen it. Browser Settings should show 0.10.1 build 32 (or a newer checked build).
 No native APK is produced: Android uses the installed web app.
 
 ## Checks

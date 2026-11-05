@@ -19,8 +19,9 @@ Future<void> downloadAndSave(
     final bytes = await ref.read(apiClientProvider).downloadFile(documentId);
     if (!context.mounted) return;
     if (await saveBytes(filename, bytes)) {
-      if (context.mounted)
+      if (context.mounted) {
         messenger.showSnackBar(SnackBar(content: Text('Saved $filename')));
+      }
     } else if (context.mounted) {
       messenger.showSnackBar(
         const SnackBar(
@@ -31,8 +32,9 @@ Future<void> downloadAndSave(
       );
     }
   } on ApiException catch (e) {
-    if (context.mounted)
+    if (context.mounted) {
       messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
   } catch (_) {
     if (context.mounted) {
       messenger.showSnackBar(
@@ -233,8 +235,9 @@ class _FilePreviewContentState extends ConsumerState<FilePreviewContent> {
               final data = snapshot.data!;
               final sections = (data['sections'] as List<dynamic>? ?? [])
                   .cast<Map<String, dynamic>>();
-              if (sections.isEmpty)
+              if (sections.isEmpty) {
                 return const Center(child: Text('No preview content.'));
+              }
               final selected = sections[_section.clamp(0, sections.length - 1)];
               final rows = selected['rows'] as List<dynamic>?;
               return Column(
