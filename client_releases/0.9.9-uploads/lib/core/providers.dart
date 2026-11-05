@@ -6,10 +6,15 @@ import 'config.dart';
 import 'storage/secure_store.dart';
 
 /// Overridden in tests with [MemorySecureStore].
-final secureStoreProvider = Provider<SecureStore>((ref) => FlutterSecureStore());
+final secureStoreProvider = Provider<SecureStore>(
+  (ref) => FlutterSecureStore(),
+);
 
 final apiClientProvider = Provider<ApiClient>((ref) {
-  final client = ApiClient(store: ref.watch(secureStoreProvider), baseUrl: AppConfig.defaultApiUrl);
+  final client = ApiClient(
+    store: ref.watch(secureStoreProvider),
+    baseUrl: AppConfig.defaultApiUrl,
+  );
   ref.onDispose(client.close);
   return client;
 });
@@ -33,7 +38,9 @@ class ThemeModeController extends Notifier<ThemeMode> {
   }
 }
 
-final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(ThemeModeController.new);
+final themeModeProvider = NotifierProvider<ThemeModeController, ThemeMode>(
+  ThemeModeController.new,
+);
 
 /// Invalidates account-bound background work when the server connection changes.
 class ConnectionRevision extends Notifier<int> {
@@ -41,4 +48,7 @@ class ConnectionRevision extends Notifier<int> {
   int build() => 0;
   void changed() => state++;
 }
-final connectionRevisionProvider = NotifierProvider<ConnectionRevision, int>(ConnectionRevision.new);
+
+final connectionRevisionProvider = NotifierProvider<ConnectionRevision, int>(
+  ConnectionRevision.new,
+);

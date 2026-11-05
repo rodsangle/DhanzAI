@@ -21,12 +21,23 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final store = FlutterSecureStore();
   final overrides = <Override>[secureStoreProvider.overrideWithValue(store)];
-  if (!kIsWeb && (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS)) {
-    final platform = defaultTargetPlatform == TargetPlatform.android ? 'android' : 'ios';
-    overrides.add(pushBridgeProvider.overrideWithValue(MethodChannelPushBridge(platform)));
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS)) {
+    final platform = defaultTargetPlatform == TargetPlatform.android
+        ? 'android'
+        : 'ios';
+    overrides.add(
+      pushBridgeProvider.overrideWithValue(MethodChannelPushBridge(platform)),
+    );
   }
-  final desktop = await createDesktopShell(minimizeToTray: await store.read(StoreKeys.minimizeToTray) == 'true');
-  if (desktop != null) overrides.add(desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)));
+  final desktop = await createDesktopShell(
+    minimizeToTray: await store.read(StoreKeys.minimizeToTray) == 'true',
+  );
+  if (desktop != null)
+    overrides.add(
+      desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)),
+    );
   runApp(ProviderScope(overrides: overrides, child: const DhanzApp()));
 }
 
@@ -47,8 +58,10 @@ class _PersistedTray implements DesktopShell {
   }
 
   @override
-  Future<void> notifyReplyReady({required String conversationId, required String title}) =>
-      _shell.notifyReplyReady(conversationId: conversationId, title: title);
+  Future<void> notifyReplyReady({
+    required String conversationId,
+    required String title,
+  }) => _shell.notifyReplyReady(conversationId: conversationId, title: title);
 
   @override
   Future<void> notifyReminder(String text) => _shell.notifyReminder(text);
@@ -76,10 +89,17 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
     final push = ref.read(pushBridgeProvider);
     if (push != null) {
       _subs.add(push.notificationTaps.listen(_openNotification));
-      unawaited(push.initialNotification().then((data) => data == null ? null : _openNotification(data)));
+      unawaited(
+        push.initialNotification().then(
+          (data) => data == null ? null : _openNotification(data),
+        ),
+      );
     }
     // Back from the background: pick up replies that finished while the app was suspended.
-    _lifecycle = AppLifecycleListener(onResume: () => unawaited(ref.read(chatControllerProvider.notifier).refresh()));
+    _lifecycle = AppLifecycleListener(
+      onResume: () =>
+          unawaited(ref.read(chatControllerProvider.notifier).refresh()),
+    );
   }
 
   void _openNotification(Map<String, String> data) {
@@ -93,7 +113,8 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
 
   void _open(String location) {
     ref.read(routerProvider).go(location);
-    if (location.startsWith('/chat/')) unawaited(ref.read(chatControllerProvider.notifier).refresh());
+    if (location.startsWith('/chat/'))
+      unawaited(ref.read(chatControllerProvider.notifier).refresh());
   }
 
   @override
@@ -107,8 +128,14 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(pushControllerProvider, (_, _) {}); // keeps push registration alive while signed in
-    ref.listen(reminderWatcherProvider, (_, _) {}); // desktop: due reminders as system notifications
+    ref.listen(
+      pushControllerProvider,
+      (_, _) {},
+    ); // keeps push registration alive while signed in
+    ref.listen(
+      reminderWatcherProvider,
+      (_, _) {},
+    ); // desktop: due reminders as system notifications
     return MaterialApp.router(
       title: AppConfig.appName,
       debugShowCheckedModeBanner: false,
@@ -116,7 +143,9 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
       darkTheme: dhanzDarkTheme,
       themeMode: ref.watch(themeModeProvider),
       routerConfig: ref.watch(routerProvider),
-      builder: (context, child) => UploadStatusBar(child: UpdateBanner(child: child ?? const SizedBox.shrink())),
+      builder: (context, child) => UploadStatusBar(
+        child: UpdateBanner(child: child ?? const SizedBox.shrink()),
+      ),
     );
   }
 }

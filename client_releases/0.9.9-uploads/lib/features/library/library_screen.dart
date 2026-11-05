@@ -16,7 +16,6 @@ import '../chat/attachment_chip.dart';
 import '../chat/file_icons.dart';
 import '../../models/models.dart';
 import '../../widgets/text_prompt_dialog.dart';
-import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
 import '../projects/projects_controller.dart';
 
@@ -58,8 +57,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       setState(() => _searching = true);
       try {
         final hits = await ref.read(apiClientProvider).searchLibrary(q.trim());
-        if (mounted && _search.text.trim() == q.trim())
+        if (mounted && _search.text.trim() == q.trim()) {
           setState(() => _hits = hits);
+        }
       } on ApiException catch (e) {
         if (mounted) _snack(e.message);
       } finally {

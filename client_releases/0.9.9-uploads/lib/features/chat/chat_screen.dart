@@ -40,7 +40,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
   bool _dragging = false;
   List<String> _suggestions = randomChatSuggestions();
-  bool get _windows => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+  bool get _windows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   /// Files dropped onto the chat (desktop) are attached to the next message.
   Future<void> _dropped(DropDoneDetails details) async {
@@ -50,10 +51,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     final target = ref.read(chatControllerProvider.notifier).uploadTarget;
     final project = ref.read(selectedProjectProvider);
     try {
-      final files = await Future.wait(details.files.map((file) async => (name: file.name, bytes: await file.readAsBytes())));
+      final files = await Future.wait(
+        details.files.map(
+          (file) async => (name: file.name, bytes: await file.readAsBytes()),
+        ),
+      );
       queue.files(files, ticket: ticket, projectId: project, target: target);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
     }
   }
 
@@ -83,22 +90,33 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
 
   void _open() {
     // Defer: providers must not be modified during build.
-    Future.microtask(() => ref.read(chatControllerProvider.notifier).open(widget.conversationId));
+    Future.microtask(
+      () =>
+          ref.read(chatControllerProvider.notifier).open(widget.conversationId),
+    );
   }
 
   Future<void> _send(String text, {bool? webOverride}) async {
-    final id = await ref.read(chatControllerProvider.notifier).send(text, webOverride: webOverride);
-    if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
+    final id = await ref
+        .read(chatControllerProvider.notifier)
+        .send(text, webOverride: webOverride);
+    if (id != null && id != widget.conversationId && mounted)
+      context.go('/chat/$id');
   }
 
   void _continueInCodex(String text) {
     final chat = ref.read(chatControllerProvider);
-    context.go('/coding', extra: <String, dynamic>{
-      'task': text, 'conversation_id': chat.temporary ? null : chat.conversationId,
-      'user_id': ref.read(authControllerProvider).value?.id,
-      'server': ref.read(apiClientProvider).baseUrl,
-      'temporary': chat.temporary, 'has_attachments': chat.attachments.isNotEmpty,
-    });
+    context.go(
+      '/coding',
+      extra: <String, dynamic>{
+        'task': text,
+        'conversation_id': chat.temporary ? null : chat.conversationId,
+        'user_id': ref.read(authControllerProvider).value?.id,
+        'server': ref.read(apiClientProvider).baseUrl,
+        'temporary': chat.temporary,
+        'has_attachments': chat.attachments.isNotEmpty,
+      },
+    );
   }
 
   Future<void> _edit(ChatMessage message) async {
@@ -111,7 +129,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
       maxLines: 8,
     );
     if (result != null && result.trim().isNotEmpty) {
-      await ref.read(chatControllerProvider.notifier).editAndResend(message.id, result);
+      await ref
+          .read(chatControllerProvider.notifier)
+          .editAndResend(message.id, result);
     }
   }
 
@@ -120,13 +140,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
     final chat = ref.watch(chatControllerProvider);
 
-    ref.listen(chatControllerProvider.select((state) => state.conversationId), (_, id) {
-      if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
+    ref.listen(chatControllerProvider.select((state) => state.conversationId), (
+      _,
+      id,
+    ) {
+      if (id != null && id != widget.conversationId && mounted)
+        context.go('/chat/$id');
     });
 
     ref.listen(chatControllerProvider.select((s) => s.notice), (_, notice) {
       if (notice != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(notice)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(notice)));
         ref.read(chatControllerProvider.notifier).clearNotice();
       }
     });
@@ -148,7 +173,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
               dense: true,
               leading: const Icon(Icons.timer_outlined),
               title: const Text('Temporary chat'),
-              subtitle: const Text('Not saved to memory or your library, and deleted automatically after a day.'),
+              subtitle: const Text(
+                'Not saved to memory or your library, and deleted automatically after a day.',
+              ),
             ),
           ),
         Expanded(
@@ -169,13 +196,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  DailyNewsButton(enabled: !chat.loading, onSend: (text) => _send(text, webOverride: true)),
-                  Composer(key: ValueKey(chat.viewRevision), onSend: _send, onCodex: _continueInCodex),
+                  DailyNewsButton(
+                    enabled: !chat.loading,
+                    onSend: (text) => _send(text, webOverride: true),
+                  ),
+                  Composer(
+                    key: ValueKey(chat.viewRevision),
+                    onSend: _send,
+                    onCodex: _continueInCodex,
+                  ),
                   const SizedBox(height: 6),
                   Text(
                     'Dhanz can make mistakes. Verify important information.',
-                    style: Theme.of(context).textTheme.labelSmall
-                        ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -197,12 +232,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             Positioned.fill(
               child: IgnorePointer(
                 child: ColoredBox(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
+                  color: Theme.of(context).colorScheme.surface
+                      .withValues(alpha: 0.85),
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.file_upload_outlined, size: 48, color: Theme.of(context).colorScheme.secondary),
+                        Icon(
+                          Icons.file_upload_outlined,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
                         const SizedBox(height: 8),
                         const Text('Drop files to attach them'),
                       ],
@@ -216,10 +256,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     );
 
     // The list holds the server's latest title (auto-titled after the first message, or renamed).
-    final listed = ref.watch(conversationsProvider).value?.where((c) => c.id == chat.conversationId).firstOrNull;
+    final listed = ref
+        .watch(conversationsProvider)
+        .value
+        ?.where((c) => c.id == chat.conversationId)
+        .firstOrNull;
     final appBar = AppBar(
       automaticallyImplyLeading: !wide,
-      title: Text(listed?.title ?? chat.title ?? AppConfig.appName, overflow: TextOverflow.ellipsis),
+      title: Text(
+        listed?.title ?? chat.title ?? AppConfig.appName,
+        overflow: TextOverflow.ellipsis,
+      ),
       actions: [
         if (chat.conversationId == null)
           IconButton(
@@ -227,9 +274,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             isSelected: chat.temporary,
             icon: const Icon(Icons.timer_outlined),
             selectedIcon: const Icon(Icons.timer),
-            onPressed: () => ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary),
+            onPressed: () => ref
+                .read(chatControllerProvider.notifier)
+                .setTemporary(!chat.temporary),
           ),
-        IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
+        IconButton(
+          tooltip: 'Talk to Dhanz',
+          icon: const Icon(Icons.mic_none),
+          onPressed: () => context.go('/voice'),
+        ),
         IconButton(
           tooltip: 'New chat',
           icon: const Icon(Icons.edit_square),
@@ -256,7 +309,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     }
     return Scaffold(
       appBar: appBar,
-      drawer: const Drawer(width: 320, child: ConversationPanel(inDrawer: true)),
+      drawer: const Drawer(
+        width: 320,
+        child: ConversationPanel(inDrawer: true),
+      ),
       body: body,
     );
   }
@@ -294,7 +350,9 @@ class _MessageList extends ConsumerWidget {
                 Text(
                   AppConfig.greeting,
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 28),
                 Wrap(
@@ -306,7 +364,9 @@ class _MessageList extends ConsumerWidget {
                       ActionChip(
                         label: Text(s),
                         onPressed: () => onSuggestion(s),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
                   ],
                 ),
@@ -340,7 +400,9 @@ class _MessageList extends ConsumerWidget {
                 busy: state.streaming,
                 onRegenerate: controller.regenerate,
                 onEdit: onEdit,
-                researchStatus: m.status == MessageStatus.streaming ? state.researchStatus : null,
+                researchStatus: m.status == MessageStatus.streaming
+                    ? state.researchStatus
+                    : null,
               ),
             ),
           ),

@@ -41,13 +41,17 @@ Future<void> queueFolderUpload(
           ),
           FilledButton(
             onPressed: () {
-              queue.folder(
+              try {
+                queue.folder(
                 files,
                 ticket: ticket,
                 projectId: project,
                 target: target,
               );
               Navigator.pop(context);
+              } catch (error) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+              }
             },
             child: const Text('Upload folder'),
           ),
@@ -55,8 +59,9 @@ Future<void> queueFolderUpload(
       ),
     );
   } catch (error) {
-    if (context.mounted)
+    if (context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 }

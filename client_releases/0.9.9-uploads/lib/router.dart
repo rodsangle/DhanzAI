@@ -41,22 +41,44 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
       if (location == '/local') return null;
-      if (auth.isLoading || auth.hasError) return location == '/splash' ? null : '/splash';
+      if (auth.isLoading || auth.hasError)
+        return location == '/splash' ? null : '/splash';
       final signedIn = auth.value != null;
-      if (!signedIn) return _publicRoutes.contains(location) ? null : '/welcome';
-      if (_publicRoutes.contains(location) || location == '/splash') return '/chat';
+      if (!signedIn)
+        return _publicRoutes.contains(location) ? null : '/welcome';
+      if (_publicRoutes.contains(location) || location == '/splash')
+        return '/chat';
       return null;
     },
     routes: [
-      GoRoute(path: '/local', builder: (context, state) => const LocalChatScreen()),
-      GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
-      GoRoute(path: '/welcome', builder: (context, state) => const WelcomeScreen()),
-      GoRoute(path: '/login', builder: (context, state) => const AuthScreen(register: false)),
-      GoRoute(path: '/register', builder: (context, state) => const AuthScreen(register: true)),
-      GoRoute(path: '/reset-password', builder: (context, state) => const ResetPasswordScreen()),
+      GoRoute(
+        path: '/local',
+        builder: (context, state) => const LocalChatScreen(),
+      ),
+      GoRoute(
+        path: '/splash',
+        builder: (context, state) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: '/welcome',
+        builder: (context, state) => const WelcomeScreen(),
+      ),
+      GoRoute(
+        path: '/login',
+        builder: (context, state) => const AuthScreen(register: false),
+      ),
+      GoRoute(
+        path: '/register',
+        builder: (context, state) => const AuthScreen(register: true),
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => const ResetPasswordScreen(),
+      ),
       GoRoute(
         path: '/chat',
-        pageBuilder: (context, state) => const NoTransitionPage(child: ChatScreen()),
+        pageBuilder: (context, state) =>
+            const NoTransitionPage(child: ChatScreen()),
         routes: [
           GoRoute(
             path: ':id',
@@ -67,24 +89,73 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
-      GoRoute(path: '/capabilities', builder: (context, state) => const CapabilitiesScreen()),
-      GoRoute(path: '/uploads', builder: (context, state) => const UploadsScreen()),
-      GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
-      GoRoute(path: '/coding', builder: (context, state) => CodingScreen(seed: state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null)),
-      GoRoute(path: '/operations', builder: (context, state) => const OperationsScreen()),
-      GoRoute(path: '/builder', builder: (context, state) => const BuilderScreen()),
-      GoRoute(path: '/studio', builder: (context, state) => const StudioScreen()),
-      GoRoute(path: '/github', builder: (context, state) => const GitHubScreen()),
-      GoRoute(path: '/actions', builder: (context, state) => const AutomationScreen()),
-      GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
-      GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/capabilities',
+        builder: (context, state) => const CapabilitiesScreen(),
+      ),
+      GoRoute(
+        path: '/uploads',
+        builder: (context, state) => const UploadsScreen(),
+      ),
+      GoRoute(
+        path: '/library',
+        builder: (context, state) => const LibraryScreen(),
+      ),
+      GoRoute(
+        path: '/coding',
+        builder: (context, state) => CodingScreen(
+          seed: state.extra is Map<String, dynamic>
+              ? state.extra as Map<String, dynamic>
+              : null,
+        ),
+      ),
+      GoRoute(
+        path: '/operations',
+        builder: (context, state) => const OperationsScreen(),
+      ),
+      GoRoute(
+        path: '/builder',
+        builder: (context, state) => const BuilderScreen(),
+      ),
+      GoRoute(
+        path: '/studio',
+        builder: (context, state) => const StudioScreen(),
+      ),
+      GoRoute(
+        path: '/github',
+        builder: (context, state) => const GitHubScreen(),
+      ),
+      GoRoute(
+        path: '/actions',
+        builder: (context, state) => const AutomationScreen(),
+      ),
+      GoRoute(
+        path: '/projects',
+        builder: (context, state) => const ProjectsScreen(),
+      ),
+      GoRoute(
+        path: '/memory',
+        builder: (context, state) => const MemoryScreen(),
+      ),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
-      GoRoute(path: '/security', builder: (context, state) => const SecurityScreen()),
-      GoRoute(path: '/reminders', builder: (context, state) => const RemindersScreen()),
+      GoRoute(
+        path: '/security',
+        builder: (context, state) => const SecurityScreen(),
+      ),
+      GoRoute(
+        path: '/reminders',
+        builder: (context, state) => const RemindersScreen(),
+      ),
       GoRoute(
         path: '/admin',
-        redirect: (context, state) => ref.read(authControllerProvider).value?.isAdmin == true ? null : '/settings',
+        redirect: (context, state) =>
+            ref.read(authControllerProvider).value?.isAdmin == true
+            ? null
+            : '/settings',
         builder: (context, state) => const AdminScreen(),
       ),
     ],

@@ -185,13 +185,15 @@ class UploadQueue extends Notifier<List<UploadEntry>> {
     job.prepare = () async {
       final archive = Archive();
       for (final file in files) {
-        if (!accepts(ticket) || job.status == UploadStatus.cancelled)
+        if (!accepts(ticket) || job.status == UploadStatus.cancelled) {
           throw StateError('Upload cancelled.');
+        }
         final bytes = await file.read();
-        if (bytes.length != file.size)
+        if (bytes.length != file.size) {
           throw const FormatException(
             'A file changed; select the folder again.',
           );
+        }
         archive.addFile(ArchiveFile(file.path, bytes.length, bytes));
       }
       return Uint8List.fromList(ZipEncoder().encode(archive));
@@ -260,8 +262,9 @@ class UploadQueue extends Notifier<List<UploadEntry>> {
         !const [
           UploadStatus.queued,
           UploadStatus.preparing,
-        ].contains(job.status))
+        ].contains(job.status)) {
       return;
+    }
     job.status = UploadStatus.cancelled;
     job.prepare = null;
     if (!job.done.isCompleted) job.done.complete();
@@ -270,8 +273,9 @@ class UploadQueue extends Notifier<List<UploadEntry>> {
 
   void retry(int id) {
     final old = _jobs.where((j) => j.id == id).firstOrNull;
-    if (old == null || old.status != UploadStatus.failed || old.prepare == null)
+    if (old == null || old.status != UploadStatus.failed || old.prepare == null) {
       return;
+    }
     final next = _Upload(
       ++_nextId,
       old.name,
@@ -291,8 +295,9 @@ class UploadQueue extends Notifier<List<UploadEntry>> {
 
   void consume(String target, Iterable<String> documentIds) {
     for (final job in _jobs) {
-      if (job.target == target && documentIds.contains(job.document?.id))
+      if (job.target == target && documentIds.contains(job.document?.id)) {
         job.attachable = false;
+      }
     }
     _publish();
   }
