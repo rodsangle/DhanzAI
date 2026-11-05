@@ -74,7 +74,7 @@ def install():
                         )
                 data = await files.storage.get(document.storage_key) if document else None
                 if operation == "inspect":
-                    result = await asyncio.to_thread(engine.inspect, data)
+                    result = await asyncio.to_thread(engine.inspect, data, args.get("sheet"), args.get("range"))
                     result.update(document_id=str(document.id), filename=document.title)
                     return tools.ToolOutcome(result, "Inspected Excel workbook")
                 filename = args.get("filename", "Edited_workbook.xlsx")
@@ -144,6 +144,11 @@ def install():
                         "description": "Owned uploaded XLSX UUID. Omit only when exactly one XLSX is attached, or to list choices.",  # noqa: E501 - descriptive tool text
                     },
                     "filename": {"type": "string"},
+                    "sheet": {"type": "string", "description": "For targeted inspection: exact worksheet name."},
+                    "range": {
+                        "type": "string",
+                        "description": "For targeted inspection: A1 range, max 500 cells, e.g. A32:AI32. Returns actual occupied cell addresses; do not ask user to inspect rows manually.",  # noqa: E501 - tool schema and guidance text
+                    },  # noqa: E501
                     "actions": {
                         "type": "array",
                         "maxItems": 40,
@@ -214,7 +219,10 @@ def install():
                 text += (
                     "\nWhen available, use excel_workbook to inspect and edit uploaded XLSX files, apply formatting and save formulas. "  # noqa: E501 - descriptive tool text
                     "Only claim a download after the tool saves it. Preserve original data and ask about ambiguous edits. "  # noqa: E501 - descriptive tool text
-                    "Formulas recalculate in Excel; do not invent calculated values. For connected AWS commands, "
+                    "Formulas recalculate in Excel; do not invent calculated values. Inspect requested destination rows with "  # noqa: E501 - tool schema and guidance text
+                    "excel_workbook operation=inspect, sheet and range before overwriting. If all_empty=true, proceed; "
+                    "ask about actual occupied cells only, rather than asking the user to inspect the workbook manually. "  # noqa: E501 - tool schema and guidance text
+                    "Do not propose deleting existing formulas to bypass a validation error. For connected AWS commands, "  # noqa: E501 - tool schema and guidance text
                     "inspect connected_operations and execute the appropriate existing authorized grant with run_connected_task. "  # noqa: E501 - descriptive tool text
                     "These are named fixed commands, not an unrestricted shell. Queued is not completed; inspect recent_tasks "  # noqa: E501 - descriptive tool text
                     "before reporting completion. Do not ask for AWS credentials or invent a blanket inability to use connected tools."  # noqa: E501 - descriptive tool text

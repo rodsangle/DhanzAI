@@ -9,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.formula import Tokenizer
 from openpyxl.formula.translate import Translator
 from openpyxl.styles import Border, PatternFill, Side
+from openpyxl.utils import FORMULAE
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.properties import CalcProperties
 
@@ -18,7 +19,25 @@ FUNCTIONS = set(
 )
 
 
-def formula(value):
+# Reuse Excel's standard function catalog; generation support is not a requirement
+# for preserving an uploaded formula. Never evaluate any workbook formula here.
+BLOCKED_FUNCTIONS = {
+    "WEBSERVICE",
+    "HYPERLINK",
+    "IMAGE",
+    "RTD",
+    "INDIRECT",
+    "CALL",
+    "EXEC",
+    "REGISTER",
+    "REGISTER.ID",
+    "EVALUATE",
+    "SQL.REQUEST",
+    "STOCKHISTORY",
+}
+
+
+def formula(value, *, existing=False):
     if not isinstance(value, str) or not value.startswith("=") or len(value) > 8192:
         raise ValueError("Use an Excel formula beginning with =, at most 8192 characters.")
     try:
@@ -28,7 +47,10 @@ def formula(value):
     for token in tokens:
         if token.type == "FUNC" and token.subtype == "OPEN":
             name = token.value[:-1].upper().removeprefix("_XLFN.").removeprefix("_XLWS.")
-            if name not in FUNCTIONS:
+            if name in BLOCKED_FUNCTIONS or name.startswith("CUBE"):
+                raise ValueError("Unsupported formula function: " + name)
+            supported = (FUNCTIONS | FORMULAE) if existing else (FUNCTIONS | {"LOOKUP"})
+            if name not in supported:
                 raise ValueError("Unsupported formula function: " + name)
         if token.type == "OPERAND" and token.subtype == "RANGE":
             operand = token.value
@@ -102,7 +124,7 @@ def load(data=None):
                 if not isinstance(value, str):
                     value = getattr(value, "text", None)
                 try:
-                    formula(value)
+                    formula(value, existing=True)
                 except ValueError as exc:
                     raise ValueError(
                         f"Existing formula in {sheet.title}!{cell.coordinate} cannot be safely preserved: {exc} "
@@ -111,8 +133,36 @@ def load(data=None):
     return book
 
 
-def inspect(data):
+def inspect(data, sheet=None, cell_range=None):
     book = load(data)
+    if sheet is not None or cell_range is not None:
+        if sheet not in book.sheetnames or cell_range is None:
+            raise ValueError("For a targeted inspection, provide an existing sheet name and bounded range.")
+        a, b, c, d = rectangle(cell_range)
+        if (c - a + 1) * (d - b + 1) > 500:
+            raise ValueError("Inspect at most 500 cells per targeted request.")
+        selected = book[sheet]
+        cells = []
+        for row in selected.iter_rows(min_row=b, max_row=d, min_col=a, max_col=c):
+            for cell in row:
+                value = cell.value
+                if cell.data_type == "f" and not isinstance(value, str):
+                    value = getattr(value, "text", None)
+                cells.append(
+                    {
+                        "cell": cell.coordinate,
+                        "value": str(value)[:2000] if value is not None else None,
+                        "occupied": value is not None,
+                        "data_type": cell.data_type,
+                    }
+                )
+        return {
+            "sheet": sheet,
+            "range": cell_range,
+            "cells": cells,
+            "occupied_cells": [cell["cell"] for cell in cells if cell["occupied"]],
+            "all_empty": not any(cell["occupied"] for cell in cells),
+        }
     return {
         "sheets": [
             {
@@ -256,4 +306,8 @@ def edit(data, actions):
     book.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)
     output = io.BytesIO()
     book.save(output)
+    if data is not None:
+        from .spreadsheet_package import preserve
+
+        return preserve(data, output.getvalue(), actions, rectangle)
     return output.getvalue()

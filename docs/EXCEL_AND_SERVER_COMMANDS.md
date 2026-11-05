@@ -39,8 +39,13 @@ column widths and row heights; freeze panes; filters. New workbooks begin with
 `Sheet`. Formulas are saved **without calculated caches**; Excel recalculates on
 opening. The server does not execute formulas or run Excel. Not every Excel
 function is supported. Formatting is not a repair for incorrect PDF/OCR data.
-Complex Excel features such as shapes may not survive openpyxl round-tripping;
-use the retained original for comparison. Macros, embedded objects, external
+Existing workbooks are updated through their original OOXML package: edited cells
+and style additions are patched while unrelated parts and Excel extensions remain.
+This preserves conditional-formatting extensions and untouched worksheets instead
+of replacing the entire package with openpyxl's rendered workbook. Existing
+standard Excel functions use Excel's built-in catalog rather than the smaller
+new-formula function list. Targeted inspection can read a specific sheet/range
+(up to 500 cells) and reports occupied cells before overwriting a totals row. Macros, embedded objects, external
 workbook/data connections and network/DDE formulas are rejected.
 
 Limits: 20 MB input, 40 MB expanded archive, 30 worksheets, 50,000 populated cells,

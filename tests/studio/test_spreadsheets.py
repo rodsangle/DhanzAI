@@ -95,10 +95,10 @@ def test_installer_is_additive_and_payload_matches():
     patched = module.patch_bootstrap(current)
     assert "    _install_spreadsheet_tools()" in patched
     assert module.patch_bootstrap(patched) == patched
-    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 3", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
+    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 4", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
     assert module.patch_bootstrap(previous) == patched
     assert module.patch_bootstrap(previous).count("    _install_spreadsheet_tools()") == 1
-    for name in ("spreadsheet_engine.py", "spreadsheet_tools.py", "operations_tools.py"):
+    for name in ("spreadsheet_engine.py", "spreadsheet_package.py", "spreadsheet_tools.py", "operations_tools.py"):
         assert (
             module.payload()["app/assistant_studio/" + name]
             == (Path(__file__).parents[2] / "server_extensions/assistant_studio" / name).read_text()
@@ -233,3 +233,100 @@ def test_existing_let_preserved_with_formatting_and_totals(existing):
     assert engine.formula("=LET(x,2,x+1)") == "=LET(x,2,x+1)"
     with pytest.raises(ValueError, match="Unsupported formula"):
         engine.formula('=LET(x,WEBSERVICE("https://example.com"),x)')
+
+
+def test_preserve_standard_existing_formulas_and_inspect_totals_row():
+    from openpyxl import Workbook
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "82C Daily Progress"
+    formulas = ["=LOOKUP(2,1/(G2:G31<>0),G2:G31)", "=ISERROR(A1)", "=POWER(2,3)", "=LET(x,2,x+1)"]
+    for index, value in enumerate(formulas, 1):
+        sheet.cell(index, 2, value)
+    source = io.BytesIO()
+    book.save(source)
+    assert engine.inspect(source.getvalue(), sheet.title, "A32:AI32")["all_empty"]
+    output = engine.edit(
+        source.getvalue(),
+        [
+            {"type": "format_range", "sheet": sheet.title, "range": "A1:AI31", "format": {"border": True}},
+            {"type": "set_formula", "sheet": sheet.title, "range": "G32:AI32", "formula": "=SUM(G2:G31)"},
+        ],
+    )
+    result = load_workbook(io.BytesIO(output)).active
+    assert [result.cell(i, 2).value for i in range(1, 5)] == formulas
+    assert result["AI32"].value == "=SUM(AI2:AI31)"
+    inspected = engine.inspect(output, sheet.title, "A32:AI32")
+    assert not inspected["all_empty"] and len(inspected["occupied_cells"]) == 29
+    assert inspected["cells"][6]["value"] == "=SUM(G2:G31)"
+    with pytest.raises(ValueError):
+        engine.inspect(output, sheet.title, "A1:AI32")
+    with pytest.raises(ValueError):
+        engine.formula('=WEBSERVICE("https://example.com")', existing=True)
+
+
+def test_ooxml_extensions_caches_and_unmodified_sheets_preserved():
+    from lxml import etree as XML
+    from openpyxl import Workbook
+
+    from app.assistant_studio.spreadsheet_package import NS
+
+    book = Workbook()
+    book.active["A1"] = "=LOOKUP(2,{1,2},{10,20})"
+    book.create_sheet("Unchanged")["A1"] = "Keep exactly"
+    raw = io.BytesIO()
+    book.save(raw)
+    with zipfile.ZipFile(io.BytesIO(raw.getvalue())) as z:
+        parts = {name: z.read(name) for name in z.namelist()}
+    root = XML.fromstring(parts["xl/worksheets/sheet1.xml"])
+    extension = XML.SubElement(root, "{" + NS + "}extLst")
+    item = XML.SubElement(extension, "{" + NS + "}ext", uri="{test-preserve-extension}")
+    XML.SubElement(item, "{urn:test-extension}customFormatting", enabled="1")
+    root.find(".//{" + NS + "}c/{" + NS + "}v").text = "20"
+    parts["xl/worksheets/sheet1.xml"] = XML.tostring(root)
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as z:
+        for name, data in parts.items():
+            z.writestr(name, data)
+    with pytest.warns(UserWarning):
+        output = engine.edit(
+            raw.getvalue(),
+            [
+                {
+                    "type": "format_range",
+                    "sheet": "Sheet",
+                    "range": "A1:B3",
+                    "format": {"bold": True, "number_format": "0.00"},
+                },
+                {"type": "set_cells", "sheet": "Sheet", "range": "B1", "values": [["00001"]]},
+                {"type": "set_formula", "sheet": "Sheet", "range": "B3", "formula": "=SUM(B1:B2)"},
+            ],
+        )
+    with zipfile.ZipFile(io.BytesIO(output)) as z:
+        assert z.read("xl/worksheets/sheet2.xml") == parts["xl/worksheets/sheet2.xml"]
+        changed = XML.fromstring(z.read("xl/worksheets/sheet1.xml"))
+        assert XML.tostring(changed.find("{" + NS + "}extLst"), method="c14n") == XML.tostring(extension, method="c14n")
+        assert changed.find(".//{" + NS + "}c/{" + NS + "}v").text == "20"
+    with pytest.warns(UserWarning):
+        result = load_workbook(io.BytesIO(output)).active
+    assert result["A1"].value == "=LOOKUP(2,{1,2},{10,20})"
+    assert result["A1"].font.bold and result["A1"].number_format == "0.00"
+    assert result["B1"].value == "00001"
+
+
+def test_add_sheet_retains_original_package():
+    source = engine.edit(None, [{"type": "set_cells", "sheet": "Sheet", "range": "A1", "values": [["original"]]}])
+    output = engine.edit(
+        source,
+        [
+            {"type": "add_sheet", "sheet": "New"},
+            {"type": "set_cells", "sheet": "New", "range": "A1", "values": [["new"]]},
+            {"type": "format_range", "sheet": "New", "range": "A1", "format": {"bold": True}},
+        ],
+    )
+    book = load_workbook(io.BytesIO(output))
+    assert book["Sheet"]["A1"].value == "original"
+    assert book["New"]["A1"].value == "new" and book["New"]["A1"].font.bold
+    with zipfile.ZipFile(io.BytesIO(source)) as a, zipfile.ZipFile(io.BytesIO(output)) as b:
+        assert a.read("xl/worksheets/sheet1.xml") == b.read("xl/worksheets/sheet1.xml")
