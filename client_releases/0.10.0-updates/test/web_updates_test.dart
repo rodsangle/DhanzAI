@@ -136,6 +136,18 @@ void main() {
     expect(api.keys[0], isNot(api.keys[1]));
     expect(runtime.refreshes, 1);
   });
+  test('an uncertain task retains its request key instead of creating a new server action', () async {
+    final api = UpdateApi()..outcome = 'uncertain';
+    final runtime = Runtime();
+    final container = await setup(api, runtime);
+    addTearDown(container.dispose);
+    final controller = container.read(webUpdateControllerProvider.notifier);
+    await controller.update();
+    await controller.update();
+    expect(api.keys.length, 2);
+    expect(api.keys[0], api.keys[1]); // backend returns the same durable job for this key
+    expect(runtime.refreshes, 0);
+  });
   test(
     'regular user can refresh an already deployed build without a host task',
     () async {
