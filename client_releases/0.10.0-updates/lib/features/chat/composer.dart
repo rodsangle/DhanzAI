@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/files.dart';
+import '../../core/clipboard_images.dart';
 import '../../core/uploads/upload_queue.dart';
 import '../../core/uploads/folder_upload_action.dart';
 import '../projects/projects_controller.dart';
@@ -29,10 +30,56 @@ class _ComposerState extends ConsumerState<Composer> {
   final _controller = TextEditingController();
   bool _deviceAutocorrect = true;
   bool _folderBusy = false;
+  bool _pasteBusy = false;
+  late final void Function() _unbindPaste;
+
+  @override
+  void initState() {
+    super.initState();
+    _unbindPaste = bindClipboardImages(
+      active: () => mounted && _focus.hasFocus,
+      onImages: (images) => _pasteImages(images),
+    );
+  }
+
+  Future<void> _pasteImages(List<ClipboardImageSource>? images) async {
+    if (_pasteBusy) {
+      return;
+    }
+    final queue = ref.read(uploadQueueProvider.notifier);
+    final ticket = queue.ticket();
+    final project = ref.read(selectedProjectProvider);
+    final target = ref.read(chatControllerProvider.notifier).uploadTarget;
+    setState(() => _pasteBusy = true);
+    try {
+      final sources = images ?? await readClipboardImages();
+      validateClipboardImages(sources);
+      final files = await Future.wait(
+        sources.map(
+          (image) async => (name: image.name, bytes: await image.read()),
+        ),
+      );
+      if (files.any(
+        (file) => file.bytes.isEmpty || file.bytes.length > 10 * 1024 * 1024,
+      )) {
+        throw StateError('Clipboard image is empty or exceeds 10 MB.');
+      }
+      queue.files(files, ticket: ticket, projectId: project, target: target);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _pasteBusy = false);
+    }
+  }
+
   late final FocusNode _focus = FocusNode(onKeyEvent: _onKey);
 
   @override
   void dispose() {
+    _unbindPaste();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -77,14 +124,18 @@ class _ComposerState extends ConsumerState<Composer> {
   void _submit() {
     final chat = ref.read(chatControllerProvider);
     var text = _controller.text;
-    if (_folderBusy || chat.uploading > 0 || chat.loading) return;
+    if (_folderBusy || chat.uploading > 0 || chat.loading) {
+      return;
+    }
     if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
       // Attachments alone: ask for the obvious thing rather than refusing to send.
       text = chat.attachments.every((a) => a.fileType == 'image')
           ? 'Describe this image.'
           : 'Summarize this file.';
     }
-    if (text.trim().isEmpty) return;
+    if (text.trim().isEmpty) {
+      return;
+    }
     _controller.clear();
     widget.onSend(text);
     _focus.requestFocus();
@@ -243,6 +294,13 @@ class _ComposerState extends ConsumerState<Composer> {
                       deviceAutocorrect: _deviceAutocorrect,
                       onDeviceAutocorrectChanged: (value) =>
                           setState(() => _deviceAutocorrect = value),
+                    ),
+                    IconButton(
+                      tooltip: 'Paste image',
+                      icon: Icon(
+                        _pasteBusy ? Icons.hourglass_top : Icons.content_paste,
+                      ),
+                      onPressed: _pasteBusy ? null : () => _pasteImages(null),
                     ),
                     IconButton(
                       tooltip: 'Attach files',

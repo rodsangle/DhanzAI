@@ -6,6 +6,7 @@ import '../../core/files.dart';
 import '../../core/providers.dart';
 import 'file_icons.dart';
 import 'chat_preview.dart';
+import 'workbook_preview.dart';
 
 /// Downloads an uploaded file from the server and offers to save it.
 Future<void> downloadAndSave(
@@ -174,174 +175,190 @@ class _FilePreviewContentState extends ConsumerState<FilePreviewContent> {
   @override
   void initState() {
     super.initState();
-    _preview = ref.read(apiClientProvider).previewFile(widget.documentId);
+    _preview = widget.filename.toLowerCase().endsWith('.xlsx')
+        ? Future.value(<String, dynamic>{})
+        : ref.read(apiClientProvider).previewFile(widget.documentId);
   }
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (!widget.embedded)
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  widget.filename,
-                  style: Theme.of(context).textTheme.titleLarge,
-                  overflow: TextOverflow.ellipsis,
+  Widget build(BuildContext context) {
+    if (widget.filename.toLowerCase().endsWith('.xlsx')) {
+      return WorkbookPreview(
+        documentId: widget.documentId,
+        filename: widget.filename,
+        downloadBuilder: (id, name) =>
+            DocumentDownloadButton(documentId: id, filename: name),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!widget.embedded)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.filename,
+                    style: Theme.of(context).textTheme.titleLarge,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
-              IconButton(
-                tooltip: 'Close preview',
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.close),
-              ),
-            ],
+                IconButton(
+                  tooltip: 'Close preview',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+          const Text(
+            'Content preview · Layout may differ in Office. Formulas are shown without recalculation.',
           ),
-        const Text(
-          'Content preview · Layout may differ in Office. Formulas are shown without recalculation.',
-        ),
-        const Divider(),
-        Expanded(
-          child: FutureBuilder<Map<String, dynamic>>(
-            future: _preview,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError) {
-                final error = snapshot.error;
-                return Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        error is ApiException ? error.message : 'Unable to load preview. You can still download this file.',
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          _preview = ref
-                              .read(apiClientProvider)
-                              .previewFile(widget.documentId);
-                        }),
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              final data = snapshot.data!;
-              final sections = (data['sections'] as List<dynamic>? ?? [])
-                  .cast<Map<String, dynamic>>();
-              if (sections.isEmpty) {
-                return const Center(child: Text('No preview content.'));
-              }
-              final selected = sections[_section.clamp(0, sections.length - 1)];
-              final rows = selected['rows'] as List<dynamic>?;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (data['truncated'] == true)
-                    const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text(
-                        'Preview shortened. Download the file to view all content.',
-                      ),
+          const Divider(),
+          Expanded(
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: _preview,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  final error = snapshot.error;
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          error is ApiException ? error.message : 'Unable to load preview. You can still download this file.',
+                        ),
+                        TextButton(
+                          onPressed: () => setState(() {
+                            _preview = ref
+                                .read(apiClientProvider)
+                                .previewFile(widget.documentId);
+                          }),
+                          child: const Text('Retry'),
+                        ),
+                      ],
                     ),
-                  if (sections.length > 1)
-                    SizedBox(
-                      height: 48,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children: [
-                          for (var i = 0; i < sections.length; i++)
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(sections[i]['title'] as String),
-                                selected: _section == i,
-                                onSelected: (_) => setState(() => _section = i),
-                              ),
-                            ),
-                        ],
+                  );
+                }
+                final data = snapshot.data!;
+                final sections = (data['sections'] as List<dynamic>? ?? [])
+                    .cast<Map<String, dynamic>>();
+                if (sections.isEmpty) {
+                  return const Center(child: Text('No preview content.'));
+                }
+                final selected =
+                    sections[_section.clamp(0, sections.length - 1)];
+                final rows = selected['rows'] as List<dynamic>?;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (data['truncated'] == true)
+                      const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text(
+                          'Preview shortened. Download the file to view all content.',
+                        ),
                       ),
-                    ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child:
-                          rows != null &&
-                              rows.any((row) => (row as List).isNotEmpty)
-                          ? SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Table(
-                                defaultColumnWidth: const FixedColumnWidth(180),
-                                border: TableBorder.all(
-                                  color: Theme.of(context).dividerColor,
+                    if (sections.length > 1)
+                      SizedBox(
+                        height: 48,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            for (var i = 0; i < sections.length; i++)
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: ChoiceChip(
+                                  label: Text(sections[i]['title'] as String),
+                                  selected: _section == i,
+                                  onSelected: (_) =>
+                                      setState(() => _section = i),
                                 ),
-                                children: [
-                                  for (var i = 0; i < rows.length; i++)
-                                    TableRow(
-                                      decoration: i == 0
-                                          ? BoxDecoration(
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .surfaceContainerHighest,
-                                            )
-                                          : null,
-                                      children: [
-                                        for (
-                                          var j = 0;
-                                          j <
-                                              rows.fold<int>(
-                                                0,
-                                                (n, row) =>
-                                                    (row as List).length > n
-                                                    ? row.length
-                                                    : n,
-                                              );
-                                          j++
-                                        )
-                                          Padding(
-                                            padding: const EdgeInsets.all(8),
-                                            child: SelectableText(
-                                              j < (rows[i] as List).length
-                                                  ? '${rows[i][j]}'
-                                                  : '',
+                              ),
+                          ],
+                        ),
+                      ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child:
+                            rows != null &&
+                                rows.any((row) => (row as List).isNotEmpty)
+                            ? SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Table(
+                                  defaultColumnWidth: const FixedColumnWidth(
+                                    180,
+                                  ),
+                                  border: TableBorder.all(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                  children: [
+                                    for (var i = 0; i < rows.length; i++)
+                                      TableRow(
+                                        decoration: i == 0
+                                            ? BoxDecoration(
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .surfaceContainerHighest,
+                                              )
+                                            : null,
+                                        children: [
+                                          for (
+                                            var j = 0;
+                                            j <
+                                                rows.fold<int>(
+                                                  0,
+                                                  (n, row) =>
+                                                      (row as List).length > n
+                                                      ? row.length
+                                                      : n,
+                                                );
+                                            j++
+                                          )
+                                            Padding(
+                                              padding: const EdgeInsets.all(8),
+                                              child: SelectableText(
+                                                j < (rows[i] as List).length
+                                                    ? '${rows[i][j]}'
+                                                    : '',
+                                              ),
                                             ),
-                                          ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                            )
-                          : Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: SelectableText(
-                                selected['text'] as String? ?? '',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  height: 1.6,
+                                        ],
+                                      ),
+                                  ],
+                                ),
+                              )
+                            : Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: SelectableText(
+                                  selected['text'] as String? ?? '',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    height: 1.6,
+                                  ),
                                 ),
                               ),
-                            ),
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
-        ),
-        const Divider(),
-        Align(
-          alignment: Alignment.centerRight,
-          child: DocumentDownloadButton(
-            documentId: widget.documentId,
-            filename: widget.filename,
+          const Divider(),
+          Align(
+            alignment: Alignment.centerRight,
+            child: DocumentDownloadButton(
+              documentId: widget.documentId,
+              filename: widget.filename,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }

@@ -14,10 +14,28 @@ class ChatPreviewController extends ChangeNotifier {
   bool visible = false;
   bool expanded = false;
   double width = 420;
+  Future<bool> Function()? beforeClose;
+  bool _confirming = false;
 
-  void open(ChatPreviewTarget file) {
+  Future<bool> _canLeave() async {
+    if (_confirming) return false;
+    _confirming = true;
+    try {
+      return beforeClose == null || await beforeClose!();
+    } finally {
+      _confirming = false;
+    }
+  }
+
+  Future<void> open(ChatPreviewTarget file) async {
+    if (target?.documentId != file.documentId && !await _canLeave()) return;
     target = file;
     visible = true;
+    notifyListeners();
+  }
+
+  void replaceTarget(ChatPreviewTarget file) {
+    target = file;
     notifyListeners();
   }
 
@@ -26,7 +44,8 @@ class ChatPreviewController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void close() {
+  Future<void> close() async {
+    if (!await _canLeave()) return;
     visible = false;
     notifyListeners();
   }
@@ -42,6 +61,7 @@ class ChatPreviewController extends ChangeNotifier {
   }
 
   void clear({bool notify = true}) {
+    beforeClose = null;
     target = null;
     visible = false;
     expanded = false;

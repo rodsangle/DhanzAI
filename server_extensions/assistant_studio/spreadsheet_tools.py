@@ -192,12 +192,15 @@ def install():
                                 "format": {
                                     "type": "object",
                                     "properties": {
-                                        **{k: {"type": "boolean"} for k in ("bold", "italic", "wrap_text", "border")},
+                                        **{
+                                            k: {"type": "boolean"}
+                                            for k in ("bold", "italic", "underline", "wrap_text", "border")
+                                        },
                                         **{
                                             k: {"type": "string"}
                                             for k in ("font_color", "fill_color", "number_format", "horizontal")
                                         },
-                                        **{k: {"type": "number"} for k in ("column_width", "row_height")},
+                                        **{k: {"type": "number"} for k in ("column_width", "row_height", "font_size")},
                                     },
                                     "additionalProperties": False,
                                 },

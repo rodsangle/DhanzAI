@@ -154,11 +154,18 @@ class ApiClient {
           as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> webUpdateCheck() async =>
-    await _json('GET', '/operations/web-updates') as Map<String, dynamic>;
-  Future<Map<String, dynamic>> webUpdateStart(String serverId, String key) async =>
-    await _json('POST', '/operations/web-updates', body: {'server_id': serverId, 'request_key': key}) as Map<String, dynamic>;
+      await _json('GET', '/operations/web-updates') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> webUpdateStart(
+    String serverId,
+    String key,
+  ) async => await _json(
+    'POST',
+    '/operations/web-updates',
+    body: {'server_id': serverId, 'request_key': key},
+  ) as Map<String, dynamic>;
   Future<Map<String, dynamic>> webUpdateStatus(String id) async =>
-    await _json('GET', '/operations/web-updates/jobs/$id') as Map<String, dynamic>;
+      await _json('GET', '/operations/web-updates/jobs/$id')
+          as Map<String, dynamic>;
 
   // ---- auth --------------------------------------------------------------
 
@@ -811,6 +818,27 @@ class ApiClient {
     }
     return res.bodyBytes;
   }
+
+  Future<Map<String, dynamic>> workbookPage(
+    String id, {
+    String? sheet,
+    String area = 'A1:AN50',
+  }) async => await _json(
+    'GET',
+    '/spreadsheets/$id',
+    query: {'area': area, if (sheet != null) 'sheet': sheet},
+  ) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> saveWorkbook(
+    String id,
+    String key,
+    String filename,
+    List<Map<String, dynamic>> actions,
+  ) async => await _json(
+    'POST',
+    '/spreadsheets/$id/edits',
+    body: {'request_key': key, 'filename': filename, 'actions': actions},
+  ) as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> previewFile(String documentId) async =>
       await _json('GET', '/files/$documentId/preview') as Map<String, dynamic>;

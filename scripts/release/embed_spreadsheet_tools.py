@@ -13,6 +13,7 @@ files = {
         "spreadsheet_engine.py",
         "spreadsheet_package.py",
         "spreadsheet_workflow.py",
+        "spreadsheet_routes.py",
         "spreadsheet_tools.py",
         "operations_tools.py",
     )

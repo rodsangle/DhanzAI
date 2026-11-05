@@ -239,6 +239,8 @@ def edit(data, actions):
             allowed = {
                 "bold",
                 "italic",
+                "underline",
+                "font_size",
                 "font_color",
                 "fill_color",
                 "number_format",
@@ -255,13 +257,17 @@ def edit(data, actions):
                     raise ValueError("Colors require six hexadecimal digits.")
             if "horizontal" in options and options["horizontal"] not in ("left", "center", "right", "general"):
                 raise ValueError("Invalid horizontal alignment.")
-            for key in ("bold", "italic", "wrap_text", "border"):
+            for key in ("bold", "italic", "underline", "wrap_text", "border"):
                 if key in options and not isinstance(options[key], bool):
                     raise ValueError(key + " must be true or false.")
             if "number_format" in options and (
                 not isinstance(options["number_format"], str) or len(options["number_format"]) > 100
             ):
                 raise ValueError("Invalid number format.")
+            if "font_size" in options and (
+                not isinstance(options["font_size"], (int, float)) or not 1 <= options["font_size"] <= 72
+            ):
+                raise ValueError("Font size must be 1–72 points.")
             for key in ("column_width", "row_height"):
                 if key in options and (not isinstance(options[key], (int, float)) or not 1 <= options[key] <= 200):
                     raise ValueError("Dimensions must be 1–200.")
@@ -273,6 +279,10 @@ def edit(data, actions):
                             setattr(font, key, options[key])
                     if "font_color" in options:
                         font.color = options["font_color"]
+                    if "underline" in options:
+                        font.underline = "single" if options["underline"] else None
+                    if "font_size" in options:
+                        font.sz = options["font_size"]
                     cell.font = font
                     if "fill_color" in options:
                         cell.fill = PatternFill("solid", fgColor=options["fill_color"])
