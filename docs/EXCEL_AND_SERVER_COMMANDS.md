@@ -77,6 +77,21 @@ After the next companion heartbeat, open **Connected operations** and authorize
 the new named task before asking Dhanz to run it. Grants remain account-scoped,
 limited, expiring and revocable; no new permissions are granted by installation.
 
+## Multi-step workbook replies
+
+The normal five-round tool limit can interrupt inspection plus several edits.
+The add-on extends a reply to at most twelve tool rounds after a successful
+`excel_workbook` call. Ordinary tool workflows and replies with only failing Excel
+calls retain the existing limit. Each call runs once; the extension does not
+restart a reply or replay server tasks. The original installed orchestration
+method is retained with guarded local source changes, so provider routing,
+token accounting and cancellation continue through the existing implementation.
+An unknown interface fails the installer smoke check before activation.
+
+Chat guidance asks the model to inspect the destination once and batch formatting
+and formulas in one edit. If the limit is reached, the reply explicitly says a
+workbook without an attached download is unfinished.
+
 ## Validation
 
 `tests/studio/test_spreadsheets.py` verifies XLSX round trips, relative formulas,

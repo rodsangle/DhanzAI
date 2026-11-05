@@ -13,6 +13,9 @@ from . import spreadsheet_engine as engine
 
 
 def install():
+    from .spreadsheet_workflow import install as install_workflow
+
+    install_workflow()
     from app.services import assistant_tools as tools
     from dhanz_ai import ToolSpec
 
@@ -218,6 +221,9 @@ def install():
             if kwargs.get("tools"):
                 text += (
                     "\nWhen available, use excel_workbook to inspect and edit uploaded XLSX files, apply formatting and save formulas. "  # noqa: E501 - descriptive tool text
+                    "Batch all formatting and formulas in one excel_workbook edit call using the actions array. "
+                    "Reuse inspection results; do not inspect the whole workbook between each formatting action. "
+                    "After an edit returns created=true, provide that saved download instead of repeatedly editing it. "
                     "Only claim a download after the tool saves it. Preserve original data and ask about ambiguous edits. "  # noqa: E501 - descriptive tool text
                     "Formulas recalculate in Excel; do not invent calculated values. Inspect requested destination rows with "  # noqa: E501 - tool schema and guidance text
                     "excel_workbook operation=inspect, sheet and range before overwriting. If all_empty=true, proceed; "

@@ -95,10 +95,16 @@ def test_installer_is_additive_and_payload_matches():
     patched = module.patch_bootstrap(current)
     assert "    _install_spreadsheet_tools()" in patched
     assert module.patch_bootstrap(patched) == patched
-    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 4", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
+    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 5", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
     assert module.patch_bootstrap(previous) == patched
     assert module.patch_bootstrap(previous).count("    _install_spreadsheet_tools()") == 1
-    for name in ("spreadsheet_engine.py", "spreadsheet_package.py", "spreadsheet_tools.py", "operations_tools.py"):
+    for name in (
+        "spreadsheet_engine.py",
+        "spreadsheet_package.py",
+        "spreadsheet_workflow.py",
+        "spreadsheet_tools.py",
+        "operations_tools.py",
+    ):
         assert (
             module.payload()["app/assistant_studio/" + name]
             == (Path(__file__).parents[2] / "server_extensions/assistant_studio" / name).read_text()
