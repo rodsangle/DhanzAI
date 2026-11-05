@@ -74,7 +74,7 @@ class UploadApi extends ApiClient {
         messages: const [],
       );
   @override
-  Future<List<KnowledgeDocument>> documents() async => [];
+  Future<List<KnowledgeDocument>> documents({String? query}) async => [];
 }
 
 KnowledgeDocument document(String name) => KnowledgeDocument(
