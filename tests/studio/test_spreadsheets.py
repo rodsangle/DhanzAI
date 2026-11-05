@@ -95,7 +95,7 @@ def test_installer_is_additive_and_payload_matches():
     patched = module.patch_bootstrap(current)
     assert "    _install_spreadsheet_tools()" in patched
     assert module.patch_bootstrap(patched) == patched
-    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 2", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
+    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 3", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
     assert module.patch_bootstrap(previous) == patched
     assert module.patch_bootstrap(previous).count("    _install_spreadsheet_tools()") == 1
     for name in ("spreadsheet_engine.py", "spreadsheet_tools.py", "operations_tools.py"):
@@ -202,3 +202,34 @@ def test_existing_formula_error_identifies_original_cell():
     book.save(stream)
     with pytest.raises(ValueError, match=r"Existing formula in Sheet!C7"):
         engine.inspect(stream.getvalue())
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        "=LET(amount,SUM(G2:G31),amount*2)",
+        "=_xlfn.LET(amount,SUM(G2:G31),amount*2)",
+        "=_xlfn.LET(data,_xlfn._xlws.FILTER(G2:G31,G2:G31>0),SUM(data))",
+    ],
+)
+def test_existing_let_preserved_with_formatting_and_totals(existing):
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active["B7"] = existing
+    stream = io.BytesIO()
+    book.save(stream)
+    output = engine.edit(
+        stream.getvalue(),
+        [
+            {"type": "format_range", "sheet": "Sheet", "range": "A1:AI31", "format": {"border": True}},
+            {"type": "set_formula", "sheet": "Sheet", "range": "G32:AI32", "formula": "=SUM(G2:G31)"},
+        ],
+    )
+    result = load_workbook(io.BytesIO(output)).active
+    assert result["B7"].value == existing
+    assert result["AI32"].value == "=SUM(AI2:AI31)"
+    assert result["A1"].border.left.style == "thin"
+    assert engine.formula("=LET(x,2,x+1)") == "=LET(x,2,x+1)"
+    with pytest.raises(ValueError, match="Unsupported formula"):
+        engine.formula('=LET(x,WEBSERVICE("https://example.com"),x)')
