@@ -4,10 +4,14 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 tests = {}
+arguments = sys.argv[1:]
+if not arguments:
+    arguments = [str(path) for path in sorted(Path("test").rglob("*_test.dart")) if "browser" not in path.parts]
 process = subprocess.Popen(  # noqa: S603 - fixed Flutter test command, no shell
-    [shutil.which("flutter") or "/missing-flutter", "test", "--no-pub", "--reporter=json", *sys.argv[1:]],
+    [shutil.which("flutter") or "/missing-flutter", "test", "--no-pub", "--reporter=json", *arguments],
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,

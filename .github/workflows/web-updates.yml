@@ -18,9 +18,9 @@ concurrency:
 
 env:
   APP_DIR: client_releases/0.10.0-updates
-  RELEASE_ID: web-updates-0.10.2-preview.4
+  RELEASE_ID: web-updates-0.10.2-preview.6
   WEB_VERSION: "0.10.2"
-  WEB_BUILD: "36"
+  WEB_BUILD: "38"
 
 jobs:
   build:
@@ -47,7 +47,7 @@ jobs:
         run: python ../../scripts/release/test_background_uploads.py
       - name: Test browser clipboard paste gestures
         working-directory: ${{ env.APP_DIR }}
-        run: python ../../scripts/release/test_background_uploads.py --platform chrome test_web
+        run: python ../../scripts/release/test_background_uploads.py --platform chrome test/browser
       - name: Compile the actual web client
         working-directory: ${{ env.APP_DIR }}
         run: flutter build web --release --no-pub --base-href=/app/ --dart-define=DHANZ_API_URL=https://dhanzai.com --dart-define=DHANZ_WEB_VERSION=${{ env.WEB_VERSION }} --dart-define=DHANZ_WEB_BUILD=${{ env.WEB_BUILD }}
