@@ -18,7 +18,13 @@ def version_key(version, build=0):
 
 
 def validate_release(data):
-    if not isinstance(data, dict) or data.get("schema") != 1 or data.get("protocol") != 1:
+    if (
+        not isinstance(data, dict)
+        or type(data.get("schema")) is not int
+        or type(data.get("protocol")) is not int
+        or data.get("schema") != 1
+        or data.get("protocol") != 1
+    ):
         raise ValueError("This web release requires a different updater protocol.")
     version_key(data.get("version"), data.get("build"))
     for key, pattern in (

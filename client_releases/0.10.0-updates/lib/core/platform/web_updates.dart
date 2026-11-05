@@ -62,10 +62,11 @@ class WebUpdateController extends Notifier<WebUpdateState> {
     final epoch = ++_epoch;
     _requestKey = null;
     ref.onDispose(() => _epoch++);
-    if (_owner != null)
+    if (_owner != null) {
       Future.microtask(() {
         if (_current(epoch)) unawaited(check());
       });
+    }
     return const WebUpdateState();
   }
 
