@@ -107,6 +107,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
         _plan.repositories = repositories;
         if (_plan.model.isNotEmpty && !_plan.models.contains(_plan.model)) _plan.change('model');
         _connectionNote = note;
+        _error = null;
       });
       await _loadSeed();
       await _refresh();
@@ -638,6 +639,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
                     },
             ),
           ),
+        TextButton(onPressed: _busy ? null : _changeTask, child: const Text('Edit request and restart setup')),
         if (question.key == 'paths' && _showBrowser) ...[
           TextField(
             controller: _browsePath,

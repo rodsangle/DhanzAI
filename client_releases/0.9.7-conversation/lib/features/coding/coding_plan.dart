@@ -299,7 +299,9 @@ class CodingPlan {
       extraRequirements.clear();
       return 'Additional requirements cleared.';
     }
-    if (task.isNotEmpty && RegExp(r'^(also |requirement:|make sure |please include )').hasMatch(lower)) {
+    if (task.isNotEmpty &&
+        current.key != 'requirements' &&
+        RegExp(r'^(also |requirement:|make sure |please include )').hasMatch(lower)) {
       extraRequirements.add(raw);
       return 'Added that requirement. Please answer the current setup question when you are ready.';
     }
@@ -314,7 +316,7 @@ class CodingPlan {
       } else if (matches.length == 1) {
         selected = matches.single.value;
       } else if (current.key == 'runtime') {
-        if (RegExp(r'\b(python|agent)\b').hasMatch(lower)) {
+        if (RegExp(r'\b(python|pip|unittest)\b').hasMatch(lower)) {
           selected = 'python';
         } else if (RegExp(r'\b(flutter|dart)\b').hasMatch(lower))
           selected = 'flutter';
@@ -378,7 +380,7 @@ class CodingPlan {
         }
         answered.add('project');
       case 'requirements':
-        if (choice && selected == 'type') return 'Describe the requirements in the chat box.';
+        if (selected == 'type') return 'Describe the requirements in the chat box.';
         if (selected == 'minimal') {
           extraRequirements.add(
             'Start with a minimal working version; avoid optional features and document any unconnected services.',
@@ -407,7 +409,9 @@ class CodingPlan {
           final list = raw.split(RegExp(r'[,\n]')).map((p) => p.trim()).where((p) => p.isNotEmpty).toSet().toList();
           if (list.isEmpty ||
               list.length > 12 ||
-              list.any((p) => p.startsWith('/') || p.contains('\\') || p.split('/').any((s) => s == '..' || s.isEmpty))) {
+              list.any(
+                (p) => p.startsWith('/') || p.contains('\\') || p.split('/').any((s) => s == '..' || s.isEmpty),
+              )) {
             return 'Use 1–12 relative source paths without traversal, or choose Create files without reading existing source.';
           }
           paths = list;

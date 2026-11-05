@@ -13,6 +13,7 @@ CodingPlan plan() => CodingPlan(
 );
 
 void main() {
+  additionalPlanTests();
   test('typed Python request is collected without asking its runtime again', () {
     final p = plan();
     p.answer('Create a Python agent that reads CSV files');
@@ -93,5 +94,22 @@ void main() {
     expect(context, isNot(contains('Hidden instructions')));
     expect(context, isNot(contains('Unfinished')));
     expect(context, contains('[excerpt]'));
+  });
+}
+
+void additionalPlanTests() {
+  test('numbered requirement options wait for the typed detail rather than collecting the number', () {
+    final p = plan()..start('Create an agent');
+    p.answer('1');
+    p.answer('2');
+    expect(p.question?.key, 'requirements');
+    expect(p.extraRequirements, isEmpty);
+    p.answer('Also include a searchable task history');
+    expect(p.question?.key, 'repository');
+    expect(p.extraRequirements.single, contains('searchable task history'));
+    p.answer('', choice: true);
+    expect(p.question?.key, 'runtime');
+    p.answer('JavaScript agent');
+    expect(p.runtime, 'web');
   });
 }
