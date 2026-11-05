@@ -210,7 +210,7 @@ def main():
     print("Dhanz 0.9.8 web controls installed. Backend, search, weather, OCR and wrapper were unchanged.")
     print("Refresh Edge with Ctrl+F5. Close and reopen the Android web app.")
     print(
-        "Use Connected operations in the sidebar, Upload folder above the chat input, and drag across replies to select text."
+        "Use Connected operations in the sidebar and Upload folder above the chat input. Drag replies to select text."
     )
     print("Rollback: python3 " + str(Path(__file__).resolve()) + " --rollback " + str(backup))
 

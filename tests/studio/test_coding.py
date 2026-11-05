@@ -390,9 +390,10 @@ def test_flutter_profile_and_monorepo_workdir_are_fixed_and_validated():
 @pytest.mark.asyncio
 async def test_standing_publication_is_scoped_and_remote_write_is_not_replayed(coding):
     from datetime import timedelta
-    from app.db.base import utcnow
+
     from app.assistant_studio.operations_models import OperationGrant
     from app.assistant_studio.operations_service import publish_granted
+    from app.db.base import utcnow
 
     client, maker, users, reader, writes = coding
     data = await completed(client, maker)

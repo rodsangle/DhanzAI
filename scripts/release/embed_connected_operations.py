@@ -23,5 +23,13 @@ for name in ("server_companion.py", "configure_aws.py", "restart_current.py"):
     files["companion/" + name] = (root / "apps/server_companion" / name).read_text()
 path = root / "deploy/updaters/install_connected_operations.py"
 encoded = base64.b64encode(gzip.compress(json.dumps(files, sort_keys=True).encode(), mtime=0)).decode()
-path.write_text(re.sub(r"^PAYLOAD = .*$", "PAYLOAD = " + repr(encoded), path.read_text(), count=1, flags=re.M))
+path.write_text(
+    re.sub(
+        r"^PAYLOAD = .*$",
+        "PAYLOAD = " + repr(encoded) + "  # noqa: E501 - frozen public payload",
+        path.read_text(),
+        count=1,
+        flags=re.M,
+    )
+)
 print("Embedded additive operations, folder support and public companion only.")

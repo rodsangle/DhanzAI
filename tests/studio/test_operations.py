@@ -226,3 +226,57 @@ def test_folder_preserves_paths_and_marks_unreadable_members():
 def test_unsafe_folder_members_rejected(name):
     with pytest.raises(UnsupportedFile):
         read_folder(archive({name: "never extract"}), extract_document, Settings(app_env="test", _env_file=None))
+
+
+def test_folder_ocr_uses_inner_pdf_bytes_and_shares_page_budget(monkeypatch):
+    from app.assistant_studio import folder_uploads
+    from dhanz_knowledge.documents import ExtractedDocument
+
+    seen = []
+
+    class OCR:
+        def __init__(self, data, **kwargs):
+            seen.append((data, kwargs["max_pages"]))
+            self.attempted = 0
+
+    def extract(name, data, *, pdf_ocr=None):
+        if pdf_ocr:
+            pdf_ocr.attempted = 1
+        return ExtractedDocument("pdf", "application/pdf", "OCR text" if pdf_ocr else "text only")
+
+    monkeypatch.setattr(folder_uploads, "PDFOCR", OCR)
+    settings = Settings(app_env="test", ocr_enabled=True, ocr_max_pages=1, _env_file=None)
+    result = read_folder(
+        archive({"first.pdf": b"first-pdf-bytes", "second.pdf": b"second-pdf-bytes"}), extract, settings
+    )
+    assert seen == [(b"first-pdf-bytes", 1)]
+    assert "OCR text" in result.text and "text only" in result.text
+
+
+def test_operations_installer_payload_and_bootstrap_preserve_custom_features():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+
+    def load(name):
+        spec = importlib.util.spec_from_file_location(name, root / "deploy/updaters" / (name + ".py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    coding = load("install_coding_workspace")
+    installer = load("install_connected_operations")
+    source = coding.patch_bootstrap((root / "server_extensions/assistant_studio/bootstrap.py").read_text())
+    patched = installer.patch_bootstrap(source + "\n# custom weather and OCR remain\n")
+    assert "# custom weather and OCR remain" in patched and "_install_coding_workspace(app)" in patched
+    assert installer.patch_bootstrap(patched) == patched
+    packet = installer.payload()
+    for relative, content in packet.items():
+        if relative.startswith("app/"):
+            path = root / "server_extensions" / relative.removeprefix("app/")
+        elif relative.startswith("alembic/"):
+            path = root / "server_extensions/migrations" / Path(relative).name
+        else:
+            assert relative.startswith("companion/")
+            path = root / "apps/server_companion" / Path(relative).name
+        assert content == path.read_text()
