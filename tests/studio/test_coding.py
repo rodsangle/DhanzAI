@@ -423,3 +423,43 @@ async def test_standing_publication_is_scoped_and_remote_write_is_not_replayed(c
         assert len(writes) == 4 and row.status == "published" and grant.remaining == 0
         await publish_granted(db, Settings(app_env="test", _env_file=None), row, grant)
         assert len(writes) == 4
+
+
+@pytest.mark.asyncio
+async def test_github_chat_can_queue_real_workspace_draft_once_and_enforces_ownership(coding, monkeypatch):
+    from app.assistant_studio import operations_tools
+    from app.services import assistant_tools as tools
+
+    client, maker, users, reader, writes = coding
+    monkeypatch.setattr(tools, "TOOLS", dict(tools.TOOLS))
+    operations_tools.install_tools()
+    tool = tools.TOOLS["github_workspace"]
+    ctx = tools.ToolContext(maker, users[0].id, uuid.uuid4(), settings=Settings(app_env="test", _env_file=None))
+    ctx.assistant_message_id = uuid.uuid4()
+    request = {
+        "operation": "start",
+        "repository": "owner/demo",
+        "paths": ["agent.py"],
+        "runtime": "python",
+        "instructions": "Update the CSV parser and add tests",
+    }
+    first = await tool.run(ctx, request)
+    retry = await tool.run(ctx, request)
+    assert first.data["id"] == retry.data["id"]
+    assert first.data["project_status"] == "queued" and not writes
+    assert "server-only-token" not in str(first.data)
+    status = await tool.run(ctx, {"operation": "status", "draft_id": first.data["id"]})
+    assert status.data["id"] == first.data["id"]
+    other = tools.ToolContext(maker, users[1].id, uuid.uuid4(), settings=ctx.settings)
+    with pytest.raises(tools.ToolInputError, match="not found"):
+        await tool.run(other, {"operation": "status", "draft_id": first.data["id"]})
+    with pytest.raises(tools.ToolInputError, match="not selected"):
+        await tool.run(ctx, {**request, "repository": "owner/not-selected"})
+    async with maker() as db:
+        rows = list(await db.scalars(select(BuilderProject)))
+        assert len(rows) == 1
+        user = await db.get(User, users[0].id)
+        user.routing_policy = "local_only"
+        await db.commit()
+    with pytest.raises(tools.ToolInputError, match="local-only"):
+        await tool.run(ctx, request)

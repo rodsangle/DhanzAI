@@ -387,3 +387,25 @@ def test_operations_chat_repair_installer_matches_module_and_validates_runtime_p
             and node.value.startswith(("\nimport asyncio", "\nimport base64", "\nfrom app.assistant_studio"))
         ):
             compile(node.value, "operations-chat-runtime-check", "exec")
+
+
+def test_connected_workflow_prompt_guidance_only_applies_when_tools_are_available(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.assistant_studio.operations_tools import install_prompt_guidance
+
+    def original(**kwargs):
+        return "Existing private system instructions."
+
+    chat = SimpleNamespace(build_system_prompt=original)
+    monkeypatch.setitem(sys.modules, "app.services.chat_service", chat)
+    install_prompt_guidance()
+    wrapped = chat.build_system_prompt
+    install_prompt_guidance()
+    assert wrapped is chat.build_system_prompt
+    assert chat.build_system_prompt(tools=False) == original()
+    assert chat.build_system_prompt(tools=True, capabilities={"available_tools_this_reply": []}) == original()
+    result = chat.build_system_prompt(tools=True, capabilities={"available_tools_this_reply": ["github_workspace"]})
+    assert result.startswith(original()) and "Use the user's actual connected" in result
+    assert "do not invent a security/privacy" in result
+    assert "Do not expand permissions" in result

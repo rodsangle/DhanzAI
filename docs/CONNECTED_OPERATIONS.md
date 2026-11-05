@@ -125,3 +125,25 @@ database and all Compose overlays. The updater waits for active builds/server
 tasks, runs offline schema/idempotency checks, and saves a rollback command. It
 does not queue or replay a server task. Start a new chat afterward so the old
 tool-error transcript does not influence the next reply.
+
+
+## GitHub coding from normal chat
+
+The updated operations chat tool adds `github_workspace`: list connected repositories,
+read a directory/file, list actual provider models, start a private coding draft,
+and inspect its status. This uses the same account-scoped encrypted GitHub connection,
+source snapshots, model validation, request limits and private builder as Chat with
+Codex. A request key is derived internally from the reply and repository, so repeating
+one start in the same reply does not create another model job. External coding generation
+still requires an available configured API model and is disabled in local-only mode.
+
+Starting a draft is an API model request, not an already finished code change. Existing
+standing publication grants can publish future matching drafts to a new branch/draft PR;
+without one the user reviews and publishes in Chat with Codex. The tool cannot merge,
+expand permissions or run arbitrary shell commands. Server execution still uses the
+paired named recipes. Prompt guidance is appended only when the workflow tool is actually
+available in that reply, preserving the existing private prompt implementation.
+
+Apply the latest `install_operations_chat.py --apply` to an original 0.9.8 or the earlier
+request-key repair. The installer recognizes both known source versions, replaces only
+the tool module in the current image and preserves browser assets, grants and pairing.
