@@ -95,6 +95,9 @@ def test_installer_is_additive_and_payload_matches():
     patched = module.patch_bootstrap(current)
     assert "    _install_spreadsheet_tools()" in patched
     assert module.patch_bootstrap(patched) == patched
+    previous = patched.replace("_DHANZ_SPREADSHEET_TOOLS_VERSION = 2", "_DHANZ_SPREADSHEET_TOOLS_VERSION = 1")
+    assert module.patch_bootstrap(previous) == patched
+    assert module.patch_bootstrap(previous).count("    _install_spreadsheet_tools()") == 1
     for name in ("spreadsheet_engine.py", "spreadsheet_tools.py", "operations_tools.py"):
         assert (
             module.payload()["app/assistant_studio/" + name]
@@ -163,3 +166,39 @@ def test_command_wizard_pins_script_and_rejects_overwrite(tmp_path):
     assert str(script) in task["verified_files"]
     with pytest.raises(ValueError):
         module.prepare({"custom_health": task}, "custom_health", "overwrite", "true", str(tmp_path))
+
+
+def test_existing_long_formula_does_not_block_formatting_or_totals():
+    from openpyxl import Workbook
+    from openpyxl.worksheet.formula import ArrayFormula
+
+    book = Workbook()
+    sheet = book.active
+    sheet["A1"] = "=SUM(" + ",".join(["1"] * 1100) + ")"
+    sheet["B1"] = ArrayFormula(ref="B1:B2", text="=SUM(1,2)")
+    stream = io.BytesIO()
+    book.save(stream)
+    output = engine.edit(
+        stream.getvalue(),
+        [
+            {"type": "format_range", "sheet": "Sheet", "range": "G1:AI31", "format": {"border": True}},
+            {"type": "set_formula", "sheet": "Sheet", "range": "G32:AI32", "formula": "=SUM(G2:G31)"},
+        ],
+    )
+    result = load_workbook(io.BytesIO(output)).active
+    assert result["A1"].value == sheet["A1"].value
+    assert result["B1"].value.text == "=SUM(1,2)"
+    assert result["G32"].value == "=SUM(G2:G31)"
+    assert result["AI32"].value == "=SUM(AI2:AI31)"
+    assert result["G2"].border.left.style == "thin"
+
+
+def test_existing_formula_error_identifies_original_cell():
+    from openpyxl import Workbook
+
+    book = Workbook()
+    book.active["C7"] = '=WEBSERVICE("https://example.com")'
+    stream = io.BytesIO()
+    book.save(stream)
+    with pytest.raises(ValueError, match=r"Existing formula in Sheet!C7"):
+        engine.inspect(stream.getvalue())

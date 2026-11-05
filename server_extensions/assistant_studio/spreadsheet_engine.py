@@ -19,8 +19,8 @@ FUNCTIONS = set(
 
 
 def formula(value):
-    if not isinstance(value, str) or not value.startswith("=") or len(value) > 2000:
-        raise ValueError("Use an Excel formula beginning with =, at most 2000 characters.")
+    if not isinstance(value, str) or not value.startswith("=") or len(value) > 8192:
+        raise ValueError("Use an Excel formula beginning with =, at most 8192 characters.")
     try:
         tokens = Tokenizer(value).items
     except Exception:
@@ -97,7 +97,17 @@ def load(data=None):
     for sheet in book:
         for cell in sheet._cells.values():
             if cell.data_type == "f":
-                formula(cell.value)
+                value = cell.value
+                # openpyxl represents array formulas as objects rather than strings.
+                if not isinstance(value, str):
+                    value = getattr(value, "text", None)
+                try:
+                    formula(value)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Existing formula in {sheet.title}!{cell.coordinate} cannot be safely preserved: {exc} "
+                        "This error concerns the uploaded workbook, not the requested formatting or new formula."
+                    ) from None
     return book
 
 
