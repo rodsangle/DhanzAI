@@ -13,7 +13,7 @@ def upgrade():
     op.create_table(
         "operation_servers",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("user_id", sa.JSON(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("name", sa.String(80), nullable=False),
         sa.Column("token_hash", sa.String(64), nullable=False, unique=True),
         sa.Column("tasks", sa.JSON(), nullable=False),
@@ -25,7 +25,7 @@ def upgrade():
     op.create_table(
         "operation_grants",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("user_id", sa.JSON(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("kind", sa.String(30), nullable=False),
         sa.Column("target", sa.String(200), nullable=False),
         sa.Column("scope", sa.JSON(), nullable=False),
@@ -38,7 +38,7 @@ def upgrade():
     op.create_table(
         "operation_jobs",
         sa.Column("id", sa.Uuid(), primary_key=True),
-        sa.Column("user_id", sa.JSON(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("user_id", sa.Uuid(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("grant_id", sa.Uuid(), sa.ForeignKey("operation_grants.id"), nullable=False),
         sa.Column("server_id", sa.Uuid(), sa.ForeignKey("operation_servers.id"), nullable=True),
         sa.Column("request_key", sa.String(100), nullable=False),

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter/services.dart';
@@ -92,25 +94,28 @@ class _ComposerState extends ConsumerState<Composer> {
       final archive = Archive();
       for (final file in files) {
         final bytes = await file.read();
-        if (bytes.length != file.size)
+        if (bytes.length != file.size) {
           throw const FormatException(
             'A file changed while selecting the folder. Select it again.',
           );
+        }
         archive.addFile(ArchiveFile(file.path, bytes.length, bytes));
       }
-      final data = ZipEncoder().encode(archive);
+      final data = Uint8List.fromList(ZipEncoder().encode(archive));
       final folder = files.first.path
           .split('/')
           .first
           .replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final folderName = folder.length > 80 ? folder.substring(0, 80) : folder;
       if (!mounted) return;
       await ref
           .read(chatControllerProvider.notifier)
-          .attachFile('$folder.dhanz-folder.zip', data);
+          .attachFile('$folderName.dhanz-folder.zip', data);
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$e')));
+      }
     } finally {
       if (mounted) setState(() => _folderBusy = false);
     }

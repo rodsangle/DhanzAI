@@ -50,11 +50,12 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
   Future<void> _load() async {
     try {
       final data = await ref.read(apiClientProvider).operations();
-      if (mounted)
+      if (mounted) {
         setState(() {
           _data = data;
           _error = null;
         });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }

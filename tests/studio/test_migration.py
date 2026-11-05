@@ -50,3 +50,26 @@ def test_coding_migration_is_additive_and_preserves_existing_project(tmp_path):
         assert "builder_projects" in inspect(conn).get_table_names()
         assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
     engine.dispose()
+
+
+def test_operations_migration_preserves_users_and_uses_uuid_foreign_keys(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "operations_migration", root / "server_extensions/migrations/0013_connected_operations.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = create_engine("sqlite:///" + str(tmp_path / "operations-migration.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id CHAR(32) PRIMARY KEY, email TEXT)"))
+        conn.execute(text("INSERT INTO users VALUES ('existing', 'keep@example.test')"))
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.upgrade()
+        for name in ("operation_servers", "operation_grants", "operation_jobs"):
+            fields = {c["name"]: c for c in inspect(conn).get_columns(name)}
+            assert str(fields["user_id"]["type"]) == "CHAR(32)"
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.downgrade()
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+    engine.dispose()

@@ -38,10 +38,11 @@ bool excludeFolderPath(String name) {
 
 List<FolderFile> checkedFolderFiles(List<FolderFile> files) {
   final allowed = files.where((f) => !excludeFolderPath(f.path)).toList();
-  if (allowed.isEmpty)
+  if (allowed.isEmpty) {
     throw const FormatException(
       'No files remain after excluding private and generated folders.',
     );
+  }
   if (allowed.length > 200 ||
       allowed.fold<int>(0, (total, f) => total + f.size) > 20 * 1024 * 1024) {
     throw const FormatException(
