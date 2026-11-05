@@ -61,7 +61,8 @@
     // Reload the actual loader URLs, not query-only copies: this replaces stale
     // entries in both HTTP cache and an old worker still controlling this page.
     for (const name of ['version.json', 'release.json', 'flutter_bootstrap.js', 'main.dart.js', 'flutter.js']) {
-      await fresh(name);
+      const response = await fresh(name);
+      await response.arrayBuffer(); // finish the download/cache write before navigating
     }
     if (compare(await served(), minimum) < 0) throw new Error('The server build changed during refresh. Please retry.');
     destination.searchParams.set('dhanz_update', minimum.version + '-' + minimum.build + '-' + Date.now());
