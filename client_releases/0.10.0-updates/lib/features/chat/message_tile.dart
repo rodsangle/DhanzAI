@@ -64,6 +64,7 @@ class MessageTile extends StatelessWidget {
                     for (final a in message.attachments)
                       AttachmentChip(
                         documentId: a.id,
+                        previewEnabled: true,
                         filename: a.filename,
                         fileType: a.fileType,
                       ),

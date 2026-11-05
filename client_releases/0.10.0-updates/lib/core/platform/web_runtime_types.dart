@@ -1,10 +1,10 @@
 const runningWebVersion = String.fromEnvironment(
   'DHANZ_WEB_VERSION',
-  defaultValue: '0.10.0',
+  defaultValue: '0.10.1',
 );
 const runningWebBuild = int.fromEnvironment(
   'DHANZ_WEB_BUILD',
-  defaultValue: 30,
+  defaultValue: 31,
 );
 
 typedef WebBuild = ({String version, int build});

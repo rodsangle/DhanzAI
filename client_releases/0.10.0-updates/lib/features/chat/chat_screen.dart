@@ -23,6 +23,8 @@ import 'chat_suggestions.dart';
 import 'composer.dart';
 import 'daily_news_button.dart';
 import 'message_tile.dart';
+import 'attachment_chip.dart';
+import 'chat_preview.dart';
 
 const _wideBreakpoint = 900.0;
 
@@ -38,6 +40,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
+  final _preview = ChatPreviewController();
+  int? _previewRevision;
   bool _dragging = false;
   List<String> _suggestions = randomChatSuggestions();
   bool get _windows =>
@@ -79,6 +83,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
 
   @override
   void dispose() {
+    _preview.dispose();
     if (_windows) windowManager.removeListener(this);
     super.dispose();
   }
@@ -141,6 +146,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
     final chat = ref.watch(chatControllerProvider);
+    if (_previewRevision != chat.viewRevision) {
+      _previewRevision = chat.viewRevision;
+      _preview.clear(notify: false);
+    }
 
     ref.listen(chatControllerProvider.select((state) => state.conversationId), (
       _,
@@ -271,6 +280,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
+        AnimatedBuilder(
+          animation: _preview,
+          builder: (context, _) => IconButton(
+            tooltip: _preview.visible ? 'Close preview' : 'Preview',
+            icon: const Icon(Icons.vertical_split_outlined),
+            isSelected: _preview.visible,
+            onPressed: _preview.visible ? _preview.close : _preview.show,
+          ),
+        ),
         if (chat.conversationId == null)
           IconButton(
             tooltip: chat.temporary ? 'Temporary chat on' : 'Temporary chat',
@@ -290,6 +308,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
           tooltip: 'New chat',
           icon: const Icon(Icons.edit_square),
           onPressed: () {
+            _preview.clear();
             ref.read(chatControllerProvider.notifier).open(null);
             context.go('/chat');
           },
@@ -297,6 +316,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
       ],
     );
 
+    final previewBody = ChatPreviewHost(
+      controller: _preview,
+      previewBuilder: (context, target) => FilePreviewContent(
+        documentId: target.documentId,
+        filename: target.filename,
+        embedded: true,
+      ),
+      child: body,
+    );
     if (wide) {
       return Scaffold(
         body: Row(
@@ -304,7 +332,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             const SizedBox(width: 300, child: ConversationPanel()),
             const VerticalDivider(width: 1),
             Expanded(
-              child: Scaffold(appBar: appBar, body: body),
+              child: Scaffold(appBar: appBar, body: previewBody),
             ),
           ],
         ),
@@ -316,7 +344,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
         width: 320,
         child: ConversationPanel(inDrawer: true),
       ),
-      body: body,
+      body: previewBody,
     );
   }
 }
