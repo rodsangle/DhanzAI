@@ -57,9 +57,10 @@ class _ComposerState extends ConsumerState<Composer> {
       final files = await pickFiles();
       queue.files(files, ticket: ticket, projectId: project, target: target);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 

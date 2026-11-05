@@ -103,8 +103,9 @@ class UploadsScreen extends ConsumerWidget {
                                       ],
                                     ),
                                   );
-                                  if (confirmed == true && context.mounted)
+                                  if (confirmed == true && context.mounted) {
                                     queue.retry(job.id);
+                                  }
                                 },
                                 child: const Text('Retry upload'),
                               ),

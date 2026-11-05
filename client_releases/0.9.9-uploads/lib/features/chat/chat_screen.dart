@@ -58,9 +58,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
       );
       queue.files(files, ticket: ticket, projectId: project, target: target);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 
@@ -100,8 +101,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     final id = await ref
         .read(chatControllerProvider.notifier)
         .send(text, webOverride: webOverride);
-    if (id != null && id != widget.conversationId && mounted)
+    if (id != null && id != widget.conversationId && mounted) {
       context.go('/chat/$id');
+    }
   }
 
   void _continueInCodex(String text) {
@@ -144,8 +146,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
       _,
       id,
     ) {
-      if (id != null && id != widget.conversationId && mounted)
+      if (id != null && id != widget.conversationId && mounted) {
         context.go('/chat/$id');
+      }
     });
 
     ref.listen(chatControllerProvider.select((s) => s.notice), (_, notice) {

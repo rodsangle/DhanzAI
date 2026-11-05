@@ -686,8 +686,9 @@ class ChatController extends Notifier<ChatState> {
           ),
         );
       case 'delta':
-        if (state.researchStatus != null)
+        if (state.researchStatus != null) {
           state = state.copyWith(researchStatus: () => null);
+        }
         _updateLast(
           (m) => m.copyWith(content: m.content + (d['text'] as String)),
         );

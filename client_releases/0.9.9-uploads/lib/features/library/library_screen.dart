@@ -167,10 +167,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       final files = await pickFiles();
       if (files.isEmpty) return;
       queue.files(files, ticket: ticket, projectId: projectId);
-      if (mounted)
+      if (mounted) {
         _snack(
           'Uploads queued. You can switch chats; see Uploads for progress.',
         );
+      }
     } catch (error) {
       if (mounted) _snack('$error');
     }

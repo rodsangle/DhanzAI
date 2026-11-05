@@ -41,13 +41,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
       if (location == '/local') return null;
-      if (auth.isLoading || auth.hasError)
+      if (auth.isLoading || auth.hasError) {
         return location == '/splash' ? null : '/splash';
+      }
       final signedIn = auth.value != null;
-      if (!signedIn)
+      if (!signedIn) {
         return _publicRoutes.contains(location) ? null : '/welcome';
-      if (_publicRoutes.contains(location) || location == '/splash')
+      }
+      if (_publicRoutes.contains(location) || location == '/splash') {
         return '/chat';
+      }
       return null;
     },
     routes: [

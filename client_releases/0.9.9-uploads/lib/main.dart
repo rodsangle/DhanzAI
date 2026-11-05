@@ -34,10 +34,11 @@ Future<void> main() async {
   final desktop = await createDesktopShell(
     minimizeToTray: await store.read(StoreKeys.minimizeToTray) == 'true',
   );
-  if (desktop != null)
+  if (desktop != null) {
     overrides.add(
       desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)),
     );
+  }
   runApp(ProviderScope(overrides: overrides, child: const DhanzApp()));
 }
 
@@ -113,8 +114,9 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
 
   void _open(String location) {
     ref.read(routerProvider).go(location);
-    if (location.startsWith('/chat/'))
+    if (location.startsWith('/chat/')) {
       unawaited(ref.read(chatControllerProvider.notifier).refresh());
+    }
   }
 
   @override
