@@ -46,12 +46,12 @@ class _ComposerState extends ConsumerState<Composer> {
     if (_pasteBusy) {
       return;
     }
-    final queue = ref.read(uploadQueueProvider.notifier);
-    final ticket = queue.ticket();
-    final project = ref.read(selectedProjectProvider);
-    final target = ref.read(chatControllerProvider.notifier).uploadTarget;
     setState(() => _pasteBusy = true);
     try {
+      final queue = ref.read(uploadQueueProvider.notifier);
+      final ticket = queue.ticket();
+      final project = ref.read(selectedProjectProvider);
+      final target = ref.read(chatControllerProvider.notifier).uploadTarget;
       final sources = images ?? await readClipboardImages();
       validateClipboardImages(sources);
       final files = await Future.wait(

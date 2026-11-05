@@ -5,6 +5,7 @@ import 'package:dhanz_ai/core/clipboard_images_types.dart';
 import 'package:dhanz_ai/core/providers.dart';
 import 'package:dhanz_ai/core/storage/secure_store.dart';
 import 'package:dhanz_ai/features/chat/workbook_preview.dart';
+import 'package:dhanz_ai/features/chat/chat_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -119,9 +120,65 @@ void main() {
     expect(api.edits.first.single['type'], 'set_formula');
   });
 
+  testWidgets(
+    'closing warns about unsaved edits and saving updates the preview target',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final api = WorkbookApi();
+      final controller = ChatPreviewController();
+      addTearDown(controller.dispose);
+      await controller.open(
+        const ChatPreviewTarget(documentId: 'source', filename: 'Source.xlsx'),
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [apiClientProvider.overrideWithValue(api)],
+          child: MaterialApp(
+            theme: ThemeData.dark(),
+            home: Scaffold(
+              body: ChatPreviewHost(
+                controller: controller,
+                child: const SizedBox(),
+                previewBuilder: (_, target) => WorkbookPreview(
+                  documentId: target.documentId,
+                  filename: target.filename,
+                  downloadBuilder: (id, name) => Text('Download $id'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        Theme.of(tester.element(find.text('Workbook'))).brightness,
+        Brightness.light,
+      );
+      await tester.enterText(field('Cell / range'), 'B3');
+      await tester.enterText(field('Value or formula'), '7');
+      await tester.tap(find.byTooltip('Apply value or formula'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Close preview'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard unsaved changes?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save copy (1)'));
+      await tester.pumpAndSettle();
+      expect(controller.target?.documentId, 'copy');
+      await tester.tap(find.byTooltip('Close preview'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('chat-preview-panel')), findsNothing);
+    },
+  );
+
   test('bounded ranges and clipboard image validation', () {
     expect(workbookRange('G33:AI33'), (7, 33, 35, 33));
     expect(workbookValue('0001'), '0001');
+    expect(workbookValue('12345678901234567'), '12345678901234567');
     expect(workbookValue('10'), 10);
     expect(workbookValue('2.5'), 2.5);
     expect(

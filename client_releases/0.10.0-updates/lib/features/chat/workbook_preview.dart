@@ -45,10 +45,17 @@ String excelColumn(int value) {
 }
 
 Object? workbookValue(String text) {
-  if (text.isEmpty) return null;
+  if (text.isEmpty) {
+    return null;
+  }
+  if (!text.contains('.') && text.replaceAll('-', '').length > 15) {
+    return text;
+  }
   if (RegExp(r'^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$').hasMatch(text)) {
     final value = num.tryParse(text);
-    if (value != null && value.isFinite) return value;
+    if (value != null && value.isFinite) {
+      return value;
+    }
   }
   return text;
 }
@@ -57,16 +64,22 @@ String workbookDisplay(Map<String, dynamic> cell) {
   final value = cell['value'];
   final format = (cell['format'] as Map?)?['number_format'];
   if (value is num && value.isFinite) {
-    if (format == '0.00') return value.toStringAsFixed(2);
-    if (format == '0.00%') return '${(value * 100).toStringAsFixed(2)}%';
-    if (format == r'$#,##0.00')
+    if (format == '0.00') {
+      return value.toStringAsFixed(2);
+    }
+    if (format == '0.00%') {
+      return '${(value * 100).toStringAsFixed(2)}%';
+    }
+    if (format == r'$#,##0.00') {
       return NumberFormat.currency(
         symbol: r'$',
         decimalDigits: 2,
       ).format(value);
-    if (format == 'yyyy-mm-dd' && value >= 1 && value <= 2958465)
+    }
+    if (format == 'yyyy-mm-dd' && value >= 1 && value <= 2958465) {
       return DateFormat('yyyy-MM-dd')
           .format(DateTime(1899, 12, 30).add(Duration(days: value.floor())));
+    }
   }
   return '${value ?? ''}';
 }
@@ -494,7 +507,7 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
 
   Widget _tool(String label, IconData icon, VoidCallback action) =>
       TextButton.icon(
-        onPressed: _saving || _data == null ? null : action,
+        onPressed: _saving || _loading || _data == null ? null : action,
         icon: Icon(icon, size: 17),
         label: Text(label),
       );
@@ -510,7 +523,7 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
     );
     return Theme(
       data: theme,
-      child: ColoredBox(
+      child: Material(
         color: const Color(0xfff3f3f3),
         child: Column(
           children: [
@@ -950,8 +963,9 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
     final widths = Map<String, dynamic>.from(_data?['widths'] as Map? ?? {});
     final heights = Map<String, dynamic>.from(_data?['heights'] as Map? ?? {});
     for (final action in _actions.take(_cursor)) {
-      if (action['sheet'] != _sheet || action['type'] != 'format_range')
+      if (action['sheet'] != _sheet || action['type'] != 'format_range') {
         continue;
+      }
       final options = action['format'] as Map;
       final (a, b, c, d) = workbookRange(action['range'] as String);
       if (options['column_width'] != null) {

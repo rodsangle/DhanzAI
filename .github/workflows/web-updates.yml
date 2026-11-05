@@ -18,9 +18,9 @@ concurrency:
 
 env:
   APP_DIR: client_releases/0.10.0-updates
-  RELEASE_ID: web-updates-0.10.2-preview.2
+  RELEASE_ID: web-updates-0.10.2-preview.3
   WEB_VERSION: "0.10.2"
-  WEB_BUILD: "34"
+  WEB_BUILD: "35"
 
 jobs:
   build:
