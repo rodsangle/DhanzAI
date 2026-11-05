@@ -3,11 +3,14 @@
 import json
 import shutil
 import subprocess
+import sys
 
 tests = {}
 process = subprocess.Popen(  # noqa: S603 - fixed Flutter test command, no shell
-    [shutil.which("flutter") or "/missing-flutter", "test", "--no-pub", "--reporter=json"],
-    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    [shutil.which("flutter") or "/missing-flutter", "test", "--no-pub", "--reporter=json", *sys.argv[1:]],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
 )
 
 
@@ -20,6 +23,8 @@ for line in process.stdout:
         event = json.loads(line)
     except ValueError:
         print(line, end="", flush=True)
+        if ": Error:" in line or "Error:" in line:
+            print("::error title=Browser test compiler::" + escape(line.strip()[:700]), flush=True)
         continue
     if event.get("type") == "testStart":
         tests[event["test"]["id"]] = event["test"]["name"]

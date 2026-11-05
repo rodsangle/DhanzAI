@@ -124,7 +124,7 @@ class _ComposerState extends ConsumerState<Composer> {
   void _submit() {
     final chat = ref.read(chatControllerProvider);
     var text = _controller.text;
-    if (_folderBusy || chat.uploading > 0 || chat.loading) {
+    if (_folderBusy || _pasteBusy || chat.uploading > 0 || chat.loading) {
       return;
     }
     if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
@@ -262,7 +262,7 @@ class _ComposerState extends ConsumerState<Composer> {
                     : Icons.create_new_folder_outlined,
               ),
               label: Text(_folderBusy ? 'Preparing folder…' : 'Upload folder'),
-              onPressed: _folderBusy || chat.loading || chat.uploading > 0
+              onPressed: _folderBusy || _pasteBusy || chat.loading || chat.uploading > 0
                   ? null
                   : _attachFolder,
             ),
@@ -341,7 +341,7 @@ class _ComposerState extends ConsumerState<Composer> {
                   tooltip: chat.streaming ? 'Queue prompt' : 'Send',
                   icon: const Icon(Icons.arrow_upward_rounded),
                   onPressed:
-                      _folderBusy ||
+                      _folderBusy || _pasteBusy ||
                           (_controller.text.trim().isEmpty &&
                               chat.attachments.isEmpty) ||
                           chat.uploading > 0 ||

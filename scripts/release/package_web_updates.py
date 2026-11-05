@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "client_releases/0.10.0-updates"
 WEB = APP / "build/web"
 OUTPUT = ROOT / "dist/web-updates"
-RELEASE = "web-updates-0.10.2-preview.3"
+RELEASE = "web-updates-0.10.2-preview.4"
 PACKAGE = "dhanz-web-0.10.2-update.zip"
 
 
@@ -26,7 +26,7 @@ def main():
         if not (WEB / name).is_file():
             raise ValueError("A complete compiled browser build is required.")
     metadata = json.loads((WEB / "version.json").read_text())
-    if metadata.get("version") != "0.10.2" or str(metadata.get("build_number")) != "35":
+    if metadata.get("version") != "0.10.2" or str(metadata.get("build_number")) != "36":
         raise ValueError("Unexpected browser version/build.")
     digest = hashlib.sha256()
     for path in sorted(APP.rglob("*")):
@@ -70,7 +70,7 @@ def main():
                 "schema": 1,
                 "protocol": 1,
                 "version": "0.10.2",
-                "build": 35,
+                "build": 36,
                 "release": RELEASE,
                 "asset": PACKAGE,
                 "sha256": hashlib.sha256(package.read_bytes()).hexdigest(),
