@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser, DbDep, SettingsDep
@@ -86,6 +86,14 @@ async def pair(body: PairInput, user: CurrentUser, db: DbDep):
 async def disconnect(identifier: uuid.UUID, user: CurrentUser, db: DbDep):
     row = await service.owned(db, OperationServer, user.id, identifier)
     row.revoked = True
+    await db.execute(
+        update(OperationJob)
+        .where(
+            OperationJob.server_id == row.id,
+            OperationJob.status == "queued",
+        )
+        .values(status="cancelled", detail="Server disconnected before execution.", finished_at=utcnow())
+    )
     await db.commit()
     return {"status": "revoked"}
 
@@ -131,6 +139,14 @@ async def grant(body: GrantInput, user: CurrentUser, db: DbDep, settings: Settin
 async def revoke(identifier: uuid.UUID, user: CurrentUser, db: DbDep):
     row = await service.owned(db, OperationGrant, user.id, identifier)
     row.revoked = True
+    await db.execute(
+        update(OperationJob)
+        .where(
+            OperationJob.grant_id == row.id,
+            OperationJob.status == "queued",
+        )
+        .values(status="cancelled", detail="Permission revoked before execution.", finished_at=utcnow())
+    )
     await db.commit()
     return service.public(row)
 

@@ -270,6 +270,11 @@ def test_operations_installer_payload_and_bootstrap_preserve_custom_features():
     patched = installer.patch_bootstrap(source + "\n# custom weather and OCR remain\n")
     assert "# custom weather and OCR remain" in patched and "_install_coding_workspace(app)" in patched
     assert installer.patch_bootstrap(patched) == patched
+    import ast
+
+    for node in ast.walk(ast.parse((root / "deploy/updaters/install_connected_operations.py").read_text())):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and "asyncio.run(main())" in node.value:
+            compile(node.value, "installer-runtime-check", "exec")
     packet = installer.payload()
     for relative, content in packet.items():
         if relative.startswith("app/"):

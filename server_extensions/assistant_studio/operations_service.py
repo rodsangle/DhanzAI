@@ -13,8 +13,10 @@ from datetime import timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.db.base import utcnow
+from app.models import User
 from app.services import github_service as gh
 
 from . import coding_service as coding
@@ -75,6 +77,9 @@ async def server_auth(db, token):
     )
     if row is None:
         raise HTTPException(401, "Server connection is invalid or revoked.")
+    user = await db.get(User, row.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(401, "Server account is inactive.")
     return row
 
 
@@ -120,7 +125,16 @@ async def enqueue(db, user_id, grant_id, request_key):
         manifest_hash=recipe["manifest_hash"],
     )
     db.add(job)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        existing = await db.scalar(
+            select(OperationJob).where(OperationJob.user_id == user_id, OperationJob.request_key == request_key)
+        )
+        if existing and existing.grant_id == grant_id:
+            return existing
+        raise HTTPException(409, "Operation changed concurrently. Refresh before retrying.") from None
     return job
 
 
@@ -178,6 +192,9 @@ async def claim(db, server):
 
 
 async def publish_granted(db, settings, row, grant):
+    user = await db.get(User, grant.user_id)
+    if user is None or not user.is_active or row.user_id != grant.user_id:
+        return
     project = await db.get(BuilderProject, row.project_id)
     if not project or project.status != "complete":
         return
