@@ -826,7 +826,7 @@ class ApiClient {
   }) async => await _json(
     'GET',
     '/spreadsheets/$id',
-    query: {'area': area, if (sheet != null) 'sheet': sheet},
+    query: {'area': area, 'sheet': ?sheet},
   ) as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> saveWorkbook(

@@ -135,7 +135,7 @@ void main() {
       tester.getSize(find.byKey(const ValueKey('chat-preview-panel'))).width,
       390,
     );
-    controller.open(
+    await controller.open(
       const ChatPreviewTarget(documentId: 'two', filename: 'Other.xlsx'),
     );
     await tester.pump();

@@ -6,6 +6,7 @@ import json
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 
@@ -34,6 +35,7 @@ def page(data, sheet, area):
     if (c - a + 1) * (d - b + 1) > 2500:
         raise ValueError("View at most 2500 cells at once.")
     selected = book[sheet]
+    row_count, column_count = selected.max_row, selected.max_column
     cells = []
     for row in selected.iter_rows(min_row=b, max_row=d, min_col=a, max_col=c):
         for cell in row:
@@ -65,11 +67,30 @@ def page(data, sheet, area):
                     },
                 }
             )
+    widths = {}
+    for column in range(a, c + 1):
+        dimension = next(
+            (
+                value
+                for value in selected.column_dimensions.values()
+                if value.min and value.max and value.min <= column <= value.max
+            ),
+            None,
+        )
+        widths[get_column_letter(column)] = (
+            dimension.width if dimension is not None else (selected.sheet_format.defaultColWidth or 13)
+        )
+    heights = {
+        str(row): selected.row_dimensions[row].height or selected.sheet_format.defaultRowHeight or 15
+        for row in range(b, d + 1)
+    }
     return {
+        "widths": widths,
+        "heights": heights,
         "sheet": sheet,
         "sheets": book.sheetnames,
-        "rows": selected.max_row,
-        "columns": selected.max_column,
+        "rows": row_count,
+        "columns": column_count,
         "range": area,
         "cells": cells,
         "note": "Formulas are saved without server calculation. Excel recalculates on opening.",

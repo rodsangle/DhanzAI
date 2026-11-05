@@ -121,6 +121,16 @@ void main() {
 
   test('bounded ranges and clipboard image validation', () {
     expect(workbookRange('G33:AI33'), (7, 33, 35, 33));
+    expect(workbookValue('0001'), '0001');
+    expect(workbookValue('10'), 10);
+    expect(workbookValue('2.5'), 2.5);
+    expect(
+      workbookDisplay({
+        'value': 0.5,
+        'format': {'number_format': '0.00%'},
+      }),
+      '50.00%',
+    );
     expect(() => workbookRange('A:AI'), throwsFormatException);
     ClipboardImageSource image(String mime, int size) => ClipboardImageSource(
       name: 'clip.png',

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
@@ -41,6 +42,33 @@ String excelColumn(int value) {
     );
   }
   return (a, b, c, d);
+}
+
+Object? workbookValue(String text) {
+  if (text.isEmpty) return null;
+  if (RegExp(r'^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$').hasMatch(text)) {
+    final value = num.tryParse(text);
+    if (value != null && value.isFinite) return value;
+  }
+  return text;
+}
+
+String workbookDisplay(Map<String, dynamic> cell) {
+  final value = cell['value'];
+  final format = (cell['format'] as Map?)?['number_format'];
+  if (value is num && value.isFinite) {
+    if (format == '0.00') return value.toStringAsFixed(2);
+    if (format == '0.00%') return '${(value * 100).toStringAsFixed(2)}%';
+    if (format == r'$#,##0.00')
+      return NumberFormat.currency(
+        symbol: r'$',
+        decimalDigits: 2,
+      ).format(value);
+    if (format == 'yyyy-mm-dd' && value >= 1 && value <= 2958465)
+      return DateFormat('yyyy-MM-dd')
+          .format(DateTime(1899, 12, 30).add(Duration(days: value.floor())));
+  }
+  return '${value ?? ''}';
 }
 
 class WorkbookPreview extends ConsumerStatefulWidget {
@@ -219,12 +247,7 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
     }
     try {
       final (a, b, c, d) = workbookRange(_range.text);
-      Object? value = text;
-      if (text.isEmpty) {
-        value = null;
-      } else if (RegExp(r'^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$').hasMatch(text)) {
-        value = num.tryParse(text) ?? text;
-      }
+      final value = workbookValue(text);
       _stage({
         'type': 'set_cells',
         'values': List.generate(
@@ -327,8 +350,35 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
       final area =
           '${excelColumn(a)}$b:${excelColumn(a + width - 1)}${b + values.length - 1}';
       workbookRange(area);
+      final formulas = <Map<String, dynamic>>[];
+      for (var y = 0; y < values.length; y++) {
+        for (var x = 0; x < width; x++) {
+          if (values[y][x].startsWith('=')) {
+            formulas.add({
+              'type': 'set_formula',
+              'range': '${excelColumn(a + x)}${b + y}',
+              'formula': values[y][x],
+            });
+          }
+        }
+      }
+      if (_cursor + 1 + formulas.length > 40) {
+        _snack(
+          'This paste exceeds the 40-change save limit. Save first or paste fewer formula cells.',
+        );
+        return;
+      }
       _range.text = area;
-      _stage({'type': 'set_cells', 'values': values});
+      _stage({
+        'type': 'set_cells',
+        'values': [
+          for (final row in values)
+            [for (final value in row) workbookValue(value)],
+        ],
+      });
+      for (final formula in formulas) {
+        _stage(formula);
+      }
     } catch (_) {
       _snack('Clipboard cells could not be pasted into this range.');
     }
@@ -897,6 +947,24 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
 
   Widget _grid() {
     final cells = _cells();
+    final widths = Map<String, dynamic>.from(_data?['widths'] as Map? ?? {});
+    final heights = Map<String, dynamic>.from(_data?['heights'] as Map? ?? {});
+    for (final action in _actions.take(_cursor)) {
+      if (action['sheet'] != _sheet || action['type'] != 'format_range')
+        continue;
+      final options = action['format'] as Map;
+      final (a, b, c, d) = workbookRange(action['range'] as String);
+      if (options['column_width'] != null) {
+        for (var x = a; x <= c; x++) {
+          widths[excelColumn(x)] = options['column_width'];
+        }
+      }
+      if (options['row_height'] != null) {
+        for (var y = b; y <= d; y++) {
+          heights['$y'] = options['row_height'];
+        }
+      }
+    }
     final endCol = min(_col + 39, 256), endRow = min(_row + 49, 20000);
     (int, int, int, int)? selection;
     try {
@@ -909,7 +977,17 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
           scrollDirection: Axis.horizontal,
           child: Table(
             defaultColumnWidth: FixedColumnWidth(110 * _zoom),
-            columnWidths: {0: FixedColumnWidth(44 * _zoom)},
+            columnWidths: {
+              0: FixedColumnWidth(44 * _zoom),
+              for (var x = _col; x <= endCol; x++)
+                x - _col + 1: FixedColumnWidth(
+                  (((widths[excelColumn(x)] as num?)?.toDouble() ?? 13) *
+                          7 *
+                          _zoom)
+                      .clamp(50.0, 600.0)
+                      .toDouble(),
+                ),
+            },
             border: TableBorder.all(color: const Color(0xffdedede), width: 0.5),
             children: [
               TableRow(
@@ -971,7 +1049,13 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
                             },
                             child: Container(
                               constraints: BoxConstraints(
-                                minHeight: 30 * _zoom,
+                                minHeight:
+                                    (((heights['$y'] as num?)?.toDouble() ??
+                                                15) *
+                                            1.333 *
+                                            _zoom)
+                                        .clamp(24.0, 300.0)
+                                        .toDouble(),
                               ),
                               padding: const EdgeInsets.all(5),
                               decoration: BoxDecoration(
@@ -983,7 +1067,9 @@ class _WorkbookPreviewState extends ConsumerState<WorkbookPreview> {
                                     : null,
                               ),
                               child: Text(
-                                '${cell['value'] ?? ''}',
+                                workbookDisplay(
+                                  Map<String, dynamic>.from(cell),
+                                ),
                                 maxLines: format['wrap_text'] == true ? 5 : 1,
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: switch (format['horizontal']) {
