@@ -81,6 +81,9 @@ its server queue/results and cannot list chats, create permissions or read GitHu
 Store its private config under `~/.local/share/dhanz-server-companion` (mode 600).
 
 Execution consumes a grant use once. A request key deduplicates ambiguous retries.
+Chat generates its keys internally from the assistant reply and permission;
+users never need to invent or supply them. Repeated calls for the same permission
+within a reply return the same job. A new user request can start a new job.
 Server jobs are claimed once, and a durable local SQLite journal is written before
 starting the command. Lost results do not cause execution to be replayed. Queued jobs
 expire after five minutes; missing long-running results become uncertain after
@@ -111,3 +114,14 @@ back to opening the site on Edge/Chrome on the PC.
 Reply Markdown now shares one selection region across paragraphs and highlighted
 code. Drag the mouse and press Ctrl+C or use the selection menu. Existing Copy,
 Share, read-aloud and feedback controls remain available.
+
+## Repair for early 0.9.8 chat tools
+
+If chat asks the user for a request key, apply
+`deploy/updaters/install_operations_chat.py --apply` on AWS. This checksum-checks
+and replaces only the original operations tool module in an image derived from
+the current API. It retains the browser, companion token/configuration, grants,
+database and all Compose overlays. The updater waits for active builds/server
+tasks, runs offline schema/idempotency checks, and saves a rollback command. It
+does not queue or replay a server task. Start a new chat afterward so the old
+tool-error transcript does not influence the next reply.

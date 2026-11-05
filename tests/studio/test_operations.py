@@ -285,3 +285,105 @@ def test_operations_installer_payload_and_bootstrap_preserve_custom_features():
             assert relative.startswith("companion/")
             path = root / "apps/server_companion" / Path(relative).name
         assert content == path.read_text()
+
+
+@pytest.mark.asyncio
+async def test_chat_generates_keys_and_deduplicates_reconstructed_reply_context(operations, monkeypatch):
+    from app.assistant_studio import operations_tools
+    from app.services import assistant_tools as tools
+
+    # Keep the process-global registry unchanged after testing registration.
+    monkeypatch.setattr(tools, "TOOLS", dict(tools.TOOLS))
+    operations_tools.install_tools()
+    tool = tools.TOOLS["run_connected_task"]
+    assert "request_key" not in tool.spec.parameters["properties"]
+    assert tool.spec.parameters["required"] == ["grant_id"]
+    client, maker, users = operations
+    packet, token, task = await paired(client)
+    grant = await granted(client, packet, uses=3)
+    reply = uuid.uuid4()
+
+    def context(reply_id=reply):
+        ctx = tools.ToolContext(maker, users[0].id, uuid.UUID(int=77))
+        ctx.assistant_message_id = reply_id
+        return ctx
+
+    first = await tool.run(context(), {"grant_id": grant["id"]})
+    # Legacy model arguments cannot turn an internal key mistake into a user question
+    # or create a second action, even if the context object is reconstructed.
+    retry = await tool.run(context(), {"grant_id": grant["id"], "request_key": "bad"})
+    assert first.data["id"] == retry.data["id"]
+    fresh = await tool.run(context(uuid.uuid4()), {"grant_id": grant["id"]})
+    assert fresh.data["id"] != first.data["id"]
+    async with maker() as db:
+        rows = list(await db.scalars(select(OperationJob)))
+        assert len(rows) == 2 and all(len(row.request_key) == 37 for row in rows)
+        assert (await db.get(OperationGrant, uuid.UUID(grant["id"]))).remaining == 1
+
+
+def test_legacy_tool_context_retains_generated_key_within_reply():
+    from types import SimpleNamespace
+
+    from app.assistant_studio.operations_tools import request_key
+
+    grant = uuid.uuid4()
+    ctx = SimpleNamespace(user_id=uuid.uuid4(), conversation_id=uuid.uuid4())
+    key = request_key(ctx, grant)
+    assert key == request_key(ctx, grant) and len(key) == 37
+    assert key != request_key(ctx, uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_chat_retry_after_uncertain_enqueue_does_not_consume_another_use(operations, monkeypatch):
+    from app.assistant_studio import operations_tools
+    from app.services import assistant_tools as tools
+
+    monkeypatch.setattr(tools, "TOOLS", dict(tools.TOOLS))
+    operations_tools.install_tools()
+    tool = tools.TOOLS["run_connected_task"]
+    client, maker, users = operations
+    packet, token, task = await paired(client)
+    grant = await granted(client, packet, uses=1)
+    enqueue = service.enqueue
+    calls = 0
+
+    async def interrupted(*args):
+        nonlocal calls
+        row = await enqueue(*args)
+        calls += 1
+        if calls == 1:
+            raise HTTPException(502, "Result unavailable; inspect the task before retrying.")
+        return row
+
+    monkeypatch.setattr(service, "enqueue", interrupted)
+    ctx = tools.ToolContext(maker, users[0].id, uuid.uuid4())
+    ctx.assistant_message_id = uuid.uuid4()
+    with pytest.raises(tools.ToolInputError, match="Result unavailable"):
+        await tool.run(ctx, {"grant_id": grant["id"]})
+    result = await tool.run(ctx, {"grant_id": grant["id"]})
+    assert result.data["status"] == "queued"
+    async with maker() as db:
+        assert len(list(await db.scalars(select(OperationJob)))) == 1
+        assert (await db.get(OperationGrant, uuid.UUID(grant["id"]))).remaining == 0
+
+
+def test_operations_chat_repair_installer_matches_module_and_validates_runtime_probes():
+    import ast
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[2]
+    path = root / "deploy/updaters/install_operations_chat.py"
+    spec = importlib.util.spec_from_file_location("operations_chat_installer", path)
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    assert installer.source() == (root / "server_extensions/assistant_studio/operations_tools.py").read_text()
+    assert installer.supported(installer.source()) is False
+    with pytest.raises(ValueError, match="differs"):
+        installer.supported("unknown custom source must not be overwritten")
+    for node in ast.walk(ast.parse(path.read_text())):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith(("\nimport asyncio", "\nimport base64", "\nfrom app.assistant_studio"))
+        ):
+            compile(node.value, "operations-chat-runtime-check", "exec")

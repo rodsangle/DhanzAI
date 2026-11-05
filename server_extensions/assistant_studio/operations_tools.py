@@ -8,6 +8,26 @@ from sqlalchemy import select
 from . import operations_service as service
 from .operations_models import OperationGrant, OperationJob
 
+_DHANZ_OPERATIONS_CHAT_VERSION = 2
+
+
+def request_key(ctx, grant_id):
+    """One execution per grant per assistant reply, independent of model arguments.
+
+    The persisted reply ID survives context reconstruction. Older contexts without
+    that field share a random key on the same context object for the reply.
+    """
+    reply = getattr(ctx, "assistant_message_id", None)
+    if reply is not None:
+        identity = f"dhanz-operation:{ctx.user_id}:{ctx.conversation_id}:{reply}:{grant_id}"
+        return "chat_" + uuid.uuid5(uuid.NAMESPACE_URL, identity).hex
+    keys = getattr(ctx, "_dhanz_operation_keys", None)
+    if keys is None:
+        keys = {}
+        ctx._dhanz_operation_keys = keys
+    identity = (str(ctx.user_id), str(ctx.conversation_id), str(grant_id))
+    return keys.setdefault(identity, "chat_" + uuid.uuid4().hex)
+
 
 def install_tools():
     from app.services import assistant_tools as tools
@@ -35,11 +55,7 @@ def install_tools():
     async def run(ctx, args):
         try:
             identifier = uuid.UUID(str(args.get("grant_id", "")))
-            key = str(args.get("request_key", ""))
-            import re
-
-            if not re.fullmatch(r"[A-Za-z0-9_-]{16,100}", key):
-                raise ValueError("Use a unique request key of 16–100 letters, digits, underscores or hyphens.")
+            key = request_key(ctx, identifier)
             async with ctx.maker() as db:
                 row = await service.enqueue(db, ctx.user_id, identifier, key)
                 return tools.ToolOutcome(service.public(row), "Queued authorized server task")
@@ -50,6 +66,8 @@ def install_tools():
         ToolSpec(
             "connected_operations",
             "List this user's standing permissions and actual server task results. "
+            "For AWS/server health, restart or approved deployment requests, check these connections before "
+            "asking for instance IDs or AWS CLI details. "
             "Never claim a queued task completed. Permissions are configured by the user in Connected operations.",
             {"type": "object", "properties": {}, "additionalProperties": False},
         ),
@@ -61,12 +79,14 @@ def install_tools():
             "run_connected_task",
             "Run a named server recipe under an existing user-approved standing permission. "
             "First list connected_operations. Choose only a matching active server_task grant for the user's task. "
-            "No extra approval is needed within that grant. Reuse the request_key if the outcome is uncertain; "
-            "never submit a new key to retry the same action. No arbitrary commands or arguments are accepted.",
+            "No extra approval is needed within that grant. The server generates internal request keys; "
+            "never ask the user for one. Repeated calls for this grant in the same reply return the same task. "
+            "If an outcome is uncertain, inspect connected_operations; do not start another reply to retry it. "
+            "No arbitrary commands or arguments are accepted.",
             {
                 "type": "object",
-                "properties": {"grant_id": {"type": "string"}, "request_key": {"type": "string"}},
-                "required": ["grant_id", "request_key"],
+                "properties": {"grant_id": {"type": "string"}},
+                "required": ["grant_id"],
                 "additionalProperties": False,
             },
         ),
