@@ -318,32 +318,35 @@ class CodingPlan {
       } else if (current.key == 'runtime') {
         if (RegExp(r'\b(python|pip|unittest)\b').hasMatch(lower)) {
           selected = 'python';
-        } else if (RegExp(r'\b(flutter|dart)\b').hasMatch(lower))
+        } else if (RegExp(r'\b(flutter|dart)\b').hasMatch(lower)) {
           selected = 'flutter';
-        else if (RegExp(r'\b(web|website|html|javascript|react)\b').hasMatch(lower))
+        } else if (RegExp(r'\b(web|website|html|javascript|react)\b').hasMatch(lower)) {
           selected = 'web';
-        else
+        } else {
           return 'Please choose a project type above, or type Python, web or Flutter.';
+        }
         extraRequirements.add(raw);
       } else if (current.key == 'repair' && ['yes', 'no'].contains(lower)) {
         selected = lower == 'yes' ? 'once' : 'off';
       } else if (current.key == 'goal') {
         if (RegExp(r'\b(repair|previous|saved)\b').hasMatch(lower)) {
           selected = 'repair';
-        } else if (RegExp(r'\b(github|repository|repo)\b').hasMatch(lower))
+        } else if (RegExp(r'\b(github|repository|repo)\b').hasMatch(lower)) {
           selected = 'repository';
-        else if (RegExp(r'\b(new|create|build)\b').hasMatch(lower))
+        } else if (RegExp(r'\b(new|create|build)\b').hasMatch(lower)) {
           selected = 'new';
-        else
+        } else {
           return 'Choose new project, GitHub repository, or saved project. You can also type 1, 2 or 3.';
+        }
       } else if (current.key == 'repository') {
         final repos = repositories.where((r) => lower.contains((r['full_name'] as String).toLowerCase())).toList();
         if (repos.length == 1) {
           selected = repos.single['full_name'] as String;
-        } else if (goal != 'repository' && ['private', 'no github', 'local'].contains(lower))
+        } else if (goal != 'repository' && ['private', 'no github', 'local'].contains(lower)) {
           selected = '';
-        else
+        } else {
           return 'Choose one of your connected repositories above, or connect another repository.';
+        }
       } else if (current.key == 'branch' && ['default', 'default branch'].contains(lower)) {
         selected = '';
       } else if (current.key == 'workdir' && ['root', 'repo root'].contains(lower)) {
@@ -351,8 +354,10 @@ class CodingPlan {
       } else if (current.key == 'model') {
         final ids = models
             .where(
-              (id) =>
-                  RegExp('(^|[^a-z0-9_.-])' + RegExp.escape(id.toLowerCase()) + r'($|[^a-z0-9_.-])').hasMatch(lower),
+              (id) => RegExp(
+                '(^|[^a-z0-9_.-])${RegExp.escape(id.toLowerCase())}'
+                r'($|[^a-z0-9_.-])',
+              ).hasMatch(lower),
             )
             .toList();
         if (ids.length != 1) return 'Choose one available API model ID so I do not guess which model you mean.';
@@ -385,8 +390,9 @@ class CodingPlan {
           extraRequirements.add(
             'Start with a minimal working version; avoid optional features and document any unconnected services.',
           );
-        } else if (selected != 'given')
+        } else if (selected != 'given') {
           extraRequirements.add(raw);
+        }
         answered.add('requirements');
       case 'repository':
         if (selected == 'connect') return 'Open Connect GitHub, then refresh this screen when you return.';
