@@ -15,6 +15,13 @@ for name in ("apply_web_release.py", "provision_web_updates.py"):
 files["host/web_release.py"] = (root / "server_extensions/assistant_studio/web_release.py").read_text()
 path = root / "deploy/updaters/install_web_updates.py"
 encoded = base64.b64encode(gzip.compress(json.dumps(files, sort_keys=True).encode(), mtime=0)).decode()
-path.write_text(re.sub(r"^PAYLOAD = .*$", "PAYLOAD = " + repr(encoded) + "  # noqa: E501 - public frozen modules",
-                       path.read_text(), count=1, flags=re.M))
+path.write_text(
+    re.sub(
+        r"^PAYLOAD = .*$",
+        "PAYLOAD = " + repr(encoded) + "  # noqa: E501 - public frozen modules",
+        path.read_text(),
+        count=1,
+        flags=re.M,
+    )
+)
 print("Embedded web API, release validation and named host updater.")

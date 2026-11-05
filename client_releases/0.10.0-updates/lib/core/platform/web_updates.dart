@@ -88,14 +88,16 @@ class WebUpdateController extends Notifier<WebUpdateState> {
     );
     try {
       final info = await ref.read(apiClientProvider).webUpdateCheck();
-      if (_current(epoch))
+      if (_current(epoch)) {
         state = WebUpdateState(
           info: info,
           message: 'GitHub web release checked.',
         );
+      }
     } catch (error) {
-      if (_current(epoch))
+      if (_current(epoch)) {
         state = WebUpdateState(info: state.info, error: '$error');
+      }
     } finally {
       if (_busyEpoch == epoch) _busyEpoch = null;
     }
@@ -139,16 +141,18 @@ class WebUpdateController extends Notifier<WebUpdateState> {
         final hosts = state.servers
             .where((host) => serverId == null || host['id'] == serverId)
             .toList();
-        if (hosts.length != 1)
+        if (hosts.length != 1) {
           throw StateError(
             hosts.isEmpty
                 ? 'The latest build needs a server update. The server owner must enable the web-update recipe.'
                 : 'Choose your update server on the App update page.',
           );
-        if (hosts.single['online'] != true)
+        }
+        if (hosts.single['online'] != true) {
           throw StateError(
             'The update companion is offline. No update was queued.',
           );
+        }
         _requestKey ??= List.generate(
           32,
           (_) => Random.secure().nextInt(16).toRadixString(16),
@@ -161,10 +165,11 @@ class WebUpdateController extends Notifier<WebUpdateState> {
           if (!_current(epoch)) return;
           final status = job['status'];
           if (status == 'completed') break;
-          if (!const ['queued', 'executing'].contains(status))
+          if (!const ['queued', 'executing'].contains(status)) {
             throw StateError(
               'Web update $status. Check Connected operations before retrying.',
             );
+          }
           state = WebUpdateState(
             info: info,
             busy: true,
@@ -176,16 +181,18 @@ class WebUpdateController extends Notifier<WebUpdateState> {
           if (!_current(epoch)) return;
           job = await api.webUpdateStatus(job['id'] as String);
         }
-        if (job['status'] != 'completed')
+        if (job['status'] != 'completed') {
           throw StateError(
             'The update is still running. Check Activity, then press Update again.',
           );
+        }
       }
       if (!_current(epoch)) return;
-      if (_uploadsBusy)
+      if (_uploadsBusy) {
         throw StateError(
           'Server update finished. Complete your new uploads, then press Update to refresh.',
         );
+      }
       state = WebUpdateState(
         info: info,
         busy: true,
@@ -193,11 +200,13 @@ class WebUpdateController extends Notifier<WebUpdateState> {
             'Refreshing cached app files… Save unsent text before updating.',
       );
       await runtime.refresh(target);
-      if (_current(epoch))
+      if (_current(epoch)) {
         state = WebUpdateState(info: info, message: 'App refresh requested.');
+      }
     } catch (error) {
-      if (_current(epoch))
+      if (_current(epoch)) {
         state = WebUpdateState(info: state.info, error: '$error');
+      }
     } finally {
       if (_busyEpoch == epoch) _busyEpoch = null;
     }

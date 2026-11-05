@@ -9,24 +9,20 @@ WebUpdateRuntime createWebUpdateRuntime() => _BrowserUpdate();
 
 class _BrowserUpdate implements WebUpdateRuntime {
   Uri get base => Uri.parse(web.document.baseURI);
-  Future<web.Response> _fresh(String path) async {
-    final url = base
-        .resolve(path)
-        .replace(
-          queryParameters: {
-            'dhanz_update': DateTime.now().microsecondsSinceEpoch.toString(),
-          },
-        );
+  Future<web.Response> _fresh(String path, {bool bust = true}) async {
+    final plain = base.resolve(path);
+    final url = bust ? plain.replace(queryParameters: {'dhanz_update': DateTime.now().microsecondsSinceEpoch.toString()}) : plain;
     final response = await web.window
         .fetch(
           url.toString().toJS,
           web.RequestInit(cache: 'reload', credentials: 'same-origin'),
         )
         .toDart;
-    if (!response.ok)
+    if (!response.ok) {
       throw StateError(
         'The server could not serve the updated app files (${response.status}).',
       );
+    }
     return response;
   }
 
@@ -51,59 +47,12 @@ class _BrowserUpdate implements WebUpdateRuntime {
         'The server is still serving an older build. Its owner must install the GitHub update first.',
       );
     }
-    final registrations =
-        (await web.window.navigator.serviceWorker.getRegistrations().toDart)
-            .toDart;
-    for (final registration in registrations) {
-      final scope = Uri.parse(registration.scope);
-      final script =
-          registration.active?.scriptURL ??
-          registration.waiting?.scriptURL ??
-          registration.installing?.scriptURL;
-      if (scope.origin == base.origin &&
-          {base.path, '/'}.contains(scope.path) &&
-          script != null &&
-          Uri.parse(script).path.endsWith('/flutter_service_worker.js')) {
-        await registration.unregister().toDart;
-      }
-    }
-    // Clear only Flutter response caches for this app. Tokens, uploads and other
-    // localStorage/IndexedDB data are deliberately not erased.
-    final names = (await web.window.caches.keys().toDart).toDart;
-    for (final item in names) {
-      final name = item.toDart;
-      if (!name.startsWith('flutter-')) continue;
-      final cache = await web.window.caches.open(name).toDart;
-      final requests = (await cache.keys().toDart).toDart;
-      for (final request in requests) {
-        final uri = Uri.parse(request.url);
-        if (uri.origin == base.origin &&
-            (uri.path.startsWith(base.path) ||
-                const ['/', '/index.html'].contains(uri.path))) {
-          await cache.delete(request).toDart;
-        }
-      }
-    }
-    for (final file in [
-      'version.json',
-      'release.json',
-      'flutter_bootstrap.js',
-      'main.dart.js',
-      'flutter.js',
-    ]) {
-      await _fresh(file);
-    }
     final current = Uri.parse(web.window.location.href);
-    web.window.location.replace(
-      current
-          .replace(
-            queryParameters: {
-              ...current.queryParameters,
-              'dhanz_update':
-                  '${minimum.version}-${minimum.build}-${DateTime.now().millisecondsSinceEpoch}',
-            },
-          )
-          .toString(),
-    );
+    final target = base.resolve('update.html').replace(queryParameters: {
+      'auto': '1', 'min_version': minimum.version, 'min_build': '${minimum.build}',
+      'return': '${current.path}${current.hasQuery ? '?${current.query}' : ''}${current.hasFragment ? '#${current.fragment}' : ''}',
+      'dhanz_update': DateTime.now().microsecondsSinceEpoch.toString(),
+    });
+    web.window.location.replace(target.toString());
   }
 }

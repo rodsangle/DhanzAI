@@ -11,8 +11,9 @@ typedef WebBuild = ({String version, int build});
 
 int compareWebBuilds(WebBuild a, WebBuild b) {
   List<int> parts(WebBuild item) {
-    if (!RegExp(r'^\d+\.\d+\.\d+$').hasMatch(item.version) || item.build < 0)
+    if (!RegExp(r'^\d+\.\d+\.\d+$').hasMatch(item.version) || item.build < 0) {
       throw const FormatException('Invalid web version');
+    }
     return [...item.version.split('.').map(int.parse), item.build];
   }
 
