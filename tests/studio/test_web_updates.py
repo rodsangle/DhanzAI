@@ -92,6 +92,8 @@ def package(extra=None):
     result = io.BytesIO()
     files = {
         "index.html": '<base href="/app/">',
+        "update.html": "refresh page",
+        "force_update.js": "refresh function",
         "main.dart.js": "new app",
         "flutter_bootstrap.js": "loader",
         "version.json": json.dumps({"version": "0.10.0", "build_number": "28"}),

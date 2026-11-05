@@ -15,7 +15,14 @@ PACKAGE = "dhanz-web-0.10.0-update.zip"
 
 
 def main():
-    for name in ("index.html", "main.dart.js", "flutter_bootstrap.js", "version.json"):
+    for name in (
+        "index.html",
+        "main.dart.js",
+        "flutter_bootstrap.js",
+        "version.json",
+        "update.html",
+        "force_update.js",
+    ):
         if not (WEB / name).is_file():
             raise ValueError("A complete compiled browser build is required.")
     metadata = json.loads((WEB / "version.json").read_text())

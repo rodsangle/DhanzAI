@@ -97,7 +97,8 @@ Future<ProviderContainer> setup(
   );
   await container.read(authControllerProvider.future);
   container.read(webUpdateControllerProvider);
-  await Future<void>.delayed(Duration.zero);
+  await Future<void>.microtask(() {});
+  await Future<void>.microtask(() {});
   return container;
 }
 

@@ -37,6 +37,8 @@ jobs:
       - name: Resolve the existing locked dependencies
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get --enforce-lockfile
+      - name: Test phone cache refresh without erasing account storage
+        run: node tests/web_update_cache.test.cjs
       - name: Analyze the actual client and controls tests
         working-directory: ${{ env.APP_DIR }}
         run: python ../../scripts/release/analyze_web_updates.py

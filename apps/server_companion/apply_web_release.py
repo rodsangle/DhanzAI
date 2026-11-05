@@ -114,7 +114,15 @@ def unpack(data, stage, expected):
             ):
                 raise ValueError("Unsafe web archive.")
             names.add(entry.filename)
-        if not {"index.html", "main.dart.js", "flutter_bootstrap.js", "version.json", "release.json"}.issubset(names):
+        if not {
+            "index.html",
+            "main.dart.js",
+            "flutter_bootstrap.js",
+            "version.json",
+            "release.json",
+            "update.html",
+            "force_update.js",
+        }.issubset(names):
             raise ValueError("Incomplete browser build.")
         archive.extractall(stage)  # noqa: S202 - archive entries and symlinks were checked above.
     version = json.loads((stage / "version.json").read_text())
@@ -226,9 +234,7 @@ def main():
     )
     print("GitHub web build " + release["version"] + " installed. API, data and wrapper were preserved.")
     print("Refresh Edge with Ctrl+F5. Close and reopen the Android web app.")
-    print(
-        "Use Settings > App update > Update to check GitHub, install on your host and refresh the phone app."
-    )
+    print("Use Settings > App update > Update to check GitHub, install on your host and refresh the phone app.")
     print("Rollback: python3 " + str(Path(__file__).resolve()) + " --rollback " + str(backup))
 
 
