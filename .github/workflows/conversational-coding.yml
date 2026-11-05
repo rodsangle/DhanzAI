@@ -1,0 +1,60 @@
+name: Build matching 0.9.7 web client
+
+on:
+  push:
+    branches: ["codex/conversational-coding-097"]
+    paths:
+      - "client_releases/0.9.7-conversation/**"
+      - "scripts/release/package_coding_chat.py"
+      - ".github/workflows/conversational-coding.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: conversational-coding-097-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_DIR: client_releases/0.9.7-conversation
+  RELEASE_ID: conversational-coding-0.9.7-preview.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: "3.47.8"
+          channel: stable
+          cache: true
+      - name: Resolve the existing locked dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter pub get --enforce-lockfile
+      - name: Analyze the actual client and controls tests
+        working-directory: ${{ env.APP_DIR }}
+        run: python ../../scripts/release/analyze_coding_chat.py
+      - name: Test spelling and existing read-aloud integration
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter test --no-pub
+      - name: Compile the actual web client
+        working-directory: ${{ env.APP_DIR }}
+        run: flutter build web --release --no-pub --base-href=/app/ --dart-define=DHANZ_API_URL=https://dhanzai.com
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Package only the compiled web client
+        run: python scripts/release/package_coding_chat.py
+      - name: Publish the checked browser build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_ID" dist/conversational-coding/* --clobber
+          else
+            gh release create "$RELEASE_ID" dist/conversational-coding/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.9.7 web controls preview" --notes "Built from the uploaded 0.9.2+20 client, preserving its existing features. Replaces Codex setup dropdowns with guided chat, explained choices and selected-chat context import; retains spelling, read aloud, news and existing features. Preserves the 0.9.5 coding workspace and existing controls. No backend changes for sharing. Web only: no API image, database, native APK, or stable update manifest is published."
+          fi
