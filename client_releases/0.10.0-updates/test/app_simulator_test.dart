@@ -31,11 +31,13 @@ void main() {
         return revised;
       }))));
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'Simulator widget must render without a layout exception');
     expect(find.text('Browser demo · simulated integrations'), findsOneWidget);
     expect(find.byTooltip('Reset simulator'), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'Make the lock button larger');
     await tester.tap(find.text('Update app & simulator'));
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull, reason: 'Simulator widget must render without a layout exception');
     expect(calls, ['one:Make the lock button larger']);
     expect(find.textContaining('Building source and simulator'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
