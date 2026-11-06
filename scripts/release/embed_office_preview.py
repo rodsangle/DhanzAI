@@ -20,3 +20,14 @@ source = re.sub(
     flags=re.M,
 )
 path.write_text(source)
+
+website = root / "deploy/updaters/install_website_opening.py"
+if website.exists():
+    website.write_text(
+        re.sub(
+            r"^PAYLOAD = .+$",
+            lambda _: "PAYLOAD = " + repr(encoded) + "  # noqa: E501 - frozen reviewed installers",
+            website.read_text(),
+            flags=re.M,
+        )
+    )

@@ -11,6 +11,7 @@ import '../../core/files.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import 'attachment_chip.dart';
+import 'website_action.dart';
 import 'media_generation_card.dart';
 import '../automation/automation_screen.dart';
 
@@ -32,23 +33,40 @@ class ToolActivityView extends ConsumerWidget {
 
   final List<ToolActivity> activity;
 
-  void _snack(BuildContext context, String text) => ScaffoldMessenger.of(context)
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(content: Text(text)));
+  void _snack(BuildContext context, String text) =>
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(text)));
 
-  Future<void> _addToCalendar(BuildContext context, WidgetRef ref, String id) async {
+  Future<void> _addToCalendar(
+    BuildContext context,
+    WidgetRef ref,
+    String id,
+  ) async {
     try {
       final bytes = await ref.read(apiClientProvider).reminderCalendarFile(id);
-      final saved = await saveBytes('dhanz-reminder.ics', bytes, mimeType: 'text/calendar');
-      if (saved && context.mounted) _snack(context, 'Saved. Open the file to add it to your calendar.');
+      final saved = await saveBytes(
+        'dhanz-reminder.ics',
+        bytes,
+        mimeType: 'text/calendar',
+      );
+      if (saved && context.mounted)
+        _snack(context, 'Saved. Open the file to add it to your calendar.');
     } on ApiException catch (e) {
       if (context.mounted) _snack(context, e.message);
     }
   }
 
-  Future<void> _openEmail(BuildContext context, Map<String, dynamic> action) async {
-    final ok = await launchUrl(Uri.parse(action['mailto'] as String), mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) _snack(context, 'No email app found. Copy the text instead.');
+  Future<void> _openEmail(
+    BuildContext context,
+    Map<String, dynamic> action,
+  ) async {
+    final ok = await launchUrl(
+      Uri.parse(action['mailto'] as String),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!ok && context.mounted)
+      _snack(context, 'No email app found. Copy the text instead.');
   }
 
   @override
@@ -70,7 +88,9 @@ class ToolActivityView extends ConsumerWidget {
                   Chip(
                     visualDensity: VisualDensity.compact,
                     avatar: Icon(
-                      a.error ? Icons.error_outline : _toolIcons[a.tool] ?? Icons.build_outlined,
+                      a.error
+                          ? Icons.error_outline
+                          : _toolIcons[a.tool] ?? Icons.build_outlined,
                       size: 16,
                       color: a.error ? theme.colorScheme.error : null,
                     ),
@@ -80,14 +100,21 @@ class ToolActivityView extends ConsumerWidget {
             ),
           for (final a in cards) ...[
             const SizedBox(height: 8),
+            if (a.action!['type'] == 'open_website')
+              WebsiteOpenCard(url: a.action!['url'] as String),
             if (a.action!['type'] == 'generate_media')
-              MediaGenerationCard(key: ValueKey(a.action!['request_key']), action: a.action!),
-            if (a.action!['type'] == 'reminder') _reminderCard(context, ref, a.action!),
+              MediaGenerationCard(
+                key: ValueKey(a.action!['request_key']),
+                action: a.action!,
+              ),
+            if (a.action!['type'] == 'reminder')
+              _reminderCard(context, ref, a.action!),
             if (a.action!['type'] == 'email') _emailCard(context, a.action!),
             if (a.action!['type'] == 'review_action')
               FilledButton.icon(
                 onPressed: () {
-                  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+                  if (!kIsWeb &&
+                      defaultTargetPlatform == TargetPlatform.windows) {
                     ref.read(approvalPanelSignalProvider.notifier).open();
                   } else {
                     context.go('/actions');
@@ -109,7 +136,11 @@ class ToolActivityView extends ConsumerWidget {
     );
   }
 
-  Widget _reminderCard(BuildContext context, WidgetRef ref, Map<String, dynamic> action) {
+  Widget _reminderCard(
+    BuildContext context,
+    WidgetRef ref,
+    Map<String, dynamic> action,
+  ) {
     final due = DateTime.parse(action['due_at'] as String).toLocal();
     final when = DateFormat.yMMMEd().add_jm().format(due);
     final location = action['location'] as String?;
@@ -130,7 +161,8 @@ class ToolActivityView extends ConsumerWidget {
               spacing: 8,
               children: [
                 TextButton.icon(
-                  onPressed: () => _addToCalendar(context, ref, action['id'] as String),
+                  onPressed: () =>
+                      _addToCalendar(context, ref, action['id'] as String),
                   icon: const Icon(Icons.event_available, size: 18),
                   label: const Text('Add to calendar'),
                 ),
@@ -162,7 +194,11 @@ class ToolActivityView extends ConsumerWidget {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.mail_outline),
               title: Text(subject.isEmpty ? 'Email draft' : subject),
-              subtitle: Text(to.isEmpty ? 'Not sent: review it in your email app' : 'To $to · not sent yet'),
+              subtitle: Text(
+                to.isEmpty
+                    ? 'Not sent: review it in your email app'
+                    : 'To $to · not sent yet',
+              ),
             ),
             Wrap(
               spacing: 8,
@@ -174,7 +210,13 @@ class ToolActivityView extends ConsumerWidget {
                 ),
                 TextButton.icon(
                   onPressed: () async {
-                    await Clipboard.setData(ClipboardData(text: subject.isEmpty ? body : 'Subject: $subject\n\n$body'));
+                    await Clipboard.setData(
+                      ClipboardData(
+                        text: subject.isEmpty
+                            ? body
+                            : 'Subject: $subject\n\n$body',
+                      ),
+                    );
                     if (context.mounted) _snack(context, 'Email copied');
                   },
                   icon: const Icon(Icons.copy, size: 18),

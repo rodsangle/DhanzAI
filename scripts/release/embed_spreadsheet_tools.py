@@ -14,6 +14,7 @@ files = {
         "spreadsheet_package.py",
         "spreadsheet_workflow.py",
         "spreadsheet_routes.py",
+        "website_tools.py",
         "spreadsheet_tools.py",
         "operations_tools.py",
     )

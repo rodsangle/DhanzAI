@@ -16,6 +16,9 @@ def install():
     from .spreadsheet_workflow import install as install_workflow
 
     install_workflow()
+    from .website_tools import install as install_websites
+
+    install_websites()
     from app.services import assistant_tools as tools
     from dhanz_ai import ToolSpec
 
