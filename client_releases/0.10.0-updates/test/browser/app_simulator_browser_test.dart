@@ -25,7 +25,7 @@ void main() {
     final frame = web.HTMLIFrameElement();
     frame.setAttribute('sandbox', 'allow-scripts');
     frame.setAttribute('referrerpolicy', 'no-referrer');
-    frame.srcdoc = previewDocument([
+    frame.setAttribute('srcdoc', previewDocument([
       {'path': 'simulator/index.html', 'content': '''<button id="lock">Lock demo</button><script>
         let locked=false;
         document.getElementById('lock').onclick=()=>{
@@ -36,7 +36,7 @@ void main() {
         };
         document.getElementById('lock').click();
       </script>'''},
-    ], entryPath: 'simulator/index.html');
+    ], entryPath: 'simulator/index.html'));
     web.document.body!.appendChild(frame);
     try {
       final result = await done.future.timeout(const Duration(seconds: 15));

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/files.dart';
@@ -80,7 +80,8 @@ class _AppSimulatorPanelState extends State<AppSimulatorPanel> {
     final id = _selected;
     if (id == null || _updating || _changes.text.trim().length < 5) return;
     setState(() => _updating = true);
-    _revisionKey ??= const Uuid().v4();
+    final random = Random.secure();
+    _revisionKey ??= 'sim_${List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join()}';
     try {
       final result = await widget.reviseProject(id, _changes.text.trim(), _revisionKey!);
       if (!mounted) return;
@@ -97,7 +98,9 @@ class _AppSimulatorPanelState extends State<AppSimulatorPanel> {
       if (mounted) setState(() => _error = error is ApiException ? error.message :
         'Build status is uncertain. Refresh the project list before retrying; no automatic retry was made.');
     } finally {
-      if (mounted) setState(() => _updating = false);
+      if (mounted) {
+        setState(() => _updating = false);
+      }
     }
   }
 
