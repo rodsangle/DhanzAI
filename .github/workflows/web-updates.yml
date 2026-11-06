@@ -18,9 +18,9 @@ concurrency:
 
 env:
   APP_DIR: client_releases/0.10.0-updates
-  RELEASE_ID: web-updates-0.10.3-preview.1
+  RELEASE_ID: web-updates-0.10.3-preview.2
   WEB_VERSION: "0.10.3"
-  WEB_BUILD: "39"
+  WEB_BUILD: "40"
 
 jobs:
   build:
@@ -78,7 +78,7 @@ jobs:
           if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
             gh release upload "$RELEASE_ID" dist/web-updates/* --clobber
           else
-            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.2 Office preview and clipboard images" --notes "Checked Dhanz 0.10.2 web build with an Office-style spreadsheet ribbon, authenticated copy-on-save workbook editing and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
+            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.3 website opening" --notes "Checked Dhanz 0.10.3 web build with current-device Open website buttons. Includes the existing Office-style workbook editor and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
           fi
       - name: Publish latest web channel after the checked release assets
         if: steps.channel.outputs.promote == 'true'

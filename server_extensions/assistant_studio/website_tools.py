@@ -1,6 +1,7 @@
 """Resolve explicitly requested websites without guessing domains or opening popups."""
 
 import functools
+import re
 import sys
 from urllib.parse import urlsplit, urlunsplit
 
@@ -64,6 +65,19 @@ def install():
         prepare,
     )
     chat = sys.modules.get("app.services.chat_service")
+    pc_parser = getattr(chat, "requested_pc_action", None)
+    if pc_parser and not getattr(pc_parser, "_website_default_device", False):
+
+        @functools.wraps(pc_parser)
+        def pc_action(question):
+            action = pc_parser(question)
+            explicit_pc = re.search(r"\b(?:my|paired|windows|rog)\s+(?:pc|computer|laptop)\b", question, re.I)
+            if action and action.get("operation") == "open_url" and not explicit_pc:
+                return None
+            return action
+
+        pc_action._website_default_device = True
+        chat.requested_pc_action = pc_action
     original = getattr(chat, "build_system_prompt", None)
     if original and not getattr(original, "_website_opening", False):
 
@@ -71,7 +85,7 @@ def install():
         def prompt(*args, **kwargs):
             text = original(*args, **kwargs)
             if kwargs.get("tools"):
-                text += "\nFor an explicit request to open a website on this device, call open_website. Sortly resolves to https://www.sortly.com/. Tell the user to tap the attached Open website button; browser popup policies require that click. Do not give a blanket refusal or claim a site opened/read before it did. If the user explicitly asks for the paired Windows PC instead, use propose_action provider=windows operation=open_url and its existing review/local approval workflow. Never infer login, browsing or editing permissions from a request merely to open a website."  # noqa: E501 - tool descriptions and prompt guidance
+                text += "\nFor an explicit request to open a website on this device, call open_website. Sortly resolves to https://www.sortly.com/. Include its exact HTTPS address as a clickable link too. Tell the user to tap the attached Open website button; browser popup policies require that click. Do not give a blanket refusal or claim a site opened/read before it did. If the user explicitly asks for the paired Windows PC instead, use propose_action provider=windows operation=open_url and its existing review/local approval workflow. Never infer login, browsing or editing permissions from a request merely to open a website."  # noqa: E501 - tool descriptions and prompt guidance
             return text
 
         prompt._website_opening = True

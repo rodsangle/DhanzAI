@@ -50,8 +50,9 @@ class ToolActivityView extends ConsumerWidget {
         bytes,
         mimeType: 'text/calendar',
       );
-      if (saved && context.mounted)
+      if (saved && context.mounted) {
         _snack(context, 'Saved. Open the file to add it to your calendar.');
+      }
     } on ApiException catch (e) {
       if (context.mounted) _snack(context, e.message);
     }
@@ -65,8 +66,9 @@ class ToolActivityView extends ConsumerWidget {
       Uri.parse(action['mailto'] as String),
       mode: LaunchMode.externalApplication,
     );
-    if (!ok && context.mounted)
+    if (!ok && context.mounted) {
       _snack(context, 'No email app found. Copy the text instead.');
+    }
   }
 
   @override
