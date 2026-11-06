@@ -37,7 +37,9 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Make the lock button larger');
     await tester.ensureVisible(find.text('Update app & simulator'));
     await tester.pumpAndSettle();
-    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Update app & simulator')).onPressed, isNotNull);
+    final updateButton = find.ancestor(of: find.text('Update app & simulator'),
+      matching: find.byWidgetPredicate((widget) => widget is FilledButton)).first;
+    expect(tester.widget<FilledButton>(updateButton).onPressed, isNotNull);
     await tester.tap(find.text('Update app & simulator'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull, reason: 'Simulator widget must render without a layout exception');
