@@ -96,6 +96,7 @@ async def test_flutter_source_requires_mobile_files_instead_of_html():
         for path, content in [
             ("pubspec.yaml", "name: demo\ndependencies:\n  flutter:\n    sdk: flutter\n"),
             ("lib/main.dart", "void main() {}"),
+            ("simulator/index.html", "<button>Demo lock</button>"),
             ("README.md", "Run flutter create demo, then copy files."),
         ]
     ]
@@ -122,7 +123,7 @@ async def test_flutter_source_requires_mobile_files_instead_of_html():
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(response)) as client:
         result, _ = await builder.generate(SimpleNamespace(openai_api_key="fake"), job, client=client)
-        assert len(result) == 3
+        assert len(result) == 4
         files.pop()
         with pytest.raises(builder.BuildError, match="Flutter project is missing"):
             await builder.generate(SimpleNamespace(openai_api_key="fake"), job, client=client)
@@ -147,3 +148,38 @@ def test_application_install_registers_chat_builder(monkeypatch):
     exec(compile(installer["patch_bootstrap"](source), "bootstrap.py", "exec"), namespace)  # noqa: S102 - trusted tested source
     namespace["install"](app)
     assert "build_app" in assistant_tools.TOOLS
+
+
+@pytest.mark.asyncio
+async def test_revision_uses_owned_source_and_preserves_original(workspace):
+    from app.assistant_studio.builder_simulation import revision_context
+
+    ctx, users, run = workspace
+    first = await run(ctx, {"operation": "start", "runtime": "flutter", "instructions": "Create a vehicle demo"})
+    identifier = uuid.UUID(first.data["project"]["id"])
+    original_files = [{"path": "simulator/index.html", "content": "<button>Original lock</button>"}]
+    async with ctx.maker() as db:
+        parent = await db.get(BuilderProject, identifier)
+        parent.status = "complete"
+        parent.files = original_files
+        await db.commit()
+        database_url = str(db.bind.url)
+    revised = await run(
+        ctx,
+        {
+            "operation": "revise",
+            "project_id": str(identifier),
+            "instructions": "Make the lock button larger; keep GPS.",
+        },
+    )
+    assert revised.data["project"]["id"] != str(identifier)
+    assert revised.action["type"] == "app_project"
+    async with ctx.maker() as db:
+        parent = await db.get(BuilderProject, identifier)
+        assert parent.files == original_files and parent.status == "complete"
+        job = await db.get(BuilderProject, uuid.UUID(revised.data["project"]["id"]))
+        source = await revision_context(SimpleNamespace(database_url=database_url), job)
+        assert "Original lock" in source and "Create a vehicle demo" in source
+        outsider = SimpleNamespace(prompt=job.prompt, user_id=users[1].id)
+        with pytest.raises(builder.BuildError, match="unavailable to this account"):
+            await revision_context(SimpleNamespace(database_url=database_url), outsider)

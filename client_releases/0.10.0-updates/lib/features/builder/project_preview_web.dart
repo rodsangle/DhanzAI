@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 class ProjectPreview extends StatelessWidget {
-  const ProjectPreview({super.key, required this.document});
+  const ProjectPreview({super.key, required this.document, this.height = 420});
   final String document;
+  final double height;
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 420,
+    height: height,
     child: HtmlElementView.fromTagName(
       key: ValueKey(document),
       tagName: 'iframe',

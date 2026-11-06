@@ -25,6 +25,7 @@ import 'daily_news_button.dart';
 import 'message_tile.dart';
 import 'attachment_chip.dart';
 import 'chat_preview.dart';
+import '../builder/app_simulator.dart';
 
 const _wideBreakpoint = 900.0;
 
@@ -280,6 +281,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
+        IconButton(tooltip: 'App simulator', icon: const Icon(Icons.smartphone_outlined),
+          onPressed: () => _preview.open(const ChatPreviewTarget(documentId: 'app-simulator',
+            filename: 'App simulator', simulator: true))),
         AnimatedBuilder(
           animation: _preview,
           builder: (context, _) => IconButton(
@@ -318,7 +322,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
 
     final previewBody = ChatPreviewHost(
       controller: _preview,
-      previewBuilder: (context, target) => FilePreviewContent(
+      previewBuilder: (context, target) => target.simulator ? AppSimulatorPanel(
+        initialProjectId: target.projectId,
+        listProjects: ref.read(apiClientProvider).builderProjects,
+        loadProject: ref.read(apiClientProvider).builderProject,
+        reviseProject: ref.read(apiClientProvider).reviseBuilderProject,
+        downloadProject: ref.read(apiClientProvider).downloadBuilderProject,
+      ) : FilePreviewContent(
         documentId: target.documentId,
         filename: target.filename,
         embedded: true,

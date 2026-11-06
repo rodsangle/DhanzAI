@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class ChatPreviewTarget {
-  const ChatPreviewTarget({required this.documentId, required this.filename});
+  const ChatPreviewTarget({required this.documentId, required this.filename, this.simulator = false, this.projectId});
   final String documentId;
   final String filename;
+  final bool simulator;
+  final String? projectId;
 }
 
 class ChatPreviewController extends ChangeNotifier {

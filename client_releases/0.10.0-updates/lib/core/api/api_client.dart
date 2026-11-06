@@ -89,6 +89,9 @@ class ApiClient {
   ) async =>
       await _json('POST', '/assistant-studio/projects', body: body)
           as Map<String, dynamic>;
+  Future<Map<String, dynamic>> reviseBuilderProject(String id, String changes, String requestKey) async =>
+      await _json('POST', '/assistant-studio/projects/$id/revise',
+          body: {'changes': changes, 'request_key': requestKey}) as Map<String, dynamic>;
   Future<Map<String, dynamic>> builderProject(String id) async =>
       await _json('GET', '/assistant-studio/projects/$id')
           as Map<String, dynamic>;

@@ -153,11 +153,11 @@ class _BuilderScreenState extends ConsumerState<BuilderScreen> {
                 if (preview)
                   const Padding(
                     padding: EdgeInsets.all(8),
-                    child: Text('Static preview only. Network and backend features are unavailable in this preview.'),
+                    child: Text('Interactive browser demo. Network integrations are unavailable; this does not run the compiled mobile app.'),
                   ),
                 Expanded(
                   child: preview
-                      ? SingleChildScrollView(child: ProjectPreview(document: previewDocument(files)))
+                      ? SingleChildScrollView(child: ProjectPreview(document: previewDocument(files, entryPath: files.any((f) => f['path'] == 'simulator/index.html') ? 'simulator/index.html' : 'index.html')))
                       : ListView(
                           children: [
                             for (final file in files)

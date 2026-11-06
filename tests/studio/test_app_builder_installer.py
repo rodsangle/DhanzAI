@@ -62,3 +62,25 @@ def test_installer_payload_and_inline_checks_are_current():
         validation, '    if job.kind == "app" and not any(f["path"] == "index.html" for f in files):\n'
     )
     compile(installer.patch_builder(baseline), "builder.py", "exec")
+
+
+def test_upgrades_installed_v1_builder_and_preserves_other_features():
+    data = installer.payload()
+    public = (ROOT / "server_extensions/assistant_studio/builder.py").read_text()
+    baseline = public.replace(data["builder_fragment"], data["previous_builder_fragment"])
+    baseline = baseline.replace(data["builder_validation"], data["previous_builder_validation"])
+    baseline = baseline.replace(data["revision_fragment"], "").replace(data["new_input"], data["old_input"])
+    baseline += "\n_DHANZ_APP_BUILDER_VERSION = 1\nEXISTING_CUSTOM_FEATURE = True\n"
+    patched = installer.patch_builder(baseline)
+    assert data["revision_fragment"] in patched
+    assert "EXISTING_CUSTOM_FEATURE = True" in patched
+    assert installer.patch_builder(patched) == patched
+    compile(patched, "builder.py", "exec")
+    bootstrap = (ROOT / "server_extensions/assistant_studio/bootstrap.py").read_text()
+    v1 = bootstrap.replace(
+        data["boot_anchor"], data["boot_new"].replace("install_app_builder(app)", "install_app_builder()")
+    )
+    v1 += "\n_DHANZ_APP_BUILDER_VERSION = 1\n"
+    updated = installer.patch_bootstrap(v1)
+    assert updated.count("    install_app_builder(app)") == 1
+    assert installer.patch_bootstrap(updated) == updated

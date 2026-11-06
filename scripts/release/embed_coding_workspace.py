@@ -9,7 +9,7 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 files = {}
-for name in ("coding_models.py", "coding_service.py", "coding_routes.py", "builder.py"):
+for name in ("coding_models.py", "coding_service.py", "coding_routes.py", "builder.py", "builder_simulation.py"):
     files["app/assistant_studio/" + name] = (root / "server_extensions/assistant_studio" / name).read_text()
 files["alembic/versions/0012_coding_workspace.py"] = (
     root / "server_extensions/migrations/0012_coding_workspace.py"

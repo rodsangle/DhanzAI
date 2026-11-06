@@ -11,6 +11,7 @@ import '../../core/files.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import 'attachment_chip.dart';
+import 'chat_preview.dart';
 import 'website_action.dart';
 import 'media_generation_card.dart';
 import '../automation/automation_screen.dart';
@@ -102,6 +103,11 @@ class ToolActivityView extends ConsumerWidget {
             ),
           for (final a in cards) ...[
             const SizedBox(height: 8),
+            if (a.action!['type'] == 'app_project')
+              OutlinedButton.icon(icon: const Icon(Icons.smartphone_outlined), label: const Text('Open simulator'),
+                onPressed: () => ChatPreviewScope.of(context)?.open(ChatPreviewTarget(
+                  documentId: 'app-project:${a.action!['id']}', filename: a.action!['name'] as String? ?? 'App simulator',
+                  simulator: true, projectId: a.action!['id'] as String))),
             if (a.action!['type'] == 'open_website')
               WebsiteOpenCard(url: a.action!['url'] as String),
             if (a.action!['type'] == 'generate_media')

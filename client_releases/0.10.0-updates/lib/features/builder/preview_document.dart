@@ -1,18 +1,31 @@
 /// Preview code runs in an opaque-origin iframe without network access.
-String previewDocument(List<Map<String, dynamic>> files) {
+String previewDocument(List<Map<String, dynamic>> files, {String entryPath = 'index.html'}) {
   final content = {for (final file in files) file['path'] as String: file['content'] as String};
-  var html = content['index.html'] ?? '<p>No index.html was generated.</p>';
+  final directory = entryPath.contains('/') ? entryPath.substring(0, entryPath.lastIndexOf('/') + 1) : '';
+  String? asset(String path) {
+    final parts = <String>[];
+    for (final part in ('$directory$path').split('/')) {
+      if (part == '..') {
+        if (parts.isEmpty) return null;
+        parts.removeLast();
+      } else if (part.isNotEmpty && part != '.') {
+        parts.add(part);
+      }
+    }
+    return content[parts.join('/')];
+  }
+  var html = content[entryPath] ?? '<p>No browser demo was generated.</p>';
   html = html.replaceAllMapped(
     RegExp(r'''<script\b[^>]*\bsrc=["']([^"']+)["'][^>]*>\s*</script>''', caseSensitive: false),
     (match) {
-      final source = content[match[1]!.replaceFirst(RegExp(r'^\./'), '')];
+      final source = asset(match[1]!);
       return source == null ? match[0]! : '<script>${source.replaceAll('</script', r'<\/script')}</script>';
     },
   );
   html = html.replaceAllMapped(RegExp(r'''<link\b[^>]*\bhref=["']([^"']+\.css)["'][^>]*>''', caseSensitive: false), (
     match,
   ) {
-    final source = content[match[1]!.replaceFirst(RegExp(r'^\./'), '')];
+    final source = asset(match[1]!);
     return source == null ? match[0]! : '<style>${source.replaceAll('</style', r'<\/style')}</style>';
   });
   const policy =

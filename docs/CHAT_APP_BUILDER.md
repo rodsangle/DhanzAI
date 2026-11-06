@@ -30,3 +30,29 @@ rollback command and restores the previous image if health checks fail.
 
 Generation uses the configured OpenAI API and may incur charges. Model availability
 is discovered from that account; it is not evidence that a build has succeeded.
+
+## Interactive simulator sidebar (web 0.10.4+)
+
+Press App simulator above chat or Open simulator on an app-building result. The
+right panel shares the existing resize, expand and close controls. It can select
+a saved app, switch phone/desktop widths, reset the browser demo, refresh build
+status and download source. Pending builds are checked while the panel is open.
+
+New Flutter builds include `simulator/index.html` and local assets: an interactive
+web companion, not execution of Flutter source or an Android emulator. Existing
+projects without HTML can be revised to add a companion. Python agents do not
+have a mobile simulator. The preview runs in an opaque-origin sandbox with no
+host-document access and the existing restrictive network/content policy.
+
+Describe changes in the panel and press Update app & simulator, or use `build_app`
+with operation `revise`, project_id and instructions. A new queued project keeps
+the original complete source as reference and preserves the original project.
+Referenced files are read only after account ownership and completed status are
+verified. Updates use AI credits; queuing does not mean completion. No vehicle
+commands, native compilation or deployment are performed by browser simulation.
+
+Install both parts using the published `install_app_simulator.py --apply`. It first
+checks that the tested browser release exists and stages its validated package,
+then applies the narrow backend update and installs the browser assets. Backend
+and web rollback commands are printed separately. Existing PDF, OCR, search and
+server pairing modules are preserved.

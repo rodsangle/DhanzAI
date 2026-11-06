@@ -17,6 +17,9 @@ GUIDANCE = (
     "and ask for those details before real integration. Never claim vehicle actions or GPS are real in demo mode. "
     "Use actual tool status: queued is not complete. Completed source files are downloadable in the sidebar's "
     "App & agent builder. Do not claim an APK, tests, installation, deployment or an automatic follow-up message. "
+    "Use the Simulator card to open the right sidebar; revise with project_id and instructions to update "
+    "a completed app using its existing source. Keep unrelated features. A revision is a new project, "
+    "and must not be claimed ready until complete. "
     "Check build_app status when the user asks about progress; do not repeatedly poll in one reply. "
     "Use github_workspace instead for changes to an existing repository. Provider API usage charges apply."
 )
@@ -27,7 +30,8 @@ def build_instructions(instructions, runtime):
         return (
             "[DHANZ_RUNTIME:flutter]\n"
             "Create a Flutter mobile starter with pubspec.yaml, lib/main.dart, supporting Dart files, "
-            "and README.md. Include exact Flutter SDK setup, platform-scaffold and Android build instructions. "
+            "README.md and an interactive simulator/index.html browser companion. Include exact Flutter SDK setup, "
+            "platform-scaffold and Android build instructions. "
             "Use a provider/service interface; external hardware or APIs unavailable to this project must use "
             "an explicitly labeled demo implementation. Demo state must never imply a real command succeeded. "
             "Vehicle commands must use an authorized compatible manufacturer or hardware API in a future "
@@ -38,9 +42,14 @@ def build_instructions(instructions, runtime):
     return instructions
 
 
-def install():
+def install(app=None):
     from app.services import assistant_tools as tools
     from dhanz_ai import ToolSpec
+
+    if app is not None:
+        from .app_simulator import router
+
+        app.include_router(router, prefix=app.state.settings.api_prefix)
 
     async def run(ctx, args):
         from app.models import User
@@ -60,6 +69,21 @@ def install():
                 if operation == "status":
                     row = await routes.owned_project(db, user, uuid.UUID(str(args.get("project_id", ""))))
                     project = routes.public(row)
+                elif operation == "revise":
+                    from .app_simulator import queue_revision
+
+                    identifier = uuid.UUID(str(args.get("project_id", "")))
+                    changes = args.get("instructions", "")
+                    if not isinstance(changes, str) or not 5 <= len(changes) <= 8000:
+                        raise ValueError("Describe the changes (5–8000 characters).")
+                    project = await queue_revision(
+                        identifier,
+                        changes,
+                        request_key(ctx, "app-builder-revise:" + str(identifier)),
+                        user,
+                        db,
+                        ctx.settings,
+                    )
                 elif operation == "models":
                     names = [] if user.routing_policy == "local_only" else await builder.models(ctx.settings)
                     return tools.ToolOutcome({"models": names}, "Checked app-building models")
@@ -98,7 +122,7 @@ def install():
                         )
                         project = await routes.create_project(body, user, db, ctx.settings)
                 else:
-                    raise ValueError("Choose start, status or models.")
+                    raise ValueError("Choose start, revise, status or models.")
                 return tools.ToolOutcome(
                     {
                         "project": project,
@@ -108,6 +132,9 @@ def install():
                         "Queued/running work is not finished. No APK was built or deployed.",
                     },
                     "App project: " + project["status"],
+                    {"type": "app_project", "id": project["id"], "name": project["name"]}
+                    if project["kind"] == "app"
+                    else None,
                 )
         except (ValueError, ValidationError, HTTPException, builder.BuildError) as exc:
             detail = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
@@ -122,7 +149,7 @@ def install():
                 "required": ["operation"],
                 "additionalProperties": False,
                 "properties": {
-                    "operation": {"type": "string", "enum": ["models", "start", "status"]},
+                    "operation": {"type": "string", "enum": ["models", "start", "revise", "status"]},
                     "runtime": {"type": "string", "enum": ["web", "flutter", "python"]},
                     "instructions": {"type": "string", "maxLength": 10000},
                     "title": {"type": "string", "maxLength": 100},
