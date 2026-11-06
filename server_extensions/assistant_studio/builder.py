@@ -200,6 +200,15 @@ async def generate(settings, job, *, client=None):
         "preview; clearly document server-dependent features. For an agent include runnable Python source and requirements.txt, "
         "with explicit user control over external actions. Do not include dotfiles. No shell execution is available here."
     )
+    mobile = job.kind == "app" and job.prompt.startswith("[DHANZ_RUNTIME:flutter]\n")
+    if mobile:
+        instructions += (
+            " This is a Flutter mobile project. Include pubspec.yaml, lib/main.dart and README.md. "
+            "The static index.html requirement does not apply to Flutter. Explain how to run flutter create "
+            "in a separate directory to generate platform scaffolding, then copy the supplied Dart/pubspec "
+            "files and run flutter pub get and flutter build apk. Do not claim compilation occurred. "
+            "Clearly distinguish a simulated vehicle adapter from real connected vehicle controls."
+        )
     if job.kind == "repository":
         instructions += (
             " This is an existing-repository editing task. Return complete contents of changed/new files only, "
@@ -269,7 +278,9 @@ async def generate(settings, job, *, client=None):
     if not isinstance(parsed, dict):
         raise BuildError("The model did not return a project object.")
     files = validate_files(parsed.get("files"))
-    if job.kind == "app" and not any(f["path"] == "index.html" for f in files):
+    if mobile and not {"pubspec.yaml", "lib/main.dart", "README.md"}.issubset({f["path"] for f in files}):
+        raise BuildError("The Flutter project is missing pubspec.yaml, lib/main.dart or README.md.")
+    if job.kind == "app" and not mobile and not any(f["path"] == "index.html" for f in files):
         raise BuildError("The generated app has no index.html.")
     if job.kind == "agent" and not any(f["path"].endswith(".py") for f in files):
         raise BuildError("The generated agent has no Python source.")
