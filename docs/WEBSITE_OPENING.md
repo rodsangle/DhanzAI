@@ -19,3 +19,14 @@ Refresh Edge or use `/app/update.html` to refresh the installed Android PWA.
 
 `skills/dhanz-website-opening/SKILL.md` documents the reusable behavior. The
 installed tool and prompt guidance make it available without a custom-skills UI.
+
+## Import permission fix
+
+The combined installer keeps its host files private under umask 077. Docker COPY
+must explicitly make the copied code readable and its directory traversable (mode
+0755 inside the image); otherwise
+the image's configured non-root user cannot import them. The corrected installer
+uses COPY --chmod=0755 for bootstrap and every added module. Host directories and
+files remain private, and the container user remains unchanged. Regression checks
+reproduce a failed non-root read with mode 0600 and a successful read after copying
+with mode 0755. A failure at the offline startup check leaves the live API untouched.
