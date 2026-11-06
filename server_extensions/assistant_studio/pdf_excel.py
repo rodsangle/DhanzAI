@@ -9,7 +9,7 @@ import statistics
 import subprocess
 import tempfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -18,6 +18,8 @@ class Cell:
     x: float
     text: str
     confidence: float | None = None
+    source_row: int | None = None
+    review_note: str = ""
 
 
 @dataclass
@@ -25,6 +27,12 @@ class Page:
     number: int
     rows: list[list[Cell]]
     ocr: bool = False
+    columns: list[str] | None = None
+    vision: dict | None = None
+    vision_input: bytes | None = field(default=None, repr=False)
+
+
+_PDF_LAYOUT_VERSION = 2
 
 
 class ConversionError(ValueError):
@@ -116,7 +124,7 @@ def extract_pdf(data, *, language="eng", max_pages=20, ocr_enabled=True, timeout
         match = re.search(r"^Pages:\s*(\d+)", info, re.M)
         if not match or not 1 <= int(match[1]) <= max_pages:
             raise ConversionError(
-                f"The PDF page count is unavailable or exceeds the {max_pages}-page conversion limit. Nothing was truncated."
+                f"The PDF page count is unavailable or exceeds the {max_pages}-page conversion limit. Nothing was truncated."  # noqa: E501 - complete extraction diagnostic/prompt
             )
         pages = []
         for number in range(1, int(match[1]) + 1):
@@ -131,7 +139,7 @@ def extract_pdf(data, *, language="eng", max_pages=20, ocr_enabled=True, timeout
             if use_ocr:
                 if not ocr_enabled or not all(shutil.which(name) for name in ("pdftoppm", "tesseract")):
                     raise ConversionError(
-                        f"Page {number} needs OCR, but OCR is disabled or unavailable. No partial workbook was returned."
+                        f"Page {number} needs OCR, but OCR is disabled or unavailable. No partial workbook was returned."  # noqa: E501 - complete extraction diagnostic/prompt
                     )
                 prefix = root / "page"
                 _call(
@@ -154,7 +162,77 @@ def extract_pdf(data, *, language="eng", max_pages=20, ocr_enabled=True, timeout
                 )
                 tsv = _call(["tesseract", str(prefix) + ".png", "stdout", "-l", language, "tsv"], timeout)
                 rows = ocr_rows(tsv)
-                (root / "page.png").unlink(missing_ok=True)
+                from PIL import Image, ImageOps
+
+                from .pdf_table_layout import LABELS, columns, extract_rows, geometry, metadata
+
+                image_path = root / "page.png"
+                shape = geometry(image_path, tsv)
+                if shape is None:
+                    import csv
+
+                    from .pdf_table_layout import words
+
+                    tokens = words(tsv)
+                    body = sorted(w["y"] for w in tokens if w["text"].lower() == "pipefitter")
+                    if len(body) >= 5:
+                        pitch = statistics.median(b - a for a, b in zip(body, body[1:], strict=False) if b - a > 10)
+                        top = max(0, round(body[0] - pitch * 1.5))
+                        bottom = round(body[0] - pitch * 0.2)
+                        header_path = root / "probe.png"
+                        with Image.open(image_path) as image:
+                            crop = image.convert("L").crop((0, top, image.width, bottom))
+                            ImageOps.autocontrast(ImageOps.invert(crop)).save(header_path)
+                        extra = _call(
+                            ["tesseract", str(header_path), "stdout", "-l", language, "--psm", "6", "tsv"], timeout
+                        )
+                        output = io.StringIO()
+                        fields = next(csv.reader(io.StringIO(tsv), delimiter="\t"))
+                        writer = csv.DictWriter(output, fieldnames=fields, delimiter="\t")
+                        for item in csv.DictReader(io.StringIO(extra), delimiter="\t"):
+                            item["top"] = str(int(item["top"]) + top)
+                            writer.writerow(item)
+                        shape = geometry(image_path, tsv + "\n" + output.getvalue())
+                        header_path.unlink(missing_ok=True)
+                if shape:
+                    header_path = root / "header.png"
+                    with Image.open(image_path) as image:
+                        crop = image.convert("L").crop(
+                            (shape["left"], shape["header_top"], shape["right"], shape["header_bottom"])
+                        )
+                        ImageOps.autocontrast(ImageOps.invert(crop)).save(header_path)
+                    header_tsv = _call(
+                        ["tesseract", str(header_path), "stdout", "-l", language, "--psm", "6", "tsv"], timeout
+                    )
+                    x_edges = columns(header_tsv, shape)
+                    if x_edges:
+                        records = extract_rows(image_path, tsv, shape, x_edges)
+                        metadata_rows = [[Cell(0, line)] for line in metadata(tsv, shape["header_top"])]
+                        rows = metadata_rows + [[Cell(i, label) for i, label in enumerate(LABELS)]]
+                        rows += [
+                            [
+                                Cell(c["column"], c["text"], c["confidence"], c["source_row"], c["review_note"])
+                                for c in record
+                            ]
+                            for record in records
+                        ]
+                        if shape.get("roster_columns"):
+                            rows += [[Cell(0, line)] for line in metadata(tsv, shape["rows"][-1] + 10, after=True)]
+                        from .pdf_handwriting import vision_image
+
+                        page = Page(
+                            number,
+                            rows,
+                            True,
+                            LABELS.copy(),
+                            vision={"status": "not_requested"},
+                            vision_input=vision_image(image_path, shape, x_edges, len(records)),
+                        )
+                        pages.append(page)
+                        image_path.unlink(missing_ok=True)
+                        header_path.unlink(missing_ok=True)
+                        continue
+                image_path.unlink(missing_ok=True)
             pages.append(Page(number, rows, use_ocr))
         return pages
 
@@ -231,10 +309,10 @@ def workbook(sources):
         # OCR coordinates and native layout columns have different units; keep
         # a separate anchor set so mixed PDFs do not combine incompatible units.
         anchors = {
-            mode: _anchors([row for page in pages if page.ocr == mode for row in page.rows], mode)
+            mode: _anchors([row for page in pages if page.ocr == mode and not page.columns for row in page.rows], mode)
             for mode in (False, True)
         }
-        columns = max(len(a) for a in anchors.values())
+        columns = max([len(a) for a in anchors.values()] + [len(p.columns) for p in pages if p.columns])
         for page in pages:
             rows = page.rows or [[Cell(0, "[No readable text extracted on this page]", 0)]]
             for row in rows:
@@ -247,14 +325,18 @@ def workbook(sources):
                     raise ConversionError("A worksheet exceeds 10,000 extracted rows. Nothing was truncated.")
                 values = {}
                 for item in row:
-                    col = min(range(len(anchors[page.ocr])), key=lambda i: abs(anchors[page.ocr][i] - item.x)) + 1
+                    col = (
+                        int(item.x) + 1
+                        if page.columns
+                        else min(range(len(anchors[page.ocr])), key=lambda i: abs(anchors[page.ocr][i] - item.x)) + 1
+                    )
                     if col in values:
                         prior = values[col]
                         prior.text += " " + item.text
                         if prior.confidence is not None and item.confidence is not None:
                             prior.confidence = min(prior.confidence, item.confidence)
                     else:
-                        values[col] = Cell(item.x, item.text, item.confidence)
+                        values[col] = Cell(item.x, item.text, item.confidence, item.source_row, item.review_note)
                 for col in range(1, columns + 1):
                     item = values.get(col)
                     value = item.text if item else None
@@ -266,13 +348,22 @@ def workbook(sources):
                     cell.border = border
                     cell.alignment = Alignment(vertical="top", wrap_text=True)
                     note = f"Source: {filename}; page {page.number}. "
+                    if item and item.source_row is not None:
+                        note += f"Printed table row {item.source_row}. "
+                    if item and item.review_note:
+                        note += item.review_note + " "
                     flagged = item is not None and item.confidence is not None and item.confidence < 85
+                    flagged = flagged or bool(item and item.review_note)
                     if page.ocr:
                         note += "OCR extraction; not manually verified. "
                         note += (
                             f"Confidence: {item.confidence:.0f}/100. "
-                            if item
-                            else "No OCR text in this cell; verify whether blank or unreadable. "
+                            if item and item.confidence is not None
+                            else (
+                                "Confidence unavailable. "
+                                if item and item.text
+                                else "No OCR text in this cell; verify whether blank or unreadable. "
+                            )
                         )
                         flagged = flagged or (not item and len(row) > 1)
                     if flagged:
@@ -297,7 +388,7 @@ def workbook(sources):
         sheet.freeze_panes = "A2"
         sheet["A1"].comment = Comment(
             f"All {len(pages)} pages processed in order. {sum(p.ocr for p in pages)} pages used OCR. "
-            f"{uncertain} cells flagged. Layout and handwriting need human review; this is not a claim of perfect verification. "
+            f"{uncertain} cells flagged. Layout and handwriting need human review; this is not a claim of perfect verification. "  # noqa: E501 - complete extraction diagnostic/prompt
             "Only confidently identified repeated headings were removed. " + sheet["A1"].comment.text,
             "Dhanz",
         )
@@ -309,6 +400,15 @@ def workbook(sources):
                 "ocr_pages": sum(p.ocr for p in pages),
                 "rows": row_number,
                 "flagged_cells": uncertain,
+                "aligned_pages": sum(bool(p.columns) for p in pages),
+                "vision_pages": sum((p.vision or {}).get("status") == "complete" for p in pages),
+                "vision_warnings": [
+                    f"Page {p.number}: {(p.vision or {}).get('status')}"
+                    for p in pages
+                    if p.columns and (p.vision or {}).get("status") not in ("complete", "not_requested")
+                ],
+                "input_tokens": sum((p.vision or {}).get("input_tokens", 0) for p in pages),
+                "output_tokens": sum((p.vision or {}).get("output_tokens", 0) for p in pages),
             }
         )
     output = io.BytesIO()

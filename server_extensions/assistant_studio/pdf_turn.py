@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 import re
 import threading
 
@@ -25,6 +26,7 @@ async def run(maker, settings, turn, files, finalize, stop_requested):
 
     files = files or build_files_runtime(settings)
     activity = []
+    audit = []
     text = ""
     outcome = "error"
     error = None
@@ -73,6 +75,29 @@ async def run(maker, settings, turn, files, finalize, stop_requested):
             sources.append((name, pages))
             if sum(len(p) for _, p in sources) > 60:
                 raise ConversionError("Use at most 60 pages total; no partial workbook was created.")
+        if os.getenv("DHANZ_PDF_HANDWRITING_ENABLED", "").lower() in ("1", "true", "yes"):
+            from .pdf_handwriting import apply as read_handwriting
+
+            budget = 20
+            halted = False
+            for _, extracted_pages in sources:
+                for extracted_page in extracted_pages:
+                    if not extracted_page.columns or not extracted_page.vision_input:
+                        continue
+                    if halted:
+                        extracted_page.vision = {"status": "skipped_after_provider_failure"}
+                        extracted_page.vision_input = None
+                        continue
+                    yield {
+                        "type": "research",
+                        "stage": "reading_files",
+                        "count": 1,
+                        "detail": f"Reading handwriting on page {extracted_page.number}",
+                    }
+                    budget -= await read_handwriting([extracted_page], settings, cancelled, budget=max(0, budget))
+                    halted = (extracted_page.vision or {}).get("status", "").startswith("provider_http_")
+                    if cancelled.is_set():
+                        raise ConversionError("Conversion stopped. No completed workbook was created.")
         content, audit = await asyncio.to_thread(workbook, sources)
         if cancelled.is_set():
             raise ConversionError("Conversion stopped. No completed workbook was created.")
@@ -102,9 +127,18 @@ async def run(maker, settings, turn, files, finalize, stop_requested):
                 "action": attachment,
             }
         ]
-        text = f"Created **Combined_PDF_to_Excel.xlsx** from {len(audit)} PDF file(s), processing all {pages} pages in order. "
+        text = f"Created **Combined_PDF_to_Excel.xlsx** from {len(audit)} PDF file(s), processing all {pages} pages in order. "  # noqa: E501 - complete extraction diagnostic/prompt
         text += "Each PDF has its own worksheet with editable cells. Use the download attachment below.\n\n"
-        text += f"{flagged} cells were highlighted for review. OCR, handwriting and table alignment still need checking against the PDFs; "
+        aligned = sum(item.get("aligned_pages", 0) for item in audit)
+        vision = sum(item.get("vision_pages", 0) for item in audit)
+        if aligned:
+            text += f"Printed table rows and header-defined columns were used on {aligned} page(s). "
+        if vision:
+            text += f"AI vision transcribed handwritten fields on {vision} page(s), using your OpenAI API credits. "
+        warnings = [warning for item in audit for warning in item.get("vision_warnings", [])]
+        if warnings:
+            text += "Handwriting was not confirmed on some pages: " + "; ".join(warnings) + ". "
+        text += f"{flagged} cells were highlighted for review. OCR, handwriting and table alignment still need checking against the PDFs; "  # noqa: E501 - complete extraction diagnostic/prompt
         text += "this is not a claim of perfect manual verification."
         outcome = "complete"
     except (ConversionError, HTTPException, ImportError, ValueError, OSError) as exc:
@@ -136,8 +170,8 @@ async def run(maker, settings, turn, files, finalize, stop_requested):
             outcome=outcome,
             provider="tools",
             model="PDF to Excel",
-            input_tokens=None,
-            output_tokens=None,
+            input_tokens=sum(item.get("input_tokens", 0) for item in audit) or None,
+            output_tokens=sum(item.get("output_tokens", 0) for item in audit) or None,
             error=error,
             citations=[],
             tool_activity=activity,
