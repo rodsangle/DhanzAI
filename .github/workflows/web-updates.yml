@@ -6,6 +6,7 @@ on:
     paths:
       - "client_releases/0.10.0-updates/**"
       - "scripts/release/package_web_updates.py"
+      - "scripts/release/test_background_uploads.py"
       - ".github/workflows/web-updates.yml"
   workflow_dispatch:
 
