@@ -95,8 +95,10 @@ class _AppSimulatorPanelState extends State<AppSimulatorPanel> {
         _error = null;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = error is ApiException ? error.message :
-        'Build status is uncertain. Refresh the project list before retrying; no automatic retry was made.');
+      if (mounted) {
+        setState(() => _error = error is ApiException ? error.message :
+          'Build status is uncertain. Refresh the project list before retrying; no automatic retry was made.');
+      }
     } finally {
       if (mounted) {
         setState(() => _updating = false);
