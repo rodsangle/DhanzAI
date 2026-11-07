@@ -14,7 +14,7 @@ def embed(path, files):
     path.write_text(
         re.sub(
             r"^PAYLOAD = .+$",
-            lambda _: "PAYLOAD = " + repr(packet) + "  # noqa: E501 - reviewed media setup",
+            lambda _: "PAYLOAD = " + json.dumps(packet) + "  # noqa: E501 - reviewed media setup",
             path.read_text(),
             flags=re.M,
         )

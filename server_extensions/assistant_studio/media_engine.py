@@ -101,7 +101,9 @@ async def render(folder: Path, edit: Edit):
             raise ValueError("Trim start plus duration exceeds the source video. Reduce the duration.")
         args += [*INPUT, "-ss", str(edit.start), "-i", str(video)]
         index += 1
-        filters.append("[0:v]scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,fps=30[v]")
+        filters.append(
+            "[0:v]scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,fps=30[v]"
+        )
         if edit.original_volume and any(s.get("codec_type") == "audio" for s in info["streams"]):
             filters.append(
                 f"[0:a]volume={edit.original_volume},apad,atrim=duration={duration},asetpts=PTS-STARTPTS[a0]"
