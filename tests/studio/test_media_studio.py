@@ -204,6 +204,7 @@ def test_installer_preserves_bootstrap_and_frozen_payloads():
 async def test_media_http_upload_validation_and_account_isolation(settings):
     import httpx
     from fastapi import FastAPI
+
     from app.api import deps
 
     settings.api_prefix = "/api/v1"
