@@ -26,6 +26,7 @@ import 'features/reminders/reminders_screen.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/capabilities_screen.dart';
 import 'features/voice/voice_screen.dart';
+import 'features/media_editor/media_editor_screen.dart';
 
 const _publicRoutes = {'/welcome', '/login', '/register', '/reset-password'};
 
@@ -146,6 +147,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/memory',
         builder: (context, state) => const MemoryScreen(),
       ),
+      GoRoute(path: '/media-editor', builder: (context, state) => const MediaEditorScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
       GoRoute(
         path: '/security',

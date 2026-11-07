@@ -252,6 +252,8 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
             ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('Uploads'), onTap: () => _go('/uploads')),
             ListTile(leading: const Icon(Icons.cloud_sync_outlined), title: const Text('Connected operations'), onTap: () => _go('/operations')),
             ListTile(leading: const Icon(Icons.terminal), title: const Text('Chat with Codex'), onTap: () => _go('/coding')),
+            ListTile(leading: const Icon(Icons.video_settings), title: const Text('Media editor'), onTap: () => _go('/media-editor')),
+            ListTile(leading: const Icon(Icons.record_voice_over), title: const Text('Voice · Hey Dhanz'), onTap: () => _go('/voice')),
             ListTile(leading: const Icon(Icons.code), title: const Text('App & agent builder'), onTap: () => _go('/builder')),
             ListTile(
               leading: const Icon(Icons.auto_awesome_outlined),

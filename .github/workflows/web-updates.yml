@@ -19,9 +19,9 @@ concurrency:
 
 env:
   APP_DIR: client_releases/0.10.0-updates
-  RELEASE_ID: web-updates-0.10.5-preview.2
-  WEB_VERSION: "0.10.5"
-  WEB_BUILD: "43"
+  RELEASE_ID: web-updates-0.10.6-preview.1
+  WEB_VERSION: "0.10.6"
+  WEB_BUILD: "44"
 
 jobs:
   build:
@@ -35,6 +35,15 @@ jobs:
           flutter-version: "3.47.8"
           channel: stable
           cache: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Test actual local media rendering and private queue
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
+          python -m pip install -r backend/requirements-dev.txt
+          python -m pytest tests/studio/test_media_studio.py -q
       - name: Resolve the existing locked dependencies
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get --enforce-lockfile
@@ -79,7 +88,7 @@ jobs:
           if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
             gh release upload "$RELEASE_ID" dist/web-updates/* --clobber
           else
-            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.5 discretion mode" --notes "Checked Dhanz 0.10.5 web build with account-scoped discretion controls in chat and Codex. Routine coding setup can select defaults and queue drafts automatically while preserving existing publication grants. Includes the interactive app simulator and Office preview. Mobile simulation uses a companion browser demo, not an Android emulator. Requires the app-simulator API updater for revisions. Includes the existing Office-style workbook editor and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
+            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.6 media and voice" --notes "Checked Dhanz 0.10.6 web build with local video editing, narration, sound exports and opt-in foreground Hey Dhanz controls. Requires the media studio API updater. Includes account-scoped discretion controls in chat and Codex. Routine coding setup can select defaults and queue drafts automatically while preserving existing publication grants. Includes the interactive app simulator and Office preview. Mobile simulation uses a companion browser demo, not an Android emulator. Requires the app-simulator API updater for revisions. Includes the existing Office-style workbook editor and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
           fi
       - name: Publish latest web channel after the checked release assets
         if: steps.channel.outputs.promote == 'true'

@@ -74,6 +74,46 @@ class ApiClient {
     );
   }
 
+  Future<List<Map<String, dynamic>>> mediaJobs() async {
+    final body = await _json('GET', '/media-studio/jobs') as Map<String, dynamic>;
+    return (body['jobs'] as List).cast<Map<String, dynamic>>();
+  }
+  Future<void> deleteMediaJob(String id) async { await _json('DELETE', '/media-studio/jobs/$id'); }
+  Future<Uint8List> downloadMediaJob(String id) async {
+    final response = await _send('GET', '/media-studio/jobs/$id/download');
+    if (response.statusCode >= 400) throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    return response.bodyBytes;
+  }
+  Future<Map<String, dynamic>> renderMedia(Map<String, dynamic> options, String key, {
+    ({String name, Uint8List bytes})? video, ({String name, Uint8List bytes})? audio,
+  }) async {
+    final initialUrl = baseUrl;
+    final initialToken = await store.read(StoreKeys.accessToken);
+    String? subject(String? token) {
+      try { return (jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(token!.split('.')[1])))) as Map)['sub'] as String?; }
+      on Object { return null; }
+    }
+    Future<bool> current() async {
+      final token = await store.read(StoreKeys.accessToken);
+      return initialUrl == baseUrl && (initialToken == token || (subject(initialToken) != null && subject(initialToken) == subject(token)));
+    }
+    Future<http.Response> send() async {
+      if (!await current()) throw ApiException(409, 'The account or server changed. Export was not retried.');
+      final request = http.MultipartRequest('POST', _uri('/media-studio/jobs'))
+        ..fields.addAll({'options': jsonEncode(options), 'request_key': key});
+      final token = await store.read(StoreKeys.accessToken);
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      if (video != null) request.files.add(http.MultipartFile.fromBytes('video', video.bytes, filename: video.name));
+      if (audio != null) request.files.add(http.MultipartFile.fromBytes('audio', audio.bytes, filename: audio.name));
+      return http.Response.fromStream(await _client.send(request));
+    }
+    var response = await send();
+    if (response.statusCode == 401 && await current() && await _refresh(isCurrentSession: () => initialUrl == baseUrl) && await current()) response = await send();
+    if (!await current()) throw ApiException(409, 'The account or server changed. Check exports after signing in again.');
+    if (response.statusCode >= 400) throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   Future<bool> autonomyEnabled() async {
     try {
       final data = await _json('GET', '/assistant-studio/autonomy') as Map<String, dynamic>;
