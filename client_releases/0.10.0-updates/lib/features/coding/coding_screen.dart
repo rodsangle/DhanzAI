@@ -634,7 +634,9 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
         children: [
           _bubble(
             'assistant',
-            'Ready to create a private coding draft. Review the choices below, add any final requirements in the chat box, then choose Start coding. This starts the paid model request; it does not publish to GitHub.',
+            _discretion
+              ? 'Routine defaults applied. Dhanz starts the coding draft automatically when its target and source context are ready. Actual status appears below. You can edit these choices; model usage charges apply.'
+              : 'Ready to create a private coding draft. Review the choices below, add any final requirements in the chat box, then choose Start coding. This starts the paid model request; it does not publish to GitHub.',
           ),
           Card(
             child: Padding(

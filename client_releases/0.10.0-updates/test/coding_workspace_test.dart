@@ -273,6 +273,7 @@ void autonomyWorkspaceTests() {
     ));
     await tester.pumpAndSettle();
     expect(api.createdCalls, 1);
+    expect(find.textContaining('Routine defaults applied.'), findsOneWidget);
     expect(api.created?['runtime'], 'python');
     expect(api.created?['repository'], '');
     expect(api.created?['auto_repair'], true);
