@@ -32,12 +32,12 @@ for line in process.stdout:
         continue
     if event.get("type") == "testStart":
         tests[event["test"]["id"]] = event["test"]["name"]
-    elif event.get("type") == "print" and "simulator" in tests.get(event.get("testID"), "").lower():
+    elif event.get("type") == "print" and any(name in tests.get(event.get("testID"), "").lower() for name in ("simulator", "wake listening", "media editor")):
         # Flutter framework assertions are print events; the final error event
         # often says only "Test failed". Annotate only this mocked widget test.
         message = str(event.get("message", ""))
         if any(word in message for word in ("EXCEPTION", "Expected:", "Actual:", "overflowed", "assertion")):
-            print("::error title=Simulator widget assertion::" + escape(message.strip()[:1800]), flush=True)
+            print("::error title=Client widget assertion::" + escape(message.strip()[:1800]), flush=True)
     elif event.get("type") == "error":
         name = tests.get(event.get("testID"), "Flutter test")
         message = str(event.get("error", "Failed")).strip()[:700]

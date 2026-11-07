@@ -14,11 +14,11 @@ void main() {
   testWidgets('media editor shows durable jobs and rejects video exports without source', (tester) async {
     await tester.pumpWidget(ProviderScope(overrides: [apiClientProvider.overrideWithValue(MediaApi())], child: const MaterialApp(home: MediaEditorScreen())));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(find.text('Create export'), 300);
+    await tester.scrollUntilVisible(find.text('Create export'), 300, scrollable: find.byType(Scrollable).first);
     await tester.tap(find.text('Create export'));
     await tester.pumpAndSettle();
     expect(find.text('Choose a video first.'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('clip.mp4'), 200);
+    await tester.scrollUntilVisible(find.text('clip.mp4'), 200, scrollable: find.byType(Scrollable).first);
     expect(find.text('video · running'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump();

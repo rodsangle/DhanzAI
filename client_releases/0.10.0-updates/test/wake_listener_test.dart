@@ -11,12 +11,13 @@ import 'package:flutter_test/flutter_test.dart';
 class FakeWake implements WakeRecognizer {
   int starts = 0, stops = 0;
   void Function(String)? text;
+  void Function(String)? error;
   @override
   bool get supported => true;
   @override
-  void start({required void Function(String) onText, required void Function(String) onError, required void Function() onEnd}) { starts++; text = onText; }
+  void start({required void Function(String) onText, required void Function(String) onError, required void Function() onEnd}) { starts++; text = onText; error = onError; }
   @override
-  void stop() { stops++; text = null; }
+  void stop() { stops++; text = null; error = null; }
 }
 class QuietSpeaker implements VoiceSpeaker {
   @override
@@ -45,6 +46,9 @@ void main() {
     await tester.tap(find.text('Enable microphone'));
     await tester.pumpAndSettle();
     expect(wake.starts, 1);
+    wake.error!('no-speech');
+    await tester.pump();
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isTrue, reason: 'Normal recognition silence must not disable wake listening');
     wake.text!('this is unrelated speech');
     await tester.pump();
     expect(find.text('Listening for “Hey Dhanz”…'), findsOneWidget);

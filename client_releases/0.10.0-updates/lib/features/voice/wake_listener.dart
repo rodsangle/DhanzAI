@@ -19,6 +19,7 @@ class _WakeListenerState extends ConsumerState<WakeListener> with WidgetsBinding
   String _status = 'Off';
   Timer? _restart;
   DateTime? _awakened;
+  DateTime _startedAt = DateTime.now();
   int _session = 0;
   int _emptyEnds = 0;
   @override
@@ -41,6 +42,7 @@ class _WakeListenerState extends ConsumerState<WakeListener> with WidgetsBinding
   void _start() {
     if (!_enabled || _processing || !mounted) return;
     final session = ++_session;
+    _startedAt = DateTime.now();
     try {
       _recognizer.start(onText: (text) {
         if (!_enabled || _processing || session != _session) return;
@@ -57,10 +59,12 @@ class _WakeListenerState extends ConsumerState<WakeListener> with WidgetsBinding
         _awakened = null;
         unawaited(_answer(request, session));
       }, onError: (error) {
+        if (error == 'no-speech') return; // Normal browser silence; onEnd rearms recognition.
         if (session == _session) _disable('Wake listening stopped: $error. Check browser microphone permission.');
       }, onEnd: () {
         if (!_enabled || _processing || session != _session) return;
-        if (++_emptyEnds >= 3) { _disable('The browser ended listening repeatedly. Turn on to try again.'); return; }
+        _emptyEnds = DateTime.now().difference(_startedAt) < const Duration(seconds: 2) ? _emptyEnds + 1 : 0;
+        if (_emptyEnds >= 3) { _disable('The browser ended listening repeatedly. Turn on to try again.'); return; }
         _restart?.cancel();
         _restart = Timer(const Duration(seconds: 1), _start);
       });

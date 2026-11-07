@@ -110,6 +110,15 @@ async def enqueue(settings, user_id, edit, key, video=None, audio=None):
         entries = jobs(settings, user_id)
         if sum(d["status"] in ("queued", "running") for d in entries) >= 3 or len(entries) >= 30:
             raise HTTPException(429, "Finish queued jobs or delete old media jobs before adding more.")
+        incoming = sum(len(upload[1]) for upload in (video, audio) if upload)
+        if shutil.disk_usage(base).free < incoming + 1024 * 1024 * 1024:
+            raise HTTPException(507, "Media storage is low. Delete old exports before adding more.")
+        active = sum(
+            read(path.parent)["status"] in ("queued", "running")
+            for path in base.glob("????????-????-????-????-????????????/manifest.json")
+        )
+        if active >= 10:
+            raise HTTPException(429, "The local render queue is full. Wait for exports to finish.")
         stage = Path(tempfile.mkdtemp(prefix="stage-", dir=base))
         stage.chmod(0o700)
         try:
