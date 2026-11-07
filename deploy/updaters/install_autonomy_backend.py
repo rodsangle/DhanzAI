@@ -183,7 +183,9 @@ try:
     from app.core.config import Settings
     from app.assistant_studio.autonomy import POLICY
     application=create_app(Settings(app_env='test',_env_file=None))
-    assert any(r.path.endswith('/assistant-studio/autonomy') for r in application.routes)
+    paths=application.openapi()['paths']
+    endpoint=application.state.settings.api_prefix.rstrip('/')+'/assistant-studio/autonomy'
+    assert {'get','put'}.issubset(paths[endpoint])
     assert 'not a new permission' in POLICY
     print('Autonomy startup checks passed. No provider or GitHub requests were made.')
 except Exception as exc:

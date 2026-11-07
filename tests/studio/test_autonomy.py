@@ -75,3 +75,29 @@ async def test_chat_and_coding_hooks_use_only_the_owning_account(accounts, monke
     assert generated[0][1].startswith("[DHANZ_RUNTIME:flutter]\n") and autonomy.POLICY in generated[0][1]
     assert generated[1][1] == "Build a demo"
     assert first_job.prompt == "[DHANZ_RUNTIME:flutter]\nBuild a demo"
+
+
+def test_installer_startup_check_handles_fastapi_included_router_objects(monkeypatch, capsys):
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    application = FastAPI()
+    application.state.settings = Settings(app_env="test", _env_file=None)
+    application.include_router(autonomy.router, prefix=application.state.settings.api_prefix)
+    # New FastAPI uses _IncludedRouter entries without .path; checking OpenAPI
+    # must still verify both endpoint methods rather than silently skip them.
+    if any(not hasattr(route, "path") for route in application.routes):
+        with pytest.raises(AttributeError):
+            any(route.path.endswith("/assistant-studio/autonomy") for route in application.routes)
+    monkeypatch.setitem(sys.modules, "app.main", SimpleNamespace(create_app=lambda settings: application))
+    tree = ast.parse((root / "deploy/updaters/install_autonomy_backend.py").read_text())
+    check = next(
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and "Autonomy startup checks passed." in node.value
+    )
+    exec(compile(check, "<installer-startup>", "exec"), {})  # noqa: S102 - reviewed offline startup snippet
+    assert "Autonomy startup checks passed." in capsys.readouterr().out
