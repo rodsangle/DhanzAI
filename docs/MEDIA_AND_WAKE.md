@@ -6,7 +6,7 @@ No models are downloaded, no API key is added, and no media-provider credits are
 
 ## Media
 
-- Upload an existing video, choose trim start and a 1–60 second duration, then export MP4 (up to 720p).
+- Upload an existing video, choose trim start and a 1–60 second duration, then export MP4 (up to 720p at 30 fps).
 - Keep, mute, or change the original audio volume; mix a separately uploaded soundtrack.
 - Add a narration script in English, Spanish, French, or German. The local eSpeak NG voice is synthetic,
   not a cloned voice or a natural AI narrator. Scripts that exceed the clip length are rejected.

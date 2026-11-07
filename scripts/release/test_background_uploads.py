@@ -32,7 +32,9 @@ for line in process.stdout:
         continue
     if event.get("type") == "testStart":
         tests[event["test"]["id"]] = event["test"]["name"]
-    elif event.get("type") == "print" and any(name in tests.get(event.get("testID"), "").lower() for name in ("simulator", "wake listening", "media editor")):
+    elif event.get("type") == "print" and any(
+        name in tests.get(event.get("testID"), "").lower() for name in ("simulator", "wake listening", "media editor")
+    ):
         # Flutter framework assertions are print events; the final error event
         # often says only "Test failed". Annotate only this mocked widget test.
         message = str(event.get("message", ""))

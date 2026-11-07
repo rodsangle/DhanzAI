@@ -57,10 +57,10 @@ void main() {
     expect(find.text('Yes? Say your request within 10 seconds.'), findsOneWidget);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
     await tester.pump();
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
-    expect(wake.text, isNull);
+    expect(wake.text, isNull, reason: 'Microphone callbacks must detach immediately while hidden');
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
+    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
     expect(wake.starts, 1, reason: 'Returning to the foreground must not silently reopen the mic');
     await tester.pumpWidget(const SizedBox());
     expect(wake.text, isNull);
