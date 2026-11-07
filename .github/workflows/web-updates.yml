@@ -38,12 +38,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Test actual local media rendering and private queue
+      - name: Install local media test dependencies
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
-          python -m pip install -r backend/requirements-dev.txt
-          python -m pytest tests/studio/test_media_studio.py -q
+          (cd backend && python -m pip install -r requirements-dev.txt)
+      - name: Test actual local media rendering and private queue
+        run: python scripts/release/check_local_media.py
       - name: Resolve the existing locked dependencies
         working-directory: ${{ env.APP_DIR }}
         run: flutter pub get --enforce-lockfile

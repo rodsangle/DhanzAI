@@ -198,3 +198,46 @@ def test_installer_preserves_bootstrap_and_frozen_payloads():
     combined = runpy.run_path(str(root / "deploy/updaters/install_media_studio.py"))
     files = json.loads(gzip.decompress(base64.b64decode(combined["PAYLOAD"])))
     assert files["install_media_backend.py"] == (root / "deploy/updaters/install_media_backend.py").read_text()
+
+
+@pytest.mark.asyncio
+async def test_media_http_upload_validation_and_account_isolation(settings):
+    import httpx
+    from fastapi import FastAPI
+    from app.api import deps
+
+    settings.api_prefix = "/api/v1"
+    settings.clamav_host = None
+    settings.clamav_port = 3310
+    account = SimpleNamespace(id=uuid.uuid4())
+    application = FastAPI()
+    application.state.settings = settings
+    application.dependency_overrides[deps.get_current_user] = lambda: account
+    application.include_router(studio.router, prefix=settings.api_prefix)
+    schema = application.openapi()["paths"]
+    assert {"get", "post"}.issubset(schema["/api/v1/media-studio/jobs"])
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="https://test") as client:
+        response = await client.post(
+            "/api/v1/media-studio/jobs",
+            data={"request_key": "http_request_key_1234", "options": json.dumps({"mode": "sound", "effect": "beep"})},
+        )
+        assert response.status_code == 202, response.text
+        identifier = response.json()["id"]
+        response = await client.get("/api/v1/media-studio/jobs")
+        assert len(response.json()["jobs"]) == 1
+        account.id = uuid.uuid4()
+        assert (await client.get("/api/v1/media-studio/jobs")).json()["jobs"] == []
+        assert (await client.get(f"/api/v1/media-studio/jobs/{identifier}/download")).status_code == 404
+        response = await client.post(
+            "/api/v1/media-studio/jobs", data={"request_key": "http_request_bad_1234", "options": '{"duration":61}'}
+        )
+        assert response.status_code == 422
+
+
+def test_chat_tool_is_registered_with_existing_interface():
+    from app.services import assistant_tools
+
+    studio.install_tools()
+    tool = assistant_tools.TOOLS["local_media"]
+    assert tool.label == "Local media"
+    assert tool.spec.name == "local_media"
