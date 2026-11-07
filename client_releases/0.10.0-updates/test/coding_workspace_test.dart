@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 class CodingApi extends ApiClient {
   CodingApi() : super(store: MemorySecureStore(), baseUrl: 'https://example.test');
+  @override
+  Future<bool> autonomyEnabled() async => false;
   int published = 0;
   int createdCalls = 0;
   Map<String, dynamic>? created;
@@ -61,6 +63,7 @@ class CodingApi extends ApiClient {
 
 void main() {
   conversationTests();
+  autonomyWorkspaceTests();
   temporaryContextTests();
   testWidgets('publishing requires a separate explicit confirmation after review', (tester) async {
     tester.view.physicalSize = const Size(1200, 3200);
@@ -242,6 +245,38 @@ void temporaryContextTests() {
     expect(api.contextReads, 0);
     expect(find.text('Create a Python CLI'), findsOneWidget);
     expect(api.created, isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    api.close();
+  });
+}
+
+
+class DiscretionCodingApi extends ChatCodingApi {
+  @override
+  Future<bool> autonomyEnabled() async => true;
+}
+
+void autonomyWorkspaceTests() {
+  testWidgets('discretion queues a coding draft without routine setup confirmations and never publishes it', (tester) async {
+    tester.view.physicalSize = const Size(1200, 3200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = DiscretionCodingApi();
+    await tester.pumpWidget(ProviderScope(
+      overrides: [apiClientProvider.overrideWithValue(api), authControllerProvider.overrideWith(OwnerAuth.new)],
+      child: MaterialApp(home: Consumer(builder: (context, ref, _) {
+        if (!ref.watch(authControllerProvider).hasValue) return const SizedBox.shrink();
+        return CodingScreen(seed: {'user_id':'owner','server':api.baseUrl,
+          'conversation_id':'selected','task':'Create a Python agent that reads CSV files'});
+      })),
+    ));
+    await tester.pumpAndSettle();
+    expect(api.createdCalls, 1);
+    expect(api.created?['runtime'], 'python');
+    expect(api.created?['repository'], '');
+    expect(api.created?['auto_repair'], true);
+    expect(api.published, 0);
     await tester.pumpWidget(const SizedBox.shrink());
     api.close();
   });

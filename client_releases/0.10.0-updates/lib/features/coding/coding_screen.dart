@@ -47,6 +47,8 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
   List<Map<String, dynamic>> _drafts = [];
   List<Map<String, dynamic>> _entries = [];
   Map<String, dynamic>? _selected;
+  bool _discretion = false;
+  bool _resolvingDefaults = false;
   bool _busy = false;
   bool _loading = true;
   String? _error;
@@ -92,6 +94,8 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
     try {
       final api = ref.read(apiClientProvider);
       final models = await api.builderModels();
+      var discretion = false;
+      try { discretion = await api.autonomyEnabled(); } on ApiException { /* Keep manual mode if preferences are unavailable. */ }
       final projects = await api.builderProjects();
       List<Map<String, dynamic>> repositories = [];
       String? note;
@@ -102,6 +106,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
       }
       if (!mounted) return;
       setState(() {
+        _discretion = discretion;
         _plan.models = (models['models'] as List<dynamic>).cast<String>();
         _plan.projects = projects;
         _plan.repositories = repositories;
@@ -111,6 +116,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
       });
       await _loadSeed();
       await _refresh();
+      if (_createdFingerprint == null) await _applyDiscretion();
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {
@@ -193,8 +199,78 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
     }
   }
 
+  Future<void> _setDiscretion() async {
+    try {
+      await ref.read(apiClientProvider).setAutonomy(!_discretion);
+      if (!mounted) return;
+      setState(() => _discretion = !_discretion);
+      await _applyDiscretion();
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+    }
+  }
+
+  Future<void> _applyDiscretion() async {
+    if (!_discretion || _busy || _resolvingDefaults || _plan.task.isEmpty) return;
+    _resolvingDefaults = true;
+    final notes = _plan.useDiscretion();
+    final taskAtStart = _plan.task;
+    final repoAtStart = _plan.repository;
+    bool stillCurrent() => mounted && _plan.task == taskAtStart && _plan.repository == repoAtStart;
+    try {
+      if (_plan.question?.key == 'paths' && _plan.repository.isNotEmpty) {
+        final api = ref.read(apiClientProvider);
+        final root = await api.codingSource(_plan.repository, '', _plan.branch);
+        if (!stillCurrent()) return;
+        final entries = ((root['entries'] as List<dynamic>?) ?? []).cast<Map<String, dynamic>>();
+        final candidates = <Map<String, dynamic>>[...entries.where((e) => e['type'] == 'file')];
+        final folders = entries.where((e) => e['type'] == 'dir' && ['src','lib','app'].contains(e['name'])).take(2);
+        for (final folder in folders) {
+          final child = await api.codingSource(_plan.repository, folder['path'] as String, _plan.branch);
+          if (!stillCurrent()) return;
+          candidates.addAll(((child['entries'] as List<dynamic>?) ?? []).cast<Map<String,dynamic>>().where((e) => e['type'] == 'file'));
+        }
+        final textFiles = candidates.where((e) => RegExp(r'\.(md|json|yaml|yml|dart|py|ts|tsx|js|jsx|html|css|txt)$', caseSensitive: false).hasMatch(e['path'] as String)).toList();
+        final priorities = ['package.json','pubspec.yaml','requirements.txt','README.md','main.dart','main.py','index.html'];
+        int rank(Map<String,dynamic> e) { final i = priorities.indexOf(e['name'] as String); return i < 0 ? 99 : i; }
+        textFiles.sort((a,b) => rank(a).compareTo(rank(b)));
+        _plan.paths = textFiles.take(12).map((e) => e['path'] as String).toList();
+        if (_plan.paths.isNotEmpty || entries.isEmpty) {
+          _plan.answer(_plan.paths.isEmpty ? 'none' : 'selected', choice: true);
+          notes.add('Read context: ${_plan.paths.length} repository files');
+          notes.addAll(_plan.useDiscretion());
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        if (notes.isNotEmpty) _turns.add((role: 'assistant', text: 'Using discretion: ${notes.join('; ')}. You can change these choices.'));
+      });
+    } on ApiException catch (error) {
+      if (mounted) setState(() => _error = error.message);
+      return;
+    } finally {
+      _resolvingDefaults = false;
+    }
+    if (mounted && _plan.question == null) {
+      try {
+        final enabled = await ref.read(apiClientProvider).autonomyEnabled();
+        if (!mounted) return;
+        if (!enabled) { setState(() => _discretion = false); return; }
+        await _create();
+      } on ApiException catch (error) {
+        if (mounted) setState(() => _error = error.message);
+      }
+    }
+  }
+
   void _respond(String text, {CodingChoice? choice}) {
-    if (_busy || (text.trim().isEmpty && choice == null)) return;
+    if (_busy || _resolvingDefaults || (text.trim().isEmpty && choice == null)) return;
+    if (_discretion && _plan.question == null && choice == null &&
+        !isCodingWorkRequest(text)) {
+      setState(() => _turns.add((role: 'assistant', text: 'No new build started. The latest saved status is shown below. Describe a coding change or say Start coding to begin work.')));
+      unawaited(_refresh());
+      return;
+    }
     final question = _plan.question;
     if (choice != null) _chatFocus.unfocus();
     if (question == null &&
@@ -216,6 +292,7 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
       _instructions.clear();
       _error = null;
     });
+    unawaited(_applyDiscretion());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final anchor = _questionAnchor.currentContext;
       if (mounted && anchor != null) {
@@ -668,6 +745,8 @@ class _CodingScreenState extends ConsumerState<CodingScreen> {
         onPressed: () => context.go(_returnChatId == null ? '/chat' : '/chat/$_returnChatId'),
       ),
       actions: [
+        IconButton(tooltip: _discretion ? 'Use discretion: on' : 'Use discretion: off',
+          isSelected: _discretion, icon: const Icon(Icons.auto_awesome), onPressed: _busy ? null : _setDiscretion),
         IconButton(tooltip: 'Refresh workspace', icon: const Icon(Icons.refresh), onPressed: _busy ? null : _load),
       ],
     ),

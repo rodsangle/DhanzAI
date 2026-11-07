@@ -74,6 +74,18 @@ class ApiClient {
     );
   }
 
+  Future<bool> autonomyEnabled() async {
+    try {
+      final data = await _json('GET', '/assistant-studio/autonomy') as Map<String, dynamic>;
+      return data['enabled'] == true;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return false;
+      rethrow;
+    }
+  }
+  Future<void> setAutonomy(bool enabled) async {
+    await _json('PUT', '/assistant-studio/autonomy', body: {'enabled': enabled});
+  }
   Future<Map<String, dynamic>> builderModels() async =>
       await _json('GET', '/assistant-studio/models') as Map<String, dynamic>;
   Future<List<Map<String, dynamic>>> builderProjects() async {

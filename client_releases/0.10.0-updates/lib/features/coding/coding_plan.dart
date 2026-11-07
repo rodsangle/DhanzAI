@@ -1,5 +1,10 @@
 import '../../models/models.dart';
 
+bool isCodingWorkRequest(String text) => RegExp(
+  r"^(?:(?:please|can you|could you)\s+)*(?:create|build|make|add|change|update|fix|repair|implement|remove|refactor|continue|start|generate|develop|I want|I'd like|I would like|we need)\b",
+  caseSensitive: false,
+).hasMatch(text.trim()) || ['go ahead', 'create draft'].contains(text.trim().toLowerCase());
+
 class CodingChoice {
   const CodingChoice(this.value, this.label, this.explanation);
   final String value;
@@ -55,6 +60,56 @@ class CodingPlan {
       model = requestedModels.single;
       answered.add('model');
     }
+  }
+
+  List<String> useDiscretion() {
+    final notes = <String>[];
+    if (task.isEmpty) return notes;
+    final lower = task.toLowerCase();
+    final namedRepos = repositories.where((r) => lower.contains((r['full_name'] as String).toLowerCase())).toList();
+    if (!answered.contains('runtime')) {
+      runtime = RegExp(r'\b(agent|python)\b').hasMatch(lower) ? 'python' :
+        RegExp(r'\b(android|ios|mobile|flutter|dart)\b').hasMatch(lower) ? 'flutter' : 'web';
+      answered.add('runtime');
+      notes.add('Project type: $runtime');
+    }
+    for (var i = 0; i < 16; i++) {
+      final next = question;
+      if (next == null) break;
+      String? value;
+      switch (next.key) {
+        case 'goal':
+          value = namedRepos.length == 1 || RegExp(r'\b(repository|repo)\b').hasMatch(lower) ? 'repository' :
+            RegExp(r'\b(repair|existing project|saved project)\b').hasMatch(lower) ? 'repair' : 'new';
+        case 'project':
+          final named = projects.where((p) => lower.contains((p['name'] as String).toLowerCase())).toList();
+          if (named.length == 1) value = named.single['id'] as String;
+        case 'requirements': value = 'given';
+        case 'repository':
+          if (namedRepos.length == 1) {
+            value = namedRepos.single['full_name'] as String;
+          } else if (goal == 'repository' && repositories.length == 1) {
+            value = repositories.single['full_name'] as String;
+          } else if (goal != 'repository' && runtime != 'flutter') {
+            value = '';
+          }
+        case 'branch': value = '';
+        case 'paths':
+          if (paths.isNotEmpty) value = 'selected';
+        case 'workdir':
+          final folders = paths.where((p) => p.endsWith('/package.json') || p.endsWith('/pubspec.yaml'))
+            .map((p) => p.substring(0, p.lastIndexOf('/'))).toSet();
+          value = folders.length == 1 ? folders.single : '';
+        case 'model':
+          if (models.isNotEmpty) value = models.contains('gpt-4.1-mini') ? 'gpt-4.1-mini' : models.first;
+        case 'repair': value = 'once';
+      }
+      if (value == null) break;
+      final notice = answer(value, choice: true);
+      notes.add('${next.key}: ${value.isEmpty ? 'default/private' : value}');
+      if (notice != null && question?.key == next.key) break;
+    }
+    return notes;
   }
 
   CodingQuestion? get question {

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
+import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../core/uploads/upload_queue.dart';
 import '../projects/projects_controller.dart';
@@ -44,6 +45,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
   final _preview = ChatPreviewController();
   int? _previewRevision;
   bool _dragging = false;
+  bool _discretion = false;
+  bool _savingDiscretion = false;
   List<String> _suggestions = randomChatSuggestions();
   bool get _windows =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -75,6 +78,30 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     super.initState();
     if (_windows) windowManager.addListener(this);
     _open();
+    unawaited(_loadDiscretion());
+  }
+
+  Future<void> _loadDiscretion() async {
+    try {
+      final enabled = await ref.read(apiClientProvider).autonomyEnabled();
+      if (mounted) setState(() => _discretion = enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleDiscretion() async {
+    if (_savingDiscretion) return;
+    setState(() => _savingDiscretion = true);
+    try {
+      await ref.read(apiClientProvider).setAutonomy(!_discretion);
+      if (!mounted) return;
+      setState(() => _discretion = !_discretion);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_discretion ?
+        'Use discretion is on for chat and Codex. Existing permissions still apply.' : 'Use discretion is off.')));
+    } on ApiException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _savingDiscretion = false);
+    }
   }
 
   @override
@@ -281,6 +308,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
         overflow: TextOverflow.ellipsis,
       ),
       actions: [
+        if (!wide) PopupMenuButton<String>(tooltip: 'Chat options',
+          onSelected: (value) {
+            if (value == 'discretion') unawaited(_toggleDiscretion());
+            if (value == 'temporary') ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary);
+            if (value == 'voice') context.go('/voice');
+          },
+          itemBuilder: (_) => [
+            CheckedPopupMenuItem(value: 'discretion', checked: _discretion, enabled: !_savingDiscretion, child: const Text('Use discretion')),
+            if (chat.conversationId == null) CheckedPopupMenuItem(value: 'temporary', checked: chat.temporary, child: const Text('Temporary chat')),
+            const PopupMenuItem(value: 'voice', child: Text('Talk to Dhanz')),
+          ]),
+        if (wide) IconButton(tooltip: _discretion ? 'Use discretion: on' : 'Use discretion: off',
+          isSelected: _discretion, icon: const Icon(Icons.auto_awesome), onPressed: _savingDiscretion ? null : _toggleDiscretion),
         IconButton(tooltip: 'App simulator', icon: const Icon(Icons.smartphone_outlined),
           onPressed: () => _preview.open(const ChatPreviewTarget(documentId: 'app-simulator',
             filename: 'App simulator', simulator: true))),
@@ -293,7 +333,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             onPressed: _preview.visible ? _preview.close : _preview.show,
           ),
         ),
-        if (chat.conversationId == null)
+        if (wide && chat.conversationId == null)
           IconButton(
             tooltip: chat.temporary ? 'Temporary chat on' : 'Temporary chat',
             isSelected: chat.temporary,
@@ -303,7 +343,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
                 .read(chatControllerProvider.notifier)
                 .setTemporary(!chat.temporary),
           ),
-        IconButton(
+        if (wide) IconButton(
           tooltip: 'Talk to Dhanz',
           icon: const Icon(Icons.mic_none),
           onPressed: () => context.go('/voice'),
