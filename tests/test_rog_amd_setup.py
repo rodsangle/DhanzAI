@@ -26,6 +26,20 @@ class RogRuntimeSetupTests(unittest.TestCase):
         self.assertIn('WSL2', result.stderr)
         self.assertNotIn('sudo:', result.stderr)
 
+    def test_version_check_drains_package_output_with_pipefail(self):
+        code = r'''source "$1"
+apt-cache() {
+    printf 'rocm-hip-runtime:\n  Installed: (none)\n  Candidate: 7.2.4.70204-93~24.04\n'
+    for ((i=0; i<20000; i++)); do printf 'remaining package policy information %s\n' "$i"; done
+}
+candidate=$(runtime_candidate)
+[[ $candidate == '7.2.4.70204-93~24.04' ]]
+'''
+        result = subprocess.run(  # noqa: S603 - fixed synthetic package-output regression, no sudo or network
+            ['bash', '-c', code, '_', str(SCRIPT)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_official_bridge_checksum_is_pinned(self):
         text = SCRIPT.read_text()
         self.assertIn('7889eef45a1132ed2dde88d8ea1356bf791ec9c05802a18940bc81b970e850e0', text)

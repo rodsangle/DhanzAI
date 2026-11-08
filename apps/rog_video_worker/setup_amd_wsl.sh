@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ubuntu 24.04 / WSL2 GPU runtime setup. No models, API keys, or AWS changes.
-set -euo pipefail
+set -Eeuo pipefail
 
 ROCM_VERSION=7.2.4
 BRIDGE_URL=https://github.com/ROCm/librocdxg/releases/download/v1.2.1/rocdxg-roct_1.2.1_amd64.deb
@@ -8,6 +8,11 @@ BRIDGE_SHA256=7889eef45a1132ed2dde88d8ea1356bf791ec9c05802a18940bc81b970e850e0
 REPOSITORY='deb [arch=amd64 signed-by=/etc/apt/keyrings/dhanz-rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main'
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
+
+runtime_candidate() {
+    # Consume every line: an early awk exit can SIGPIPE apt-cache under pipefail.
+    apt-cache policy rocm-hip-runtime | awk '/Candidate:/ && !found { print $2; found=1 }'
+}
 
 main() {
     local apply=false
@@ -64,7 +69,9 @@ main() {
     sudo install -m 0644 "$state_dir/dhanz-rocm.list" "$sources"
     sudo apt-get update
     local candidate
-    candidate=$(apt-cache policy rocm-hip-runtime | awk '/Candidate:/ {print $2; exit}')
+    printf '%s\n' 'Checking available ROCm runtime version...'
+    candidate=$(runtime_candidate)
+    printf 'ROCm candidate: %s\n' "${candidate:-none}"
     [[ $candidate == 7.2.4* ]] || fail "ROCm 7.2.4 packages are unavailable for this setup. Nothing else will be installed."
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fL "$BRIDGE_URL" -o "$bridge"
     printf '%s  %s\n' "$BRIDGE_SHA256" "$bridge" | sha256sum --check --status || fail 'AMD WSL bridge checksum mismatch. Installation stopped.'
@@ -100,5 +107,6 @@ ENV
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    trap 'dhanz_failure_status=$?; printf "AMD setup stopped at line %s (exit %s).\n" "$LINENO" "$dhanz_failure_status" >&2; exit "$dhanz_failure_status"' ERR
     main "$@"
 fi
