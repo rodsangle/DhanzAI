@@ -14,7 +14,15 @@ def escape(value):
 with tempfile.TemporaryDirectory() as folder:
     report = Path(folder) / "media.xml"
     result = subprocess.run(  # noqa: S603 - fixed test command
-        [sys.executable, "-m", "pytest", "tests/studio/test_media_studio.py", "-q", "--junitxml=" + str(report)],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/studio/test_media_studio.py",
+            "tests/studio/test_reference_video.py",
+            "-q",
+            "--junitxml=" + str(report),
+        ],
         check=False,
     )  # noqa: S603 - fixed test command
     if result.returncode and report.is_file():

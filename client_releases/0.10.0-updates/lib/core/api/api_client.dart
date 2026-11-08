@@ -74,6 +74,16 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> uploadReferenceVideo(String name, Uint8List bytes) async {
+    final response = await _sendMultipart('/reference-videos/upload', 'video', name, bytes);
+    if (response.statusCode >= 400) throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+  Future<String> analyzeReferenceVideo(String id, {bool retry = false}) async {
+    final result = await _json('POST', '/reference-videos/$id/analyze', body: {'retry': retry}) as Map<String, dynamic>;
+    return result['brief'] as String;
+  }
+
   Future<List<Map<String, dynamic>>> mediaJobs() async {
     final body = await _json('GET', '/media-studio/jobs') as Map<String, dynamic>;
     return (body['jobs'] as List).cast<Map<String, dynamic>>();

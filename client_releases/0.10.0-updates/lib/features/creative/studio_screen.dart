@@ -152,6 +152,8 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
   String? _durationModel;
   String? _referenceId, _referenceName, _error, _pendingKey, _pendingFingerprint;
   bool _rights = false, _busy = false;
+  Map<String, dynamic>? _videoReference;
+  bool _analysisAttempted = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -171,6 +173,18 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       final files = await pickFiles();
       if (files.isEmpty) return;
       final file = files.first;
+      if (widget.kind == 'video' && RegExp(r'\.(mp4|mov|webm|mkv)$', caseSensitive: false).hasMatch(file.name)) {
+        final reference = await ref.read(apiClientProvider).uploadReferenceVideo(file.name, file.bytes);
+        if (!mounted) return;
+        setState(() {
+          _videoReference = reference;
+          _analysisAttempted = false;
+          _referenceId = reference['reference_id'] as String;
+          _referenceName = 'Video opening frame: ${file.name}';
+          if (_prompt.text.trim().isEmpty) _prompt.text = 'Create a short video inspired by this reference, with smooth natural motion and consistent subjects, lighting and visual style.';
+        });
+        return;
+      }
       if (file.bytes.length > 8 * 1024 * 1024 ||
           !RegExp(r'\.(png|jpe?g|webp)$', caseSensitive: false).hasMatch(file.name)) {
         throw ApiException(422, 'Choose a PNG, JPEG or WebP image up to 8 MB.');
@@ -179,6 +193,7 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       if (!mounted) return;
       if (doc.fileType != 'image') throw ApiException(422, 'Choose an image file.');
       setState(() {
+        _videoReference = null;
         _referenceId = doc.id;
         _referenceName = doc.title;
       });
@@ -187,6 +202,17 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<void> _analyzeVideo() async {
+    final reference = _videoReference;
+    if (reference == null || _busy) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      final brief = await ref.read(apiClientProvider).analyzeReferenceVideo(reference['id'] as String, retry: _analysisAttempted);
+      if (mounted) setState(() => _prompt.text = brief);
+    } on Object catch (error) { if (mounted) setState(() => _error = '$error'); }
+    finally { if (mounted) setState(() { _busy = false; _analysisAttempted = true; }); }
   }
 
   Future<void> _generate(Map<String, dynamic> model) async {
@@ -442,7 +468,7 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                     OutlinedButton.icon(
                       onPressed: _busy ? null : _reference,
                       icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: const Text('Upload reference image'),
+                      label: Text(widget.kind == 'video' ? 'Upload reference image or video' : 'Upload reference image'),
                     ),
                     if (_referenceName != null)
                       InputChip(
@@ -452,11 +478,25 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                             : () => setState(() {
                                 _referenceId = null;
                                 _referenceName = null;
+                                _videoReference = null;
                               }),
                       ),
                   ],
                 ),
-              const Text('References are also saved in your private Knowledge library, where you can delete them.'),
+              if (_videoReference != null) ...[
+                const SizedBox(height: 12),
+                Text('Reference: ${(_videoReference!['duration'] as num).toStringAsFixed(1)} seconds. Four sampled frames:'),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  for (var i = 0; i < (_videoReference!['frames'] as List).length; i++) Column(mainAxisSize: MainAxisSize.min, children: [
+                    Image.memory(base64Decode((_videoReference!['frames'][i] as String).split(',').last), width: 130, height: 90, fit: BoxFit.contain),
+                    Text('${_videoReference!['timestamps'][i]}s'),
+                  ]),
+                ]),
+                const Text('The model uses the opening frame plus your motion brief. Exact movement, cuts and source audio are not copied. Frame extraction is local. Sample frames expire after seven days.'),
+                OutlinedButton.icon(onPressed: _busy ? null : _analyzeVideo, icon: const Icon(Icons.auto_awesome), label: Text(_analysisAttempted ? 'Analyze again / retry explicitly' : 'Analyze scenes & motion')),
+                const Text('Optional analysis uses your configured OpenAI vision model and may use API credits. It replaces the prompt below with an editable brief; review it before Generate.'),
+              ],
+              const Text('The reference image or extracted opening frame is saved in your private Knowledge library, where you can delete it.'),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: _rights,
