@@ -14,6 +14,21 @@ runtime_candidate() {
     apt-cache policy rocm-hip-runtime | awk '/Candidate:/ && !found { print $2; found=1 }'
 }
 
+required_rocminfo_version() {
+    # Read the full control record before parsing, so pipefail cannot hide SIGPIPE.
+    apt-cache show "rocm-hip-runtime=$1" | python3 -c '
+import re, sys
+metadata = sys.stdin.read()
+match = re.search(r"\brocminfo\s*\(=\s*([^)]+)\)", metadata)
+if match is None:
+    raise SystemExit("The ROCm runtime metadata has no exact rocminfo dependency. Installation stopped.")
+version = match.group(1).strip()
+if not re.fullmatch(r"[0-9A-Za-z.+:~_-]+", version):
+    raise SystemExit("The rocminfo dependency version is invalid. Installation stopped.")
+print(version)
+'
+}
+
 main() {
     local apply=false
     case "${1:-}" in
@@ -40,6 +55,7 @@ main() {
     local state_dir="$HOME/.local/share/dhanz-rog"
     local sources=/etc/apt/sources.list.d/dhanz-rocm.list
     local keyring=/etc/apt/keyrings/dhanz-rocm.gpg
+    local preferences=/etc/apt/preferences.d/dhanz-rocm
     local bridge="$state_dir/rocdxg-roct_1.2.1_amd64.deb"
     local plan="$state_dir/runtime-package-plan.txt"
     local log="$state_dir/rocminfo.txt"
@@ -67,19 +83,30 @@ main() {
     sudo install -m 0644 "$state_dir/amd-release.gpg" "$keyring"
     printf '%s\n' "$REPOSITORY" > "$state_dir/dhanz-rocm.list"
     sudo install -m 0644 "$state_dir/dhanz-rocm.list" "$sources"
+    # AMD's packages must outrank Ubuntu builds of tools such as rocminfo.
+    printf '%s\n' 'Package: *' 'Pin: origin "repo.radeon.com"' 'Pin-Priority: 600' > "$state_dir/dhanz-rocm.preferences"
+    if [[ -f $preferences ]] && ! cmp -s "$preferences" "$state_dir/dhanz-rocm.preferences"; then
+        fail 'The Dhanz ROCm package preference differs. No existing preference was overwritten.'
+    fi
+    sudo install -m 0644 "$state_dir/dhanz-rocm.preferences" "$preferences"
     sudo apt-get update
-    local candidate
+    local candidate rocminfo_version
     printf '%s\n' 'Checking available ROCm runtime version...'
     candidate=$(runtime_candidate)
     printf 'ROCm candidate: %s\n' "${candidate:-none}"
     [[ $candidate == 7.2.4* ]] || fail "ROCm 7.2.4 packages are unavailable for this setup. Nothing else will be installed."
+    rocminfo_version=$(required_rocminfo_version "$candidate")
+    printf 'Matching rocminfo: %s\n' "$rocminfo_version"
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fL "$BRIDGE_URL" -o "$bridge"
     printf '%s  %s\n' "$BRIDGE_SHA256" "$bridge" | sha256sum --check --status || fail 'AMD WSL bridge checksum mismatch. Installation stopped.'
-    sudo apt-get --simulate --no-install-recommends install rocm-hip-runtime rocminfo "$bridge" > "$plan"
+    if ! sudo apt-get --simulate --no-install-recommends install "rocm-hip-runtime=$candidate" "rocminfo=$rocminfo_version" "$bridge" > "$plan" 2>&1; then
+        tail -n 80 "$plan"
+        fail 'The GPU package dependency check failed. No GPU packages were installed; share the dependency details above.'
+    fi
     if grep -Ei '^Inst .*([Dd][Kk][Mm][Ss]|linux-image|linux-headers)' "$plan"; then
         fail 'The package plan includes a Linux kernel/driver package. Stopped before installing that plan.'
     fi
-    sudo apt-get install -y --no-install-recommends rocm-hip-runtime rocminfo "$bridge"
+    sudo apt-get install -y --no-install-recommends "rocm-hip-runtime=$candidate" "rocminfo=$rocminfo_version" "$bridge"
     [[ -x /opt/rocm/bin/rocminfo ]] || fail 'rocminfo was not found in /opt/rocm/bin. Share the final installation lines.'
 
     cat > "$state_dir/amd-env.sh" <<'ENV'

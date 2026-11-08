@@ -40,6 +40,31 @@ candidate=$(runtime_candidate)
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_matching_rocminfo_is_taken_from_runtime_dependency(self):
+        code = r'''source "$1"
+apt-cache() {
+    [[ $1 == show && $2 == 'rocm-hip-runtime=7.2.4.70204-93~24.04' ]] || return 2
+    printf 'Package: rocm-hip-runtime\nVersion: 7.2.4.70204-93~24.04\nDepends: rocm-core,\n rocminfo (= 1.0.0.70204-93~24.04), hip-runtime-amd\n'
+}
+version=$(required_rocminfo_version '7.2.4.70204-93~24.04')
+[[ $version == '1.0.0.70204-93~24.04' ]]
+'''
+        result = subprocess.run(  # noqa: S603 - synthetic APT metadata, no sudo or network
+            ['bash', '-c', code, '_', str(SCRIPT)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unknown_dependency_metadata_stops_installation(self):
+        code = r'''source "$1"
+apt-cache() { printf 'Package: rocm-hip-runtime\nDepends: rocm-core\n'; }
+required_rocminfo_version '7.2.4'
+'''
+        result = subprocess.run(  # noqa: S603 - synthetic APT metadata guard
+            ['bash', '-c', code, '_', str(SCRIPT)], capture_output=True, text=True, check=False
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no exact rocminfo dependency', result.stderr)
+
     def test_official_bridge_checksum_is_pinned(self):
         text = SCRIPT.read_text()
         self.assertIn('7889eef45a1132ed2dde88d8ea1356bf791ec9c05802a18940bc81b970e850e0', text)

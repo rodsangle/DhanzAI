@@ -6,7 +6,10 @@ run Wan on its 2-vCPU/4-GB Lightsail plan; a working GPU worker must be connecte
 
 `apps/rog_video_worker/setup_amd_wsl.sh --apply` installs only the ROCm 7.2.4 HIP runtime,
 rocminfo, and AMD ROCDXG 1.2.1 bridge, plus Ubuntu prerequisites. It verifies the bridge's
-SHA256 and uses AMD's signed, versioned Noble APT repository. It refuses unrelated
+SHA256 and uses AMD's signed, versioned Noble APT repository. A dedicated APT preference
+gives AMD's repository priority 600; the runtime and rocminfo versions are selected
+explicitly from the runtime's dependency metadata, avoiding Ubuntu's higher-versioned
+but incompatible rocminfo build. It refuses unrelated
 existing ROCm repository configuration and simulates the package plan before applying.
 Kernel/DKMS package additions cause it to stop. Windows continues providing the GPU
 kernel driver through WSL; this helper installs Linux user-space packages.
