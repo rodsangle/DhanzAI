@@ -74,13 +74,16 @@ class ApiClient {
     );
   }
 
-  Future<Map<String, dynamic>> uploadReferenceVideo(String name, Uint8List bytes) async {
-    final response = await _sendMultipart('/reference-videos/upload', 'video', name, bytes);
+  Future<Map<String, dynamic>> uploadReferenceVideo(String name, Uint8List bytes, {bool Function()? isCurrentSession}) async {
+    final response = await _sendMultipart('/reference-videos/upload', 'video', name, bytes, isCurrentSession: isCurrentSession);
+    if (isCurrentSession != null && !isCurrentSession()) throw ApiException(409, 'The account or server changed. Reference upload was not retried.');
     if (response.statusCode >= 400) throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
     return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
-  Future<String> analyzeReferenceVideo(String id, {bool retry = false}) async {
+  Future<String> analyzeReferenceVideo(String id, {bool retry = false, bool Function()? isCurrentSession}) async {
+    if (isCurrentSession != null && !isCurrentSession()) throw ApiException(409, 'The account or server changed.');
     final result = await _json('POST', '/reference-videos/$id/analyze', body: {'retry': retry}) as Map<String, dynamic>;
+    if (isCurrentSession != null && !isCurrentSession()) throw ApiException(409, 'The account or server changed.');
     return result['brief'] as String;
   }
 

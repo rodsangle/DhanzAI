@@ -19,6 +19,8 @@ void main() {
       expect(jsonDecode(request.body)['retry'], isFalse);
       return http.Response(jsonEncode({'brief': 'Gentle camera pan'}), 200);
     }));
+    await expectLater(api.uploadReferenceVideo('clip.mp4', Uint8List(1), isCurrentSession: () => false), throwsA(isA<ApiException>()));
+    expect(requests, isEmpty);
     final result = await api.uploadReferenceVideo('clip.mp4', Uint8List.fromList([1, 2, 3]));
     expect(result['reference_id'], 'image-one');
     expect(requests.length, 1);

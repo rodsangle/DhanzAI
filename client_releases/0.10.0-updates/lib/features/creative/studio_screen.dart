@@ -174,7 +174,11 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       if (files.isEmpty) return;
       final file = files.first;
       if (widget.kind == 'video' && RegExp(r'\.(mp4|mov|webm|mkv)$', caseSensitive: false).hasMatch(file.name)) {
-        final reference = await ref.read(apiClientProvider).uploadReferenceVideo(file.name, file.bytes);
+        final api = ref.read(apiClientProvider);
+        final account = ref.read(authControllerProvider).value?.id;
+        final server = api.baseUrl;
+        bool current() => mounted && ref.read(authControllerProvider).value?.id == account && api.baseUrl == server;
+        final reference = await api.uploadReferenceVideo(file.name, file.bytes, isCurrentSession: current);
         if (!mounted) return;
         setState(() {
           _videoReference = reference;
@@ -209,7 +213,11 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
     if (reference == null || _busy) return;
     setState(() { _busy = true; _error = null; });
     try {
-      final brief = await ref.read(apiClientProvider).analyzeReferenceVideo(reference['id'] as String, retry: _analysisAttempted);
+      final api = ref.read(apiClientProvider);
+      final account = ref.read(authControllerProvider).value?.id;
+      final server = api.baseUrl;
+      bool current() => mounted && ref.read(authControllerProvider).value?.id == account && api.baseUrl == server;
+      final brief = await api.analyzeReferenceVideo(reference['id'] as String, retry: _analysisAttempted, isCurrentSession: current);
       if (mounted) setState(() => _prompt.text = brief);
     } on Object catch (error) { if (mounted) setState(() => _error = '$error'); }
     finally { if (mounted) setState(() { _busy = false; _analysisAttempted = true; }); }

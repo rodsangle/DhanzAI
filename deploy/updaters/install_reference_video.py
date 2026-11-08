@@ -27,7 +27,7 @@ def main():
     from web_release import fetch_release, version_key
 
     release = fetch_release()
-    if version_key(release["version"], release["build"]) < version_key("0.10.7", 47):
+    if version_key(release["version"], release["build"]) < version_key("0.10.7", 48):
         raise ValueError("The checked media browser build is not published yet. Nothing changed.")
     # Validate/stage the actual Caddy browser mount and package before restarting API.
     sys.argv = [str(root / "apply_web_release.py")]
