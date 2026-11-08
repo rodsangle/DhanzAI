@@ -144,3 +144,14 @@ async def test_vision_request_uses_four_frames_and_configured_official_endpoint(
     with pytest.raises(HTTPException) as unavailable:
         await reference.describe(settings, tmp_path, {"duration": 2, "timestamps": []})
     assert unavailable.value.status_code == 503 and len(received) == 1
+
+
+def test_expired_frames_are_purged_without_waiting_for_another_upload(tmp_path):
+    settings = SimpleNamespace(storage_dir=str(tmp_path))
+    base = reference.root(settings)
+    folder = base / str(uuid.uuid4())
+    folder.mkdir()
+    reference.save(folder, {"owner": str(uuid.uuid4()), "created": reference.time.time() - reference.RETENTION - 10})
+    (folder / "frame-0.png").write_bytes(b"expired")
+    reference.prune_locked(base)
+    assert not folder.exists()

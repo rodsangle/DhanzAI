@@ -1,10 +1,13 @@
 """Turn an owned reference clip into sampled frames and an editable generation brief."""
 
+import asyncio
 import base64
+import contextlib
 import json
 import shutil
 import time
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -43,6 +46,27 @@ def owned(settings, user_id, identifier):
     if data["owner"] != str(user_id) or data["created"] < time.time() - RETENTION:
         raise HTTPException(404, "Reference video not found or expired.")
     return folder, data
+
+
+def prune_locked(base):
+    for manifest in base.glob("*/manifest.json"):
+        try:
+            data = json.loads(manifest.read_text())
+            if data["created"] < time.time() - RETENTION:
+                with lock(manifest.parent / "analysis.lock", blocking=False) as acquired:
+                    if acquired:
+                        shutil.rmtree(manifest.parent)
+        except (OSError, ValueError):
+            continue
+
+
+async def cleanup(settings):
+    while True:
+        base = root(settings)
+        with lock(base / "upload.lock", blocking=False) as acquired:
+            if acquired:
+                prune_locked(base)
+        await asyncio.sleep(3600)
 
 
 async def frames(folder, data):
@@ -101,12 +125,11 @@ async def upload(user: CurrentUser, db: DbDep, settings: SettingsDep, request: R
     with lock(base / "upload.lock", blocking=False) as acquired:
         if not acquired:
             raise HTTPException(409, "Another reference upload is processing. Try again shortly.")
+        prune_locked(base)
         count = 0
         for path in base.glob("*/manifest.json"):
             data = json.loads(path.read_text())
-            if data["created"] < time.time() - RETENTION:
-                shutil.rmtree(path.parent)
-            elif data["owner"] == str(user.id):
+            if data["owner"] == str(user.id):
                 count += 1
         if count >= 20:
             raise HTTPException(429, "Reference limit reached. References expire after seven days.")
@@ -229,3 +252,17 @@ def install(app):
     if not getattr(app.state, "_reference_video_installed", False):
         app.include_router(router, prefix=app.state.settings.api_prefix)
         app.state._reference_video_installed = True
+        original = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def lifespan(application):
+            async with original(application):
+                task = asyncio.create_task(cleanup(application.state.settings))
+                try:
+                    yield
+                finally:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+        app.router.lifespan_context = lifespan
