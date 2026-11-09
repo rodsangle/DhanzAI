@@ -29,15 +29,64 @@ print(version)
 '
 }
 
+installed_rocminfo() {
+    local files path
+    files=$(dpkg-query -L rocminfo 2>/dev/null) || return 1
+    while IFS= read -r path; do
+        if [[ $path == */rocminfo && -f $path && -x $path ]]; then
+            printf '%s\n' "$path"
+            return 0
+        fi
+    done <<< "$files"
+    return 1
+}
+
+verify_runtime() {
+    local state_dir="$HOME/.local/share/dhanz-rog"
+    local log="$state_dir/rocminfo.txt"
+    local executable rocm_bin rocm_root
+    executable=$(installed_rocminfo) || fail 'No executable was found in the installed rocminfo package. Share: dpkg -L rocminfo'
+    executable=$(readlink -f "$executable")
+    rocm_bin=$(dirname "$executable")
+    rocm_root=$(dirname "$rocm_bin")
+    mkdir -p "$state_dir"
+    chmod 700 "$state_dir"
+    printf 'Using installed rocminfo: %s\n' "$executable"
+
+    {
+        printf '%s\n' '# ROCm 7.2 WSL bridge and package-discovered executable paths.'
+        printf '%s\n' 'export HSA_ENABLE_DXG_DETECTION=1'
+        printf 'export PATH=%q:"$PATH"\n' "$rocm_bin"
+        printf 'export LD_LIBRARY_PATH=%q"${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"\n' "/usr/lib/wsl/lib:/opt/rocm/lib:$rocm_root/lib:/opt/rocm-7.2.4/lib"
+    } > "$state_dir/amd-env.sh"
+    chmod 600 "$state_dir/amd-env.sh"
+    source "$state_dir/amd-env.sh"
+    if ! timeout 60 "$executable" > "$log" 2>&1; then
+        printf '%s\n' 'GPU test did not pass. AMD runtime installed; no model was downloaded.'
+        tail -n 60 "$log"
+        return 1
+    fi
+    if ! grep -Eq 'Name:[[:space:]]+gfx1151([[:space:]]|$)' "$log"; then
+        printf '%s\n' 'ROCm ran, but gfx1151 was not detected. No model was downloaded.'
+        grep -E 'Name:|Marketing Name:|Device Type:' "$log" || true
+        return 1
+    fi
+    printf '%s\n' 'AMD GPU CHECK: PASS (gfx1151 / Radeon 8060S)' \
+        'ROCm runtime and WSL bridge installed. PyTorch and Wan still need setup.' \
+        "GPU environment file: $state_dir/amd-env.sh" \
+        'AWS configuration is unchanged. No video generation or provider charge was started.'
+}
+
 main() {
-    local apply=false
+    local apply=false verify=false
     case "${1:-}" in
         --apply) apply=true ;;
-        --help|-h) printf '%s\n' 'Usage: bash setup_amd_wsl.sh [--apply]' 'Without --apply, prints the plan only.'; return ;;
+        --verify) verify=true ;;
+        --help|-h) printf '%s\n' 'Usage: bash setup_amd_wsl.sh [--apply | --verify]' 'Without --apply, prints the plan only. --verify tests installed packages without reinstalling.'; return ;;
         '') ;;
-        *) fail 'Unknown argument. Use --apply to install or --help for usage.' ;;
+        *) fail 'Unknown argument. Use --apply to install, --verify to test installed packages, or --help for usage.' ;;
     esac
-    [[ $# -le 1 ]] || fail 'Pass only --apply or --help.'
+    [[ $# -le 1 ]] || fail 'Pass only --apply, --verify or --help.'
     [[ $(id -u) -ne 0 ]] || fail 'Run as your Ubuntu user, not root. The installer uses sudo for packages.'
     [[ $(uname -m) == x86_64 ]] || fail 'This installer requires x86_64.'
     grep -qi microsoft /proc/sys/kernel/osrelease || fail 'Run this inside Ubuntu-24.04 on WSL2.'
@@ -46,6 +95,7 @@ main() {
     [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]] || fail 'Select Ubuntu-24.04; other distributions were not changed.'
     [[ -r /dev/dxg && -w /dev/dxg ]] || fail 'WSL GPU access is unavailable. Check Windows AMD drivers and WSL before installing.'
     [[ -f /usr/lib/wsl/lib/libdxcore.so ]] || fail 'Microsoft DXCore is missing in WSL. Update WSL/Windows GPU support first.'
+    if [[ $verify == true ]]; then verify_runtime; return; fi
     printf '%s\n' "Plan: ROCm $ROCM_VERSION user-space runtime and ROCDXG 1.2.1, then test gfx1151."
     if [[ $apply != true ]]; then
         printf '%s\n' 'Nothing installed. Rerun with --apply to install this runtime.'
@@ -58,7 +108,6 @@ main() {
     local preferences=/etc/apt/preferences.d/dhanz-rocm
     local bridge="$state_dir/rocdxg-roct_1.2.1_amd64.deb"
     local plan="$state_dir/runtime-package-plan.txt"
-    local log="$state_dir/rocminfo.txt"
     mkdir -p "$state_dir"
     chmod 700 "$state_dir"
     # Keep an existing unrelated ROCm installation intact.
@@ -107,30 +156,7 @@ main() {
         fail 'The package plan includes a Linux kernel/driver package. Stopped before installing that plan.'
     fi
     sudo apt-get install -y --no-install-recommends "rocm-hip-runtime=$candidate" "rocminfo=$rocminfo_version" "$bridge"
-    [[ -x /opt/rocm/bin/rocminfo ]] || fail 'rocminfo was not found in /opt/rocm/bin. Share the final installation lines.'
-
-    cat > "$state_dir/amd-env.sh" <<'ENV'
-# Required for the ROCm 7.2 WSL bridge. Source this before GPU programs.
-export HSA_ENABLE_DXG_DETECTION=1
-export PATH="/opt/rocm/bin:$PATH"
-export LD_LIBRARY_PATH="/usr/lib/wsl/lib:/opt/rocm/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-ENV
-    chmod 600 "$state_dir/amd-env.sh"
-    source "$state_dir/amd-env.sh"
-    if ! timeout 60 /opt/rocm/bin/rocminfo > "$log" 2>&1; then
-        printf '%s\n' 'GPU test did not pass. AMD runtime installed; no model was downloaded.'
-        tail -n 60 "$log"
-        return 1
-    fi
-    if ! grep -Eq 'Name:[[:space:]]+gfx1151([[:space:]]|$)' "$log"; then
-        printf '%s\n' 'ROCm ran, but gfx1151 was not detected. No model was downloaded.'
-        grep -E 'Name:|Marketing Name:|Device Type:' "$log" || true
-        return 1
-    fi
-    printf '%s\n' 'AMD GPU CHECK: PASS (gfx1151 / Radeon 8060S)' \
-        'ROCm runtime and WSL bridge installed. PyTorch and Wan still need setup.' \
-        "GPU environment file: $state_dir/amd-env.sh" \
-        'AWS configuration is unchanged. No video generation or provider charge was started.'
+    verify_runtime
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

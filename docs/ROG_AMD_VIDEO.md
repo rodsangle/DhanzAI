@@ -14,6 +14,10 @@ existing ROCm repository configuration and simulates the package plan before app
 Kernel/DKMS package additions cause it to stop. Windows continues providing the GPU
 kernel driver through WSL; this helper installs Linux user-space packages.
 
+Use `--verify` to resume GPU testing from already installed packages without APT changes.
+The helper discovers the executable from `dpkg-query -L rocminfo`, supporting versioned
+ROCm paths and retaining both runtime and WSL-bridge library directories.
+
 The helper tests for gfx1151 using rocminfo with `HSA_ENABLE_DXG_DETECTION=1` and the
 Microsoft DXCore library available in WSL. It writes a private, explicit environment
 activation file at `~/.local/share/dhanz-rog/amd-env.sh`. It does not change shell startup
