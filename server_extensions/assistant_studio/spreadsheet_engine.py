@@ -13,7 +13,8 @@ from openpyxl.utils import FORMULAE
 from openpyxl.utils.cell import range_boundaries
 from openpyxl.workbook.properties import CalcProperties
 
-MAX_CELLS = 50000
+MAX_CELLS = 200000
+MAX_ROWS = 100000
 FUNCTIONS = set(
     "SUM AVERAGE MIN MAX COUNT COUNTA COUNTBLANK SUMIF SUMIFS COUNTIF COUNTIFS AVERAGEIF AVERAGEIFS IF IFS IFERROR IFNA AND OR NOT ROUND ROUNDUP ROUNDDOWN ABS MOD INT CEILING FLOOR SUMPRODUCT SUBTOTAL AGGREGATE VLOOKUP HLOOKUP XLOOKUP INDEX MATCH XMATCH LEFT RIGHT MID LEN TRIM CLEAN CONCAT CONCATENATE TEXTJOIN TEXT VALUE DATE YEAR MONTH DAY TODAY NOW DATEDIF DAYS EDATE EOMONTH WEEKDAY NETWORKDAYS WORKDAY ISBLANK ISNUMBER ISTEXT TRUE FALSE UPPER LOWER PROPER SUBSTITUTE REPLACE FIND SEARCH FILTER SORT UNIQUE SEQUENCE LET LAMBDA MAP REDUCE SCAN BYROW BYCOL MAKEARRAY TAKE DROP CHOOSECOLS CHOOSEROWS HSTACK VSTACK TOCOL TOROW WRAPCOLS WRAPROWS EXPAND".split()  # noqa: E501 - descriptive tool text
 )
@@ -61,61 +62,82 @@ def formula(value, *, existing=False):
 
 def rectangle(value):
     if not isinstance(value, str) or not re.fullmatch(
-        r"[A-Za-z]{1,3}[1-9][0-9]{0,4}(?::[A-Za-z]{1,3}[1-9][0-9]{0,4})?", value
+        r"[A-Za-z]{1,3}[1-9][0-9]{0,5}(?::[A-Za-z]{1,3}[1-9][0-9]{0,5})?", value
     ):
         raise ValueError("Use a bounded A1 range, for example A1:F30.")
     a, b, c, d = range_boundaries(value)
-    if a > c or b > d or c > 256 or d > 20000 or (c - a + 1) * (d - b + 1) > 5000:
-        raise ValueError("Range exceeds 5000 cells, 256 columns or 20000 rows.")
+    if a > c or b > d or c > 256 or d > MAX_ROWS or (c - a + 1) * (d - b + 1) > 5000:
+        raise ValueError("Range exceeds 5000 cells, 256 columns or 100000 rows.")
     return a, b, c, d
+
+
+def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
+                     part_bytes=40000000, max_columns=256):
+    """Bound ZIP expansion and scan worksheet coordinates before loading cells.
+
+    XML is checked in chunks, then parsed incrementally. This also supports the
+    read-only source reader without loading an entire source workbook into RAM.
+    """
+    import xml.etree.ElementTree as ET
+    if not isinstance(data, bytes) or len(data) > 50000000:
+        raise ValueError("Workbook exceeds 50 MB.")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            entries = archive.infolist()
+            if len(entries) > 2000 or sum(p.file_size for p in entries) > expanded_bytes:
+                raise ValueError("Workbook expanded size exceeds the processing limit.")
+            if len({p.filename for p in entries}) != len(entries):
+                raise ValueError("Duplicate workbook archive entries are unsupported.")
+            total_cells = 0
+            for item in entries:
+                name = item.filename.lower()
+                if item.flag_bits & 1 or item.file_size > part_bytes or name.startswith("/") or ".." in name.split("/"):
+                    raise ValueError("Unsupported workbook archive.")
+                if any(part in name for part in (
+                    "vbaproject", "externallinks/", "embeddings/", "macrosheets/",
+                    "connections.xml", "querytables/",
+                )):
+                    raise ValueError("Macros, embedded objects and external data connections are unsupported.")
+                if not name.endswith(".xml"):
+                    continue
+                tail = b""
+                with archive.open(item) as stream:
+                    while chunk := stream.read(65536):
+                        probe = (tail + chunk).upper()
+                        if b"\x00" in probe or b"<!DOCTYPE" in probe or b"<!ENTITY" in probe:
+                            raise ValueError("Unsupported workbook XML.")
+                        tail = probe[-16:]
+                if name.startswith("xl/worksheets/"):
+                    with archive.open(item) as stream:
+                        for _, element in ET.iterparse(stream, events=("end",)):
+                            tag = element.tag.rsplit("}", 1)[-1]
+                            if tag == "c":
+                                address = element.attrib.get("r", "")
+                                if not re.fullmatch(r"[A-Za-z]{1,3}[1-9][0-9]{0,5}", address):
+                                    raise ValueError("Unsupported workbook cell coordinate.")
+                                a, b, _, _ = range_boundaries(address)
+                                if a > max_columns or b > MAX_ROWS:
+                                    raise ValueError(f"Workbook exceeds {max_columns} columns or {MAX_ROWS} rows.")
+                                total_cells += 1
+                                if total_cells > max_cells:
+                                    raise ValueError(f"Workbook exceeds {max_cells} populated cells.")
+                            elif tag == "row" and not 1 <= int(element.attrib.get("r", "0")) <= MAX_ROWS:
+                                raise ValueError(f"Workbook exceeds {MAX_ROWS} rows.")
+                            element.clear()
+    except (zipfile.BadZipFile, KeyError, ET.ParseError):
+        raise ValueError("Upload a valid .xlsx workbook.") from None
 
 
 def load(data=None):
     if data is None:
         return Workbook()
-    if len(data) > 20000000:
-        raise ValueError("Workbook exceeds 20 MB.")
+    validate_archive(data)
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            entries = archive.infolist()
-            if len(entries) > 2000 or sum(p.file_size for p in entries) > 40000000:
-                raise ValueError("Workbook expanded size exceeds the processing limit.")
-            total_cells = 0
-            for item in entries:
-                name = item.filename.lower()
-                if item.flag_bits & 1 or item.file_size > 10000000 or name.startswith("/") or ".." in name.split("/"):
-                    raise ValueError("Unsupported workbook archive.")
-                if any(
-                    part in name
-                    for part in (
-                        "vbaproject",
-                        "externallinks/",
-                        "embeddings/",
-                        "macrosheets/",
-                        "connections.xml",
-                        "querytables/",
-                    )
-                ):
-                    raise ValueError("Macros, embedded objects and external data connections are unsupported.")
-                if name.endswith(".xml"):
-                    raw = archive.read(item)
-                    if b"\x00" in raw or b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
-                        raise ValueError("Unsupported workbook XML.")
-                    if name.startswith("xl/worksheets/"):
-                        import xml.etree.ElementTree as ET
-
-                        for _, element in ET.iterparse(io.BytesIO(raw), events=("end",)):  # noqa: S314 - DTD/entities and non-UTF8 XML rejected above.
-                            if element.tag.rsplit("}", 1)[-1] == "c":
-                                rectangle(element.attrib.get("r", ""))
-                                total_cells += 1
-                                if total_cells > MAX_CELLS:
-                                    raise ValueError("Workbook exceeds 50000 cells.")
-                            element.clear()
         book = load_workbook(io.BytesIO(data), keep_links=False)
     except (zipfile.BadZipFile, KeyError):
         raise ValueError("Upload a valid .xlsx workbook.") from None
     if len(book.worksheets) > 30 or sum(len(s._cells) for s in book) > MAX_CELLS:
-        raise ValueError("Workbook exceeds 30 worksheets or 50000 populated cells.")
+        raise ValueError("Workbook exceeds 30 worksheets or 200000 populated cells.")
     for sheet in book:
         for cell in sheet._cells.values():
             if cell.data_type == "f":
@@ -164,6 +186,8 @@ def inspect(data, sheet=None, cell_range=None):
             "all_empty": not any(cell["occupied"] for cell in cells),
         }
     return {
+        "preview_only": True,
+        "note": "Preview size is not the copy limit. Use copy_workbook_column for complete columns without sending all rows to chat.",
         "sheets": [
             {
                 "name": s.title,
@@ -208,7 +232,7 @@ def edit(data, actions):
         a, b, c, d = bounds
         touched += (c - a + 1) * (d - b + 1)
         if touched > MAX_CELLS:
-            raise ValueError("Edit exceeds 50000 addressed cells.")
+            raise ValueError("Edit exceeds 200000 addressed cells.")
         if kind == "set_cells":
             values = action.get("values")
             if (
@@ -312,7 +336,7 @@ def edit(data, actions):
         else:
             raise ValueError("Unknown workbook action: " + str(kind))
     if sum(len(s._cells) for s in book) > MAX_CELLS:
-        raise ValueError("Result exceeds 50000 populated cells.")
+        raise ValueError("Result exceeds 200000 populated cells.")
     book.calculation = CalcProperties(calcMode="auto", fullCalcOnLoad=True, forceFullCalc=True)
     output = io.BytesIO()
     book.save(output)

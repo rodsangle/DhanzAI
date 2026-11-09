@@ -165,8 +165,9 @@ def preserve(original_bytes, rendered_bytes, actions, rectangle):
                 row = rowmap.get(y)
                 if row is None:
                     row = XML.Element(tag("row"), r=str(y))
-                    index = next((i for i, n in enumerate(rows) if int(n.get("r")) > y), len(rows))
-                    rows.insert(index, row)
+                    # Append now and order once at serialization. Scanning/counting
+                    # the XML siblings for every row makes a full-column copy O(n²).
+                    rows.append(row)
                     rowmap[y] = row
                 for x in range(a, c + 1):
                     from openpyxl.utils import get_column_letter
@@ -257,6 +258,8 @@ def preserve(original_bytes, rendered_bytes, actions, rectangle):
         if dimension is not None and new is not None:
             dimension.set("ref", new.get("ref"))
     for name, root in roots.items():
+        data = root.find(tag("sheetData"))
+        data[:] = sorted(data, key=lambda row: int(row.get("r")))
         output[paths[name]] = encode(root)
     workbook = parse(output["xl/workbook.xml"])
     calc = workbook.find(tag("calcPr"))
