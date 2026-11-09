@@ -186,6 +186,8 @@ def install():
                          'The 500-cell inspection output is a preview limit, not the copy processing limit. '
                          'The source may exceed the ordinary inspect/edit limit; the bulk tool finds its headings without a full-source inspection first. '
                          'There is no 500000-cell source cap in this tool. Do not propose row batching for that obsolete limit; call the streaming copy tool. '
+                         'External workbook links in a read-only source do not block this tool: it uses stored values without loading or following those links. '
+                         'It does not remove or transfer external links; destination editing remains strict. '
                          'Do not ask the user to reduce to 20/50 rows or manually transcribe IDs when the bulk tool supports the task. '
                          'Give source/destination document IDs or uploaded filename labels and sheet/header names; let the server read all rows. '
                          'Preserve blank row positions and leading zeros. Only report the actual rows_copied returned by the tool. '

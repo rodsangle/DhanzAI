@@ -57,8 +57,13 @@ stored values from the selected column.
 Existing destination formulas and Excel extensions remain subject to the existing
 safe editing validation. The output merges only the changed destination cells
 and required styles into the original OOXML package, preserving unrelated
-worksheets and parts. Macro-enabled files, embedded objects, external workbook
-links/data connections, DTDs/entities and duplicate ZIP entries remain unsupported.
+worksheets and parts. A read-only source may contain external workbook links:
+`keep_links=False` prevents loading their metadata or following their paths.
+Only stored selected-column values are copied; links are not transferred.
+An external formula needs a saved cached value, just like other source formulas.
+External links in a destination remain unsupported. Macro-enabled files,
+embedded objects, active data connections/query tables, DTDs/entities and duplicate
+ZIP entries remain unsupported in both roles.
 
 ## Windows paths and OneDrive
 

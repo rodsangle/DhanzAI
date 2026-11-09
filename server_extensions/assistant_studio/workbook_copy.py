@@ -52,7 +52,7 @@ def source_column(data, sheet_name, heading, header_row=None):
     # style indexes bound resource use independently of irrelevant source cells.
     engine.validate_archive(data, max_cells=None, expanded_bytes=400000000,
                             part_bytes=300000000, max_columns=16384, max_rows=1048576,
-                            resident_limits=SOURCE_RESIDENT_LIMITS)
+                            resident_limits=SOURCE_RESIDENT_LIMITS, source_external_links=True)
     book = load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False)
     try:
         if len(book.sheetnames) > 60 or sheet_name not in book.sheetnames:

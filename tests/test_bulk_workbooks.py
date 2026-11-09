@@ -10,6 +10,7 @@ import types
 import unittest
 import uuid
 import zipfile
+import xml.etree.ElementTree as XML
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,6 +46,36 @@ def destination():
     book.active['C2'] = '=SUM(1,2)'
     book.create_sheet('Untouched')['A1'] = 'Preserve original worksheet'
     return book
+
+
+def external_source():
+    """Synthetic external-book formula with a saved value; no real user data."""
+    raw = serialize(source([['Tool ID'], ['=[1]External!A1']]))
+    ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
+    rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+    pkg = 'http://schemas.openxmlformats.org/package/2006/relationships'
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        parts = {name: z.read(name) for name in z.namelist()}
+    workbook = XML.fromstring(parts['xl/workbook.xml'])
+    refs = XML.Element('{' + ns + '}externalReferences')
+    XML.SubElement(refs, '{' + ns + '}externalReference', {'{' + rel + '}id': 'rId999'})
+    workbook.append(refs)
+    parts['xl/workbook.xml'] = XML.tostring(workbook)
+    rels = XML.fromstring(parts['xl/_rels/workbook.xml.rels'])
+    XML.SubElement(rels, '{' + pkg + '}Relationship', Id='rId999', Type=rel+'/externalLink', Target='externalLinks/externalLink1.xml')
+    parts['xl/_rels/workbook.xml.rels'] = XML.tostring(rels)
+    parts['xl/externalLinks/externalLink1.xml'] = (
+        f'<externalLink xmlns="{ns}" xmlns:r="{rel}"><externalBook r:id="rId1">'
+        '<sheetNames><sheetName val="External"/></sheetNames></externalBook></externalLink>').encode()
+    parts['xl/externalLinks/_rels/externalLink1.xml.rels'] = (
+        f'<Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{rel}/externalLinkPath" '
+        'Target="https://example.invalid/do-not-fetch.xlsx" TargetMode="External"/></Relationships>').encode()
+    parts['xl/worksheets/sheet1.xml'] = parts['xl/worksheets/sheet1.xml'].replace(b'<v></v>', b'<v>42</v>')
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name, data in parts.items():
+            z.writestr(name, data)
+    return output.getvalue()
 
 
 class BulkCopyTests(unittest.TestCase):
@@ -161,12 +192,35 @@ class BulkCopyTests(unittest.TestCase):
                 out.writestr(name, z.read(name))
             out.writestr('xl/externalLinks/evil.xml', '<x/>')
         with self.assertRaisesRegex(ValueError, 'external data'):
-            self.apply(bad.getvalue())
+            copy.engine.load(bad.getvalue())  # destination editing stays strict
         original = serialize(destination())
         edited, _ = copy.copy_column(src, original, source_sheet='SOW', source_header='Tool ID',
                                     destination_sheet='Template', destination_header='LID')
         with zipfile.ZipFile(io.BytesIO(original)) as a, zipfile.ZipFile(io.BytesIO(edited)) as b:
             self.assertEqual(a.read('xl/worksheets/sheet2.xml'), b.read('xl/worksheets/sheet2.xml'))
+
+    def test_external_source_uses_cached_value_without_loading_links_or_network(self):
+        data = external_source()
+        with patch('openpyxl.reader.workbook.read_external_link', side_effect=AssertionError('External link metadata must not load')):
+            with patch('socket.create_connection', side_effect=AssertionError('No network')):
+                output, summary = self.apply(data)
+        self.assertEqual(summary['rows_copied'], 1)
+        self.assertEqual(load_workbook(io.BytesIO(output)).active['B2'].value, 42)
+        with zipfile.ZipFile(io.BytesIO(output)) as z:
+            self.assertFalse(any('externalLinks/' in name for name in z.namelist()))
+        with self.assertRaisesRegex(ValueError, 'external data'):
+            copy.engine.load(data)
+
+    def test_read_only_source_exception_does_not_allow_macros_or_data_connections(self):
+        raw = serialize(source([['Tool ID'], ['0001']]))
+        for part in ('xl/vbaProject.bin', 'xl/embeddings/oleObject1.bin', 'xl/connections.xml', 'xl/queryTables/queryTable1.xml'):
+            output = io.BytesIO()
+            with zipfile.ZipFile(io.BytesIO(raw)) as z, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as out:
+                for name in z.namelist():
+                    out.writestr(name, z.read(name))
+                out.writestr(part, b'test part only')
+            with self.assertRaisesRegex(ValueError, 'external data'):
+                self.apply(output.getvalue())
 
     def test_installer_freezes_current_source_and_preserves_other_hooks(self):
         module = runpy.run_path(str(ROOT / 'deploy/updaters/install_bulk_workbooks.py'))

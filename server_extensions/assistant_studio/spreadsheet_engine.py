@@ -73,7 +73,7 @@ def rectangle(value):
 
 def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
                      part_bytes=40000000, max_columns=256, max_rows=MAX_ROWS,
-                     resident_limits=None):
+                     resident_limits=None, source_external_links=False):
     """Bound ZIP expansion and scan worksheet coordinates before loading cells.
 
     XML is checked in chunks, then parsed incrementally. This also supports the
@@ -97,9 +97,9 @@ def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
                 if item.flag_bits & 1 or item.file_size > part_bytes or name.startswith("/") or ".." in name.split("/"):
                     raise ValueError("Unsupported workbook archive.")
                 if any(part in name for part in (
-                    "vbaproject", "externallinks/", "embeddings/", "macrosheets/",
+                    "vbaproject", "embeddings/", "macrosheets/",
                     "connections.xml", "querytables/",
-                )):
+                )) or ("externallinks/" in name and not source_external_links):
                     raise ValueError("Macros, embedded objects and external data connections are unsupported.")
                 if not name.endswith(".xml"):
                     continue
