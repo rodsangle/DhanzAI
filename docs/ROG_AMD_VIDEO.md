@@ -44,3 +44,24 @@ Sources consulted:
 - [AMD release configuration](https://github.com/ROCm/rocm-install-on-linux/blob/develop/docs/conf.py)
 - [Verified bridge asset](https://github.com/ROCm/librocdxg/releases/download/v1.2.1/rocdxg-roct_1.2.1_amd64.deb)
   SHA256 `7889eef45a1132ed2dde88d8ea1356bf791ec9c05802a18940bc81b970e850e0`.
+
+## PyTorch stage
+
+After a passing gfx1151 rocminfo test, source `~/.local/share/dhanz-rog/amd-env.sh`
+and run `apps/rog_video_worker/setup_torch_wsl.py --apply` with Ubuntu 24.04's
+Python 3.12. It creates `~/.local/share/dhanz-rog/venv-rocm72`, installs the official
+PyTorch `2.11.0+rocm7.2` CPython 3.12 wheel with a pinned SHA256, and uses the official
+ROCm 7.2 package index for dependencies. The wheel URL/hash were checked against
+[the official index](https://download.pytorch.org/whl/rocm7.2/torch/).
+It does not install a CPU-only/NVIDIA build or change system Python.
+
+The GPU test requires HIP 7.2 and gfx1151, and performs actual GPU matrix multiplication,
+bfloat16 portable math attention, and float32 VAE-style 3D convolution. A real kernel
+failure stops setup and clears any stale success marker. Successful results are stored
+privately in `pytorch-check.json`. `--verify` repeats the checks using the existing venv.
+No model is downloaded, no video rendered, and no AWS/connection setting is changed.
+The runtime API namespace remains `torch.cuda` on AMD, as required by PyTorch's HIP
+implementation; `torch.version.hip` distinguishes the AMD build.
+
+Local unit tests validate backend guards, marker handling and the wheel pin without
+pretending to execute GPU kernels. The real kernel test must complete on the ROG.
