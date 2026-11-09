@@ -12,7 +12,8 @@ from openpyxl.workbook.properties import CalcProperties
 from . import spreadsheet_engine as engine
 from .spreadsheet_package import preserve
 
-MAX_SOURCE_CELLS = 500000
+SOURCE_RESIDENT_LIMITS = {'xl/sharedstrings.xml': 16000000, 'xl/styles.xml': 4000000,
+                          'xl/workbook.xml': 2000000}
 
 
 def filename(value):
@@ -46,8 +47,12 @@ def header(sheet, wanted, row=None):
 
 
 def source_column(data, sheet_name, heading, header_row=None):
-    engine.validate_archive(data, max_cells=MAX_SOURCE_CELLS, expanded_bytes=150000000,
-                            part_bytes=100000000, max_columns=1024)
+    # Worksheet XML is streamed, not materialized as workbook cell objects. Its
+    # aggregate cell count is not the output count; ZIP bytes and resident text/
+    # style indexes bound resource use independently of irrelevant source cells.
+    engine.validate_archive(data, max_cells=None, expanded_bytes=400000000,
+                            part_bytes=300000000, max_columns=16384, max_rows=1048576,
+                            resident_limits=SOURCE_RESIDENT_LIMITS)
     book = load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False)
     try:
         if len(book.sheetnames) > 60 or sheet_name not in book.sheetnames:
@@ -58,8 +63,12 @@ def source_column(data, sheet_name, heading, header_row=None):
         records = []
         formulas = set()
         last = 0
-        for cells in sheet.iter_rows(min_row=row+1, min_col=column, max_col=column):
+        for source_index, cells in enumerate(sheet.iter_rows(min_row=row+1, min_col=column, max_col=column), row+1):
             cell = cells[0]
+            if source_index > engine.MAX_ROWS:
+                if cell.value is not None and cell.value != '':
+                    raise ValueError('The selected source column has data beyond row 100000; it cannot fit this bounded destination with blank positions preserved.')
+                continue
             index = len(records)
             kind = cell.data_type
             value = cell.value

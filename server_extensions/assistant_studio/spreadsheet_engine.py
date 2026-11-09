@@ -72,7 +72,8 @@ def rectangle(value):
 
 
 def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
-                     part_bytes=40000000, max_columns=256):
+                     part_bytes=40000000, max_columns=256, max_rows=MAX_ROWS,
+                     resident_limits=None):
     """Bound ZIP expansion and scan worksheet coordinates before loading cells.
 
     XML is checked in chunks, then parsed incrementally. This also supports the
@@ -91,6 +92,8 @@ def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
             total_cells = 0
             for item in entries:
                 name = item.filename.lower()
+                if name in (resident_limits or {}) and item.file_size > resident_limits[name]:
+                    raise ValueError('Workbook text/style metadata exceeds the processing memory limit.')
                 if item.flag_bits & 1 or item.file_size > part_bytes or name.startswith("/") or ".." in name.split("/"):
                     raise ValueError("Unsupported workbook archive.")
                 if any(part in name for part in (
@@ -113,16 +116,16 @@ def validate_archive(data, *, max_cells=MAX_CELLS, expanded_bytes=80000000,
                             tag = element.tag.rsplit("}", 1)[-1]
                             if tag == "c":
                                 address = element.attrib.get("r", "")
-                                if not re.fullmatch(r"[A-Za-z]{1,3}[1-9][0-9]{0,5}", address):
+                                if not re.fullmatch(r"[A-Za-z]{1,3}[1-9][0-9]{0,6}", address):
                                     raise ValueError("Unsupported workbook cell coordinate.")
                                 a, b, _, _ = range_boundaries(address)
-                                if a > max_columns or b > MAX_ROWS:
-                                    raise ValueError(f"Workbook exceeds {max_columns} columns or {MAX_ROWS} rows.")
+                                if a > max_columns or b > max_rows:
+                                    raise ValueError(f"Workbook exceeds {max_columns} columns or {max_rows} rows.")
                                 total_cells += 1
-                                if total_cells > max_cells:
+                                if max_cells is not None and total_cells > max_cells:
                                     raise ValueError(f"Workbook exceeds {max_cells} populated cells.")
-                            elif tag == "row" and not 1 <= int(element.attrib.get("r", "0")) <= MAX_ROWS:
-                                raise ValueError(f"Workbook exceeds {MAX_ROWS} rows.")
+                            elif tag == "row" and not 1 <= int(element.attrib.get("r", "0")) <= max_rows:
+                                raise ValueError(f"Workbook exceeds {max_rows} rows.")
                             element.clear()
     except (zipfile.BadZipFile, KeyError, ET.ParseError):
         raise ValueError("Upload a valid .xlsx workbook.") from None

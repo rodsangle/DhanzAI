@@ -23,15 +23,22 @@ the filename, ID or conversation lookup.
 
 ## Limits and preservation
 
-* Source: 500,000 populated cells across at most 60 worksheets; up to 1,024 columns.
+* Source: streamed worksheet XML across at most 60 worksheets. There is no total
+  populated-cell cap: unrelated source cells do not become destination cell objects.
+  Source coordinates may use Excel's full column/row bounds.
 * Destination: 200,000 populated cells across at most 30 worksheets; up to 256 columns.
 * Worksheets: at most 100,000 rows including the heading. One operation copies
   one full column below its heading, preserving internal blanks and excluding
   trailing empty cells.
 * Processing input: at most 50 MB compressed per workbook. Archive expansion is
-  bounded to 150 MB for a streamed source and 80 MB for a loaded destination.
+  bounded to 400 MB for a streamed source (300 MB per part) and 80 MB for a loaded destination.
+  Resident source indexes are bounded separately: shared strings 16 MB, styles
+  4 MB and workbook metadata 2 MB. These cannot be streamed by openpyxl and
+  therefore retain explicit memory limits on the 4-GB server.
   The server's existing upload-size setting remains an additional limit.
-* One large copy runs at a time across API processes using a shared file lock.
+* The selected source column's data must fit within row 100,000, with blank
+  positions preserved. Unused far-away cells in other columns/sheets do not
+  consume output rows. One large copy runs at a time using a shared file lock.
   Compact summaries go to chat; there is no unlimited context or memory setting.
 
 Headings match case and whitespace. The first 50 rows are searched for a unique

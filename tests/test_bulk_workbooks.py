@@ -72,6 +72,33 @@ class BulkCopyTests(unittest.TestCase):
         self.assertEqual(result['Untouched']['A1'].value, 'Preserve original worksheet')
         self.assertEqual(hashlib.sha256(data).hexdigest(), before)
 
+    def test_streaming_source_exceeds_500000_cells_without_batched_copy(self):
+        book = Workbook(write_only=True)
+        sheet = book.create_sheet('SOW')
+        sheet.append(['Tool ID'] + [f'Column {i}' for i in range(99)])
+        for number in range(5001):
+            sheet.append([f'{number:08d}'] + list(range(99)))
+        # 500200 populated source cells, but only 5001 output data rows.
+        output, summary = self.apply(serialize(book))
+        sheet = load_workbook(io.BytesIO(output))['Template']
+        self.assertEqual(summary['rows_copied'], 5001)
+        self.assertEqual(sheet['B2'].value, '00000000')
+        self.assertEqual(sheet['B5002'].value, '00005000')
+
+    def test_unused_source_coordinates_do_not_count_as_output(self):
+        book = source([['Tool ID'], ['000001']])
+        book.create_sheet('Unused')['XFD1048576'] = 'Not selected'
+        output, summary = self.apply(book)
+        self.assertEqual(summary['rows_copied'], 1)
+        self.assertEqual(load_workbook(io.BytesIO(output))['Template']['B2'].value, '000001')
+
+    def test_streamed_source_keeps_xml_and_resident_index_memory_bounds(self):
+        raw = serialize(source([['Tool ID'], ['0001']]))
+        with self.assertRaisesRegex(ValueError, 'expanded size'):
+            copy.engine.validate_archive(raw, max_cells=None, expanded_bytes=1)
+        with self.assertRaisesRegex(ValueError, 'metadata'):
+            copy.engine.validate_archive(raw, max_cells=None, resident_limits={'xl/styles.xml': 1})
+
     def test_blanks_zero_padding_and_literal_formula_text(self):
         src = source([['Tool ID'], ['000012'], [None], [12], ['=literal']])
         src.active['A4'].number_format = '000000'

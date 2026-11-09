@@ -152,7 +152,7 @@ def install():
     tools.TOOLS['copy_workbook_column'] = tools.Tool(
         ToolSpec(
             name='copy_workbook_column',
-            description='Copy an entire named column between two account-owned uploaded XLSX workbooks in one server operation. Use for Tool ID to LID and other large transfers, not repeated chat previews or manually listing values. Up to 500000 populated source cells, 200000 destination cells and 100000 worksheet rows including headers. Paths only match uploaded filenames; they cannot open a Windows PC, OneDrive, arbitrary server path or URL. Both workbooks must be uploaded. Originals are preserved and a downloadable edited copy is attached.',
+            description='Copy an entire named column between two account-owned uploaded XLSX workbooks in one server operation. Use for Tool ID to LID and other large transfers, not repeated chat previews or manually listing values. The source is streamed without a total populated-cell cap; source ZIP/expanded bytes and text/style metadata are bounded. The copied column must fit 100000 rows including headers and 200000 destination cells. Unrelated source worksheets and columns do not count as destination cells. Paths only match uploaded filenames; they cannot open a Windows PC, OneDrive, arbitrary server path or URL. Both workbooks must be uploaded. Originals are preserved and a downloadable edited copy is attached.',
             parameters={
                 'type': 'object', 'additionalProperties': False,
                 'required': ['source_sheet', 'source_header', 'destination_sheet', 'destination_header'],
@@ -185,6 +185,7 @@ def install():
                 text += ('\nFor complete column transfers between uploaded Excel workbooks, use copy_workbook_column. '
                          'The 500-cell inspection output is a preview limit, not the copy processing limit. '
                          'The source may exceed the ordinary inspect/edit limit; the bulk tool finds its headings without a full-source inspection first. '
+                         'There is no 500000-cell source cap in this tool. Do not propose row batching for that obsolete limit; call the streaming copy tool. '
                          'Do not ask the user to reduce to 20/50 rows or manually transcribe IDs when the bulk tool supports the task. '
                          'Give source/destination document IDs or uploaded filename labels and sheet/header names; let the server read all rows. '
                          'Preserve blank row positions and leading zeros. Only report the actual rows_copied returned by the tool. '
