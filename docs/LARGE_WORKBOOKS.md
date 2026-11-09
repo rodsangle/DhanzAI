@@ -13,9 +13,13 @@ For example, upload `Schedule.xlsx` and the destination template, then ask:
 > many rows were copied.
 
 Both documents must belong to the signed-in account and have stored XLSX bytes.
-The tool can use document IDs or exact uploaded filenames. Multiple uploads with
-the same filename require selection of the intended document ID; another user's
-file can never resolve through the filename or ID lookup.
+The tool can use document IDs or exact uploaded filenames. If multiple uploads
+share a filename, it first uses the matching file attached to the current
+message, then the most recent matching attachment in this conversation. Two
+same-named files attached together remain ambiguous: attach just the intended
+one instead of looking for a hidden document ID. It never picks an arbitrary
+newest file from the whole library. Another user's file cannot resolve through
+the filename, ID or conversation lookup.
 
 ## Limits and preservation
 

@@ -154,7 +154,7 @@ class BulkCopyTests(unittest.TestCase):
 @unittest.skipUnless(importlib.util.find_spec('sqlalchemy') and importlib.util.find_spec('aiosqlite'), 'SQL test dependencies')
 class OwnershipTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        from sqlalchemy import Boolean, Column, String, Uuid
+        from sqlalchemy import Boolean, Column, Integer, JSON, String, Uuid
         from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
         from sqlalchemy.orm import DeclarativeBase
 
@@ -175,7 +175,21 @@ class OwnershipTests(unittest.IsolatedAsyncioTestCase):
             id = Column(Uuid(as_uuid=True), primary_key=True)
             is_active = Column(Boolean)
 
+        class Conversation(Base):
+            __tablename__ = 'copy_conversations'
+            id = Column(Uuid(as_uuid=True), primary_key=True)
+            user_id = Column(Uuid(as_uuid=True))
+
+        class Message(Base):
+            __tablename__ = 'copy_messages'
+            id = Column(Uuid(as_uuid=True), primary_key=True)
+            conversation_id = Column(Uuid(as_uuid=True))
+            position = Column(Integer)
+            role = Column(String)
+            attachments = Column(JSON)
+
         self.Document, self.User = Document, User
+        self.Conversation, self.Message = Conversation, Message
         self.db_engine = create_async_engine('sqlite+aiosqlite:///:memory:')
         self.addAsyncCleanup(self.db_engine.dispose)
         async with self.db_engine.begin() as conn:
@@ -203,6 +217,36 @@ class OwnershipTests(unittest.IsolatedAsyncioTestCase):
             await db.commit()
             with self.assertRaisesRegex(ValueError, 'Multiple uploaded copies'):
                 await self.tools.resolve(db, self.Document, self.owner, None, 'Schedule.xlsx')
+
+    async def test_duplicate_resolution_prefers_current_attachment_then_latest_chat_attachment(self):
+        duplicate, conv, private_conv = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        async with self.maker() as db:
+            db.add_all([
+                self.Document(id=duplicate, user_id=self.owner, title='Schedule.xlsx', file_type='xlsx', storage_key='duplicate'),
+                self.Conversation(id=conv, user_id=self.owner),
+                self.Conversation(id=private_conv, user_id=self.other),
+                self.Message(id=uuid.uuid4(), conversation_id=conv, position=1, role='user', attachments=[{'id': str(self.source_id)}]),
+                self.Message(id=uuid.uuid4(), conversation_id=conv, position=3, role='user', attachments=[{'id': str(duplicate)}]),
+            ])
+            await db.commit()
+            models = types.ModuleType('app.models')
+            models.Conversation, models.Message = self.Conversation, self.Message
+            with patch.dict(sys.modules, {'app.models': models}):
+                ctx = types.SimpleNamespace(user_id=self.owner, conversation_id=conv, attachment_ids=[self.source_id])
+                groups = await self.tools.context_groups(db, ctx)
+                picked = await self.tools.resolve(db, self.Document, self.owner, None, 'Schedule.xlsx', groups)
+                self.assertEqual(picked.id, self.source_id)
+                ctx.attachment_ids = []
+                groups = await self.tools.context_groups(db, ctx)
+                picked = await self.tools.resolve(db, self.Document, self.owner, None, 'Schedule.xlsx', groups)
+                self.assertEqual(picked.id, duplicate)
+                ctx.conversation_id = private_conv
+                self.assertEqual(await self.tools.context_groups(db, ctx), [[]])
+            with self.assertRaisesRegex(ValueError, 'Attach just the intended workbook'):
+                await self.tools.resolve(db, self.Document, self.owner, None, 'Schedule.xlsx', [[self.source_id, duplicate]])
+            selected = await self.tools.resolve(db, self.Document, self.owner, None, 'Schedule.xlsx',
+                                                [[self.private_id, 'not-a-uuid'], [self.source_id]])
+            self.assertEqual(selected.id, self.source_id)
 
     async def test_chat_tool_saves_actual_download_and_rejects_other_account_before_reading(self):
         reads, saved = [], []
@@ -244,12 +288,16 @@ class OwnershipTests(unittest.IsolatedAsyncioTestCase):
             run = assistant.TOOLS['copy_workbook_column'].run
             ctx = types.SimpleNamespace(user_id=self.owner, maker=self.maker,
                                         settings=types.SimpleNamespace(storage_dir=folder),
-                                        files=types.SimpleNamespace(storage=types.SimpleNamespace(get=get)))
+                                        files=types.SimpleNamespace(storage=types.SimpleNamespace(get=get)),
+                                        attachment_ids=[self.source_id])
             args = {'source_document_id': str(self.private_id), 'destination_document_id': str(self.target_id),
                     'source_sheet': 'SOW', 'source_header': 'Tool ID', 'destination_sheet': 'Template', 'destination_header': 'LID'}
             with self.assertRaises(InputError):
                 await run(ctx, args)
             self.assertEqual(reads, [])
+            async with self.maker() as db:
+                db.add(self.Document(id=uuid.uuid4(), user_id=self.owner, title='Schedule.xlsx', file_type='xlsx', storage_key='old-copy'))
+                await db.commit()
             args.pop('source_document_id')
             args['source_path'] = r'C:\OneDrive\Schedule.xlsx'
             result = await run(ctx, args)

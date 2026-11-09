@@ -15,21 +15,67 @@ from sqlalchemy import select
 from . import workbook_copy as engine
 
 
-async def resolve(db, model, owner, document_id, path):
+async def context_groups(db, ctx):
+    """Prefer explicit turn attachments, then the latest attachments in this chat."""
+    groups = [getattr(ctx, 'attachment_ids', None) or []]
+    conversation_id = getattr(ctx, 'conversation_id', None)
+    if not conversation_id:
+        return groups
+    from app.models import Conversation, Message
+
+    conversation = await db.get(Conversation, uuid.UUID(str(conversation_id)))
+    if conversation is None or conversation.user_id != ctx.user_id:
+        return groups
+    messages = await db.scalars(select(Message).where(
+        Message.conversation_id == conversation.id, Message.role == 'user', Message.attachments.is_not(None),
+    ).order_by(Message.position.desc()).limit(100))
+    groups.extend([[a.get('id') for a in message.attachments or [] if isinstance(a, dict) and a.get('id')]
+                   for message in messages])
+    return groups
+
+
+def ambiguity(matches):
+    choices = [{'document_id': str(d.id), 'filename': d.title} for d in matches[:10]]
+    raise ValueError('Multiple uploaded copies match. Attach just the intended workbook to this message; '
+                     'the current attachment will take priority. Otherwise select from these known documents: ' + json.dumps(choices))
+
+
+async def resolve(db, model, owner, document_id, path, groups=()):
     if document_id:
         document = await db.get(model, uuid.UUID(str(document_id)))
         if document is None or document.user_id != owner or document.file_type != 'xlsx' or not document.storage_key:
             raise ValueError('Workbook is unavailable to this account.')
         return document
     name = engine.filename(path)
+    normalized_groups = []
+    for group in groups:
+        ids = set()
+        for value in group:
+            try:
+                ids.add(uuid.UUID(str(value)))
+            except (ValueError, TypeError, AttributeError):
+                continue
+        normalized_groups.append(ids)
+    identifiers = set().union(*normalized_groups) if normalized_groups else set()
+    if identifiers:
+        linked = list(await db.scalars(select(model).where(
+            model.user_id == owner, model.file_type == 'xlsx', model.title == name,
+            model.storage_key.is_not(None), model.id.in_(identifiers),
+        )))
+        linked = [d for d in linked if d.storage_key]
+        for group in normalized_groups:
+            matches = [d for d in linked if d.id in group]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                ambiguity(matches)
     matches = list(await db.scalars(select(model).where(model.user_id == owner, model.file_type == 'xlsx',
                                                         model.title == name).limit(11)))
     matches = [d for d in matches if d.storage_key]
     if not matches:
         raise ValueError(f'Upload {name} to Dhanz first. A Windows/OneDrive path alone is not accessible from AWS; no local or server filesystem path was opened.')
     if len(matches) != 1:
-        choices = [{'document_id': str(d.id), 'filename': d.title} for d in matches[:10]]
-        raise ValueError('Multiple uploaded copies match; select the intended document_id: ' + json.dumps(choices))
+        ambiguity(matches)
     return matches[0]
 
 
@@ -74,8 +120,9 @@ def install():
                 user = await db.get(User, ctx.user_id)
                 if user is None or not user.is_active:
                     raise ValueError('Account is unavailable.')
-                source = await resolve(db, KnowledgeDocument, ctx.user_id, args.get('source_document_id'), args.get('source_path'))
-                destination = await resolve(db, KnowledgeDocument, ctx.user_id, args.get('destination_document_id'), args.get('destination_path'))
+                groups = await context_groups(db, ctx)
+                source = await resolve(db, KnowledgeDocument, ctx.user_id, args.get('source_document_id'), args.get('source_path'), groups)
+                destination = await resolve(db, KnowledgeDocument, ctx.user_id, args.get('destination_document_id'), args.get('destination_path'), groups)
                 files = getattr(ctx, 'files', None) or build_files_runtime(ctx.settings)
                 with processing_lock(ctx.settings):
                     source_data = await files.storage.get(source.storage_key)
@@ -143,7 +190,10 @@ def install():
                          'Preserve blank row positions and leading zeros. Only report the actual rows_copied returned by the tool. '
                          'A C:\\ or OneDrive path does not grant cloud access: if not uploaded, request upload of the named workbook. '
                          'Never claim to open a local path or sync OneDrive without an actual authorized connector. '
-                         'If multiple uploaded files share the filename, identify the intended document instead of guessing.')
+                         'For duplicate filenames, the bulk tool automatically prefers this message\'s matching attachment, '
+                         'then the most recent matching attachment in this conversation. Pass the filename to let it resolve. '
+                         'Do not claim duplicates prevent copying before calling the tool. '
+                         'If the tool still reports ambiguity, ask the user to attach just the intended file, not to find a hidden document ID.')
             return text
         prompt._bulk_workbook_guidance = True
         chat.build_system_prompt = prompt
