@@ -65,3 +65,35 @@ implementation; `torch.version.hip` distinguishes the AMD build.
 
 Local unit tests validate backend guards, marker handling and the wheel pin without
 pretending to execute GPU kernels. The real kernel test must complete on the ROG.
+
+## One-scene Wan preview
+
+After the real PyTorch kernel check passes, `setup_wan_preview.py --apply` installs
+version-pinned Diffusers/Transformers dependencies into the same isolated environment,
+constraining torch to the verified ROCm build. It downloads the public
+`Wan-AI/Wan2.1-T2V-1.3B-Diffusers` model and records the resolved Hugging Face revision
+before retrieving only JSON, text/tokenizer models and safe-tensor weight files.
+Remote Python code and pickle weight files are not downloaded; remote-code loading
+is disabled. Missing download size and free disk space are checked before retrieving
+weights, including Windows C: when PowerShell interop is available. This assumes the
+default WSL installation on the Windows system drive. Existing model cache is reused.
+
+The helper renders one continuous Forest Awakens shot: 512x288, 81 model frames,
+24 denoising steps, seed 42, portable math attention, bfloat16 transformer/text encoder,
+and tiled float32 VAE decoding. Export uses the first 80 frames at 16 FPS for exactly
+five seconds. This is a low-resolution silent visual preview, not the complete film.
+It verifies the H.264 file with ffprobe before reporting completion. The final MP4
+and receipt are saved under `~/.local/share/dhanz-rog/outputs/`. It prints the Windows
+Explorer UNC folder path. Existing verified output is reused; a changed file is never
+overwritten. `--new-preview` creates another file; `--render-only` skips dependency
+installation. A shared GPU lock prevents overlapping setup/render processes, including
+if the parent process exits while a render child remains alive.
+
+Tests validate data-file filtering, output preservation, Windows folder paths, and
+real ffprobe checks using temporary synthetic codec-test clips. These synthetic files
+are never delivered as model output. The managed environment has no matching AMD GPU,
+so actual model inference must be verified on the ROG. No AWS settings, server pairing,
+moderation settings or failed Dhanz jobs are changed by this preview helper. Connecting
+the working ROG model to the existing server is a subsequent step after visual review.
+
+Source: [version-pinned Wan pipeline documentation](https://github.com/huggingface/diffusers/blob/v0.35.2/docs/source/en/api/pipelines/wan.md).
