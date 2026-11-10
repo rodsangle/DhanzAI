@@ -19,9 +19,9 @@ concurrency:
 
 env:
   APP_DIR: client_releases/0.10.0-updates
-  RELEASE_ID: web-updates-0.10.7-preview.2
-  WEB_VERSION: "0.10.7"
-  WEB_BUILD: "48"
+  RELEASE_ID: web-updates-0.10.8-preview.1
+  WEB_VERSION: "0.10.8"
+  WEB_BUILD: "49"
 
 jobs:
   build:
@@ -89,7 +89,7 @@ jobs:
           if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
             gh release upload "$RELEASE_ID" dist/web-updates/* --clobber
           else
-            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.7 reference video" --notes "Checked Dhanz 0.10.7 web build with uploaded reference-video frames and optional vision motion briefs for reference-image-capable video models. Requires the reference-video API updater. Retains local media editing, narration, sound and foreground Hey Dhanz controls. Requires the media studio API updater. Includes account-scoped discretion controls in chat and Codex. Routine coding setup can select defaults and queue drafts automatically while preserving existing publication grants. Includes the interactive app simulator and Office preview. Mobile simulation uses a companion browser demo, not an Android emulator. Requires the app-simulator API updater for revisions. Includes the existing Office-style workbook editor and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
+            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.8 integrations" --notes "Checked Dhanz 0.10.8 web build with Microsoft 365 and Google integration settings. Requires the integrations API updater and administrator OAuth app configuration before accounts can connect. File import, edited-copy export, mail reading and drafts are supported; email sending is not enabled. Retains uploaded reference-video frames and optional vision motion briefs for reference-image-capable video models. Requires the reference-video API updater. Retains local media editing, narration, sound and foreground Hey Dhanz controls. Requires the media studio API updater. Includes account-scoped discretion controls in chat and Codex. Routine coding setup can select defaults and queue drafts automatically while preserving existing publication grants. Includes the interactive app simulator and Office preview. Mobile simulation uses a companion browser demo, not an Android emulator. Requires the app-simulator API updater for revisions. Includes the existing Office-style workbook editor and clipboard image attachments. Preserves existing features and background uploads. Requires the one-time web-updater server setup; future compatible web builds use the public web-update-channel manifest. Web only; no native APK or Windows installer is published."
           fi
       - name: Publish latest web channel after the checked release assets
         if: steps.channel.outputs.promote == 'true'

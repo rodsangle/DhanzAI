@@ -214,6 +214,16 @@ class ApiClient {
 
   Future<Map<String, dynamic>> operations() async =>
       await _json('GET', '/operations') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> integrations() async =>
+      await _json('GET', '/integrations') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> integrationConnect(String provider, List<String> services) async =>
+      await _json('POST', '/integrations/$provider/connect', body: {'services': services}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> integrationOperation(String provider, Map<String, dynamic> body) async =>
+      await _json('POST', '/integrations/$provider/operations', body: body) as Map<String, dynamic>;
+  Future<void> integrationDisconnect(String provider) async {
+    await _json('DELETE', '/integrations/$provider');
+  }
   Future<Map<String, dynamic>> operationAction(
     String path,
     Map<String, dynamic> body,

@@ -24,6 +24,7 @@ import 'features/onboarding/welcome_screen.dart';
 import 'features/projects/projects_screen.dart';
 import 'features/reminders/reminders_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/settings/integrations_screen.dart';
 import 'features/settings/capabilities_screen.dart';
 import 'features/voice/voice_screen.dart';
 import 'features/media_editor/media_editor_screen.dart';
@@ -99,6 +100,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
       ),
+      GoRoute(path: '/integrations', builder: (context, state) => const IntegrationsScreen()),
       GoRoute(
         path: '/capabilities',
         builder: (context, state) => const CapabilitiesScreen(),

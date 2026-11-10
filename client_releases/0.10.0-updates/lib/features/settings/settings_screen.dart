@@ -195,6 +195,12 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               section('AI model'),
               ListTile(
+                leading: const Icon(Icons.hub_outlined),
+                title: const Text('Integrations'),
+                subtitle: const Text('Microsoft 365, Google Drive/Sheets, Outlook and Gmail'),
+                onTap: () => context.go('/integrations'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.extension_outlined),
                 title: const Text('Capabilities and skills'),
                 subtitle: const Text('Available tools, connections and reusable task instructions'),
