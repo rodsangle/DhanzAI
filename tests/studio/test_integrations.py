@@ -70,6 +70,25 @@ def test_credentials_encrypted_private_and_owned(setup):
     assert s.store.connection(s.uid, "google") is None
 
 
+def test_preauthenticated_download_urls_are_redacted_from_httpx_logs():
+    import logging
+
+    from app.assistant_studio.integration_service import PrivateDownloadLogFilter
+
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        "",
+        0,
+        "HTTP %s %s",
+        ("GET", httpx.URL("https://files.1drv.com/private-signature?access=secret")),
+        None,
+    )
+    assert PrivateDownloadLogFilter().filter(record)
+    assert "secret" not in record.getMessage() and "private-signature" not in record.getMessage()
+    assert "[private-download]" in record.getMessage()
+
+
 def test_oauth_pkce_cookie_binding_single_use_and_expiry(setup):
     s = setup
     value = Service(s.store).begin(s.uid, "google", ["files"])

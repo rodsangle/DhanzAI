@@ -5,6 +5,7 @@ import base64
 import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -55,6 +56,23 @@ EXPORTS = {
 }
 
 
+class PrivateDownloadLogFilter(logging.Filter):
+    _dhanz_private_downloads = True
+
+    def filter(self, record):
+        if isinstance(record.args, tuple):
+            values = []
+            for value in record.args:
+                if isinstance(value, httpx.URL) and any(
+                    value.host == host or value.host.endswith("." + host)
+                    for host in ("1drv.com", "sharepoint.com", "sharepointonline.com", "onedrive.com")
+                ):
+                    value = "https://" + value.host + "/[private-download]"
+                values.append(value)
+            record.args = tuple(values)
+        return True
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_!+=/-]{1,512}", value):
         raise IntegrationError("Use the file or message ID returned by the integration.")
@@ -86,6 +104,9 @@ class Service:
         self.owns_http = http is None
 
     async def __aenter__(self):
+        logger = logging.getLogger("httpx")
+        if not any(getattr(f, "_dhanz_private_downloads", False) for f in logger.filters):
+            logger.addFilter(PrivateDownloadLogFilter())
         if self.http is None:
             self.http = httpx.AsyncClient(timeout=30, follow_redirects=False)
         return self
