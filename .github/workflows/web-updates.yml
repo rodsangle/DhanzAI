@@ -43,6 +43,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends ffmpeg espeak-ng
           (cd backend && python -m pip install -r requirements-dev.txt)
+      - name: Test cloud integration protocol and account isolation
+        run: python -m pytest tests/studio/test_integrations.py -q
       - name: Test actual local media rendering and private queue
         run: python scripts/release/check_local_media.py
       - name: Resolve the existing locked dependencies
