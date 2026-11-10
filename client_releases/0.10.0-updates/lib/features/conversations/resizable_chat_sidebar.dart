@@ -69,6 +69,8 @@ class _ResizableChatSidebarState extends State<ResizableChatSidebar> {
           Semantics(
             label: 'Resize chat history',
             value: '${width.round()} pixels',
+            increasedValue: '${(width + 24).clamp(300.0, maximum).round()} pixels',
+            decreasedValue: '${(width - 24).clamp(300.0, maximum).round()} pixels',
             onIncrease: () => _resize(width + 24, maximum, save: true),
             onDecrease: () => _resize(width - 24, maximum, save: true),
             child: Focus(
