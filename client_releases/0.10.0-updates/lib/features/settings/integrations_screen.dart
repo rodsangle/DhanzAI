@@ -1,8 +1,9 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
@@ -14,6 +15,11 @@ Uri? integrationSignInUri(String value) {
     return null;
   }
   return uri;
+}
+
+String integrationRequestKey() {
+  final random = Random.secure();
+  return List.generate(32, (_) => random.nextInt(16).toRadixString(16)).join();
 }
 
 class IntegrationsScreen extends ConsumerStatefulWidget {
@@ -42,8 +48,10 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
     try {
       await action();
     } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.statusCode == 404
-          ? 'The integrations server update is needed before connecting accounts.' : e.message);
+      if (mounted) {
+        setState(() => _error = e.statusCode == 404
+            ? 'The integrations server update is needed before connecting accounts.' : e.message);
+      }
     } catch (_) {
       if (mounted) setState(() => _error = 'The connection could not complete. Refresh and check its status.');
     } finally {
@@ -122,10 +130,12 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
       }),
     );
     query.dispose();
-    if (selected != null && mounted) await _guard(() async {
-      final result = await _api.integrationOperation(name, {'operation': 'import_file', 'remote_id': selected['id'], 'request_key': const Uuid().v4()});
-      _notice('Imported ${result['filename']}. Find it in Knowledge Library.');
-    });
+    if (selected != null && mounted) {
+      await _guard(() async {
+        final result = await _api.integrationOperation(name, {'operation': 'import_file', 'remote_id': selected['id'], 'request_key': integrationRequestKey()});
+        _notice('Imported ${result['filename']}. Find it in Knowledge Library.');
+      });
+    }
   }
 
   Future<void> _mail(String name) async {
@@ -146,7 +156,8 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
       ),
     );
-    if (selected != null && mounted) await _guard(() async {
+    if (selected != null && mounted) {
+      await _guard(() async {
       final data = await _api.integrationOperation(name, {'operation': 'read_mail', 'remote_id': selected['id']});
       if (!mounted) return;
       await showDialog<void>(context: context, builder: (context) => AlertDialog(
@@ -154,7 +165,8 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
         content: SizedBox(width: 600, child: SingleChildScrollView(child: SelectableText(data['untrusted_body'] as String? ?? ''))),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
       ));
-    });
+      });
+    }
   }
 
   Future<void> _draft(String name) async {
@@ -169,13 +181,15 @@ class _IntegrationsScreenState extends ConsumerState<IntegrationsScreen> {
       ]))),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(onPressed: () => Navigator.pop(context, {'operation': 'save_draft', 'to': to.text.trim(),
-          'subject': subject.text, 'body': body.text, 'request_key': const Uuid().v4()}), child: const Text('Save draft'))],
+          'subject': subject.text, 'body': body.text, 'request_key': integrationRequestKey()}), child: const Text('Save draft'))],
     ));
     to.dispose(); subject.dispose(); body.dispose();
-    if (values != null && mounted) await _guard(() async {
-      await _api.integrationOperation(name, values);
-      _notice('Draft saved in your mailbox. No email was sent.');
-    });
+    if (values != null && mounted) {
+      await _guard(() async {
+        await _api.integrationOperation(name, values);
+        _notice('Draft saved in your mailbox. No email was sent.');
+      });
+    }
   }
 
   @override
