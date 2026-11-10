@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/features/conversations/tool_navigation_rail.dart';
+import 'package:dhanz_ai/features/conversations/tool_navigation_rail.dart';
 
 void main() {
   testWidgets('compact navigation uses tooltips and preserves each destination', (tester) async {
