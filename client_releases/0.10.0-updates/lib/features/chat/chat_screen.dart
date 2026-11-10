@@ -17,6 +17,7 @@ import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../conversations/conversation_panel.dart';
+import '../conversations/resizable_chat_sidebar.dart';
 import '../conversations/conversations_controller.dart';
 import '../automation/automation_screen.dart';
 import 'chat_controller.dart';
@@ -377,14 +378,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     );
     if (wide) {
       return Scaffold(
-        body: Row(
-          children: [
-            const SizedBox(width: 364, child: ConversationPanel()),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: Scaffold(appBar: appBar, body: previewBody),
-            ),
-          ],
+        body: ResizableChatSidebar(
+          store: ref.read(secureStoreProvider),
+          sidebar: const ConversationPanel(),
+          child: Scaffold(appBar: appBar, body: previewBody),
         ),
       );
     }
