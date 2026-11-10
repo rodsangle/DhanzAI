@@ -14,6 +14,7 @@ import '../../core/files.dart';
 import '../chat/chat_controller.dart';
 import '../projects/projects_controller.dart';
 import 'conversations_controller.dart';
+import 'tool_navigation_rail.dart';
 
 /// Conversation history: search, open, rename, pin, export and delete.
 class ConversationPanel extends ConsumerStatefulWidget {
@@ -133,7 +134,12 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       child: SafeArea(
-        child: Column(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ToolNavigationRail(onNavigate: _go),
+            const VerticalDivider(width: 1),
+            Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
@@ -249,22 +255,6 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
               ),
             ),
             const Divider(height: 1),
-            ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: const Text('Uploads'), onTap: () => _go('/uploads')),
-            ListTile(leading: const Icon(Icons.cloud_sync_outlined), title: const Text('Connected operations'), onTap: () => _go('/operations')),
-            ListTile(leading: const Icon(Icons.terminal), title: const Text('Chat with Codex'), onTap: () => _go('/coding')),
-            ListTile(leading: const Icon(Icons.video_settings), title: const Text('Media editor'), onTap: () => _go('/media-editor')),
-            ListTile(leading: const Icon(Icons.record_voice_over), title: const Text('Voice · Hey Dhanz'), onTap: () => _go('/voice')),
-            ListTile(leading: const Icon(Icons.code), title: const Text('App & agent builder'), onTap: () => _go('/builder')),
-            ListTile(
-              leading: const Icon(Icons.auto_awesome_outlined),
-              title: const Text('DHANZ Creative Studio'),
-              onTap: () => _go('/studio'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.local_library_outlined),
-              title: const Text('Knowledge library'),
-              onTap: () => _go('/library'),
-            ),
             ListTile(
               leading: CircleAvatar(
                 backgroundColor: theme.colorScheme.primary,
@@ -276,6 +266,8 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
               trailing: const Icon(Icons.settings_outlined),
               onTap: () => _go('/settings'),
             ),
+          ],
+        )),
           ],
         ),
       ),

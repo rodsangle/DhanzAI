@@ -379,7 +379,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
       return Scaffold(
         body: Row(
           children: [
-            const SizedBox(width: 300, child: ConversationPanel()),
+            const SizedBox(width: 364, child: ConversationPanel()),
             const VerticalDivider(width: 1),
             Expanded(
               child: Scaffold(appBar: appBar, body: previewBody),
