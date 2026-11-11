@@ -8,6 +8,8 @@ from .routes import router
 
 def install(app):
     app.include_router(router, prefix=app.state.settings.api_prefix)
+    from .boss_tools import install as _install_boss_tools
+    _install_boss_tools(app)
     from .csv_totals_tools import install as _install_csv_totals_tools
     _install_csv_totals_tools(app)
     from .app_building_models import install as _install_app_building_models
@@ -69,3 +71,5 @@ def install(app):
 _DHANZ_APP_MODELS_VERSION = 1
 
 _DHANZ_CSV_TOTALS_VERSION = 1
+
+_DHANZ_BOSS_AGENT_VERSION = 1
