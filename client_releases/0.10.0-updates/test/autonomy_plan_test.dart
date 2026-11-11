@@ -15,7 +15,7 @@ void main() {
     expect(choices, isNotEmpty);
     expect(plan.question, isNull);
     expect(plan.repository, isEmpty);
-    expect(plan.model, 'gpt-4.1-mini');
+    expect(plan.model, 'gpt-5-codex');
     expect(plan.automatic, true);
   });
   test('discretion does not guess among multiple repository targets', () {
