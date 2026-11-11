@@ -162,7 +162,7 @@ void conversationTests() {
       'Create a new project',
       'Use the details already provided',
       'Keep this project private',
-      'test-codex',
+      'test-codex · Recommended',
       'No automatic repair (recommended)',
     ]) {
       await tester.ensureVisible(find.text(label).last);
