@@ -55,6 +55,26 @@ async def workspace(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_chat_default_uses_recommended_coding_model_and_allows_explicit_override(workspace, monkeypatch):
+    ctx, users, run = workspace
+
+    async def models(settings):
+        return ['gpt-5.1-codex', 'gpt-4.1-mini']
+
+    monkeypatch.setattr(builder, 'models', models)
+    first = await run(ctx, {'operation': 'start', 'runtime': 'python', 'instructions': 'Create a CSV totals agent'})
+    async with ctx.maker() as db:
+        row = await db.get(BuilderProject, uuid.UUID(first.data['project']['id']))
+        assert row.model == 'gpt-5.1-codex' and row.kind == 'agent'
+    other_turn = SimpleNamespace(**{**ctx.__dict__, 'assistant_message_id': uuid.uuid4()})
+    second = await run(other_turn, {'operation': 'start', 'runtime': 'python',
+        'instructions': 'Create another CSV agent', 'model': 'gpt-4.1-mini'})
+    async with ctx.maker() as db:
+        row = await db.get(BuilderProject, uuid.UUID(second.data['project']['id']))
+        assert row.model == 'gpt-4.1-mini'
+
+
+@pytest.mark.asyncio
 async def test_chat_starts_one_mobile_build_and_persists_requirements(workspace):
     ctx, users, run = workspace
     args = {

@@ -101,7 +101,7 @@ class CodingPlan {
             .map((p) => p.substring(0, p.lastIndexOf('/'))).toSet();
           value = folders.length == 1 ? folders.single : '';
         case 'model':
-          if (models.isNotEmpty) value = models.contains('gpt-4.1-mini') ? 'gpt-4.1-mini' : models.first;
+          if (models.isNotEmpty) value = models.first;
         case 'repair': value = 'once';
       }
       if (value == null) break;
@@ -302,12 +302,12 @@ class CodingPlan {
         'model',
         models.isEmpty
             ? 'No API models are available yet. Refresh the model connection before continuing.'
-            : 'Which available API model should do the coding?',
+            : 'Which app-building model should create the app or agent?',
         [
           for (final id in models.take(allModels ? 30 : 4))
             CodingChoice(
               id,
-              id,
+              id == models.first ? '$id · Recommended' : id,
               id.contains('codex')
                   ? 'Code-focused API model. Uses your OpenAI API account; model access and usage charges still apply.'
                   : id.contains('mini')

@@ -14,6 +14,20 @@ CodingPlan plan() => CodingPlan(
 
 void main() {
   additionalPlanTests();
+  test('app-building model recommendation is used for discretion and preserves explicit choices', () {
+    final p = plan()..start('Create a Python agent for sorting CSV files');
+    p.useDiscretion();
+    expect(p.model, 'gpt-5-codex');
+    final explicit = plan()..start('Create a Python agent using gpt-4.1-mini');
+    explicit.useDiscretion();
+    expect(explicit.model, 'gpt-4.1-mini');
+    final manual = plan()..start('Create a Python agent');
+    manual.answer('new', choice: true);
+    manual.answer('given', choice: true);
+    manual.answer('', choice: true);
+    expect(manual.question?.key, 'model');
+    expect(manual.question!.choices.first.label, contains('Recommended'));
+  });
   test('typed Python request is collected without asking its runtime again', () {
     final p = plan();
     p.answer('Create a Python agent that reads CSV files');

@@ -8,6 +8,8 @@ from .routes import router
 
 def install(app):
     app.include_router(router, prefix=app.state.settings.api_prefix)
+    from .app_building_models import install as _install_app_building_models
+    _install_app_building_models(app)
     # Keep the existing capability report, adding only the implemented workspace.
     from app.services import capabilities_service
 
@@ -61,3 +63,5 @@ def install(app):
                     await task
 
     app.router.lifespan_context = lifespan
+
+_DHANZ_APP_MODELS_VERSION = 1

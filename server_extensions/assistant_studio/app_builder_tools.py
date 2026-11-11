@@ -106,9 +106,7 @@ def install(app=None):
                         if not isinstance(instructions, str) or not 5 <= len(instructions) <= 10000:
                             raise ValueError("Provide the requested app requirements (5–10000 characters).")
                         names = await builder.models(ctx.settings)
-                        model = args.get("model") or next(
-                            (name for name in ("gpt-4.1-mini", "gpt-4.1") if name in names), names[0] if names else ""
-                        )
+                        model = args.get("model") or (names[0] if names else "")
                         if model not in names:
                             raise ValueError(
                                 "No matching app-building model is available; check models and API access."
