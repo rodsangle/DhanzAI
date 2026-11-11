@@ -8,6 +8,8 @@ from .routes import router
 
 def install(app):
     app.include_router(router, prefix=app.state.settings.api_prefix)
+    from .csv_totals_tools import install as _install_csv_totals_tools
+    _install_csv_totals_tools(app)
     from .app_building_models import install as _install_app_building_models
     _install_app_building_models(app)
     # Keep the existing capability report, adding only the implemented workspace.
@@ -65,3 +67,5 @@ def install(app):
     app.router.lifespan_context = lifespan
 
 _DHANZ_APP_MODELS_VERSION = 1
+
+_DHANZ_CSV_TOTALS_VERSION = 1
