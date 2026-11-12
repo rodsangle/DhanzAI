@@ -12,6 +12,7 @@ import 'core/platform/updates.dart';
 import 'core/providers.dart';
 import 'core/storage/secure_store.dart';
 import 'features/chat/chat_controller.dart';
+import 'features/creative/creative_activity.dart';
 import 'features/reminders/reminder_watcher.dart';
 import 'router.dart';
 
@@ -77,7 +78,12 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
       unawaited(push.initialNotification().then((data) => data == null ? null : _openNotification(data)));
     }
     // Back from the background: pick up replies that finished while the app was suspended.
-    _lifecycle = AppLifecycleListener(onResume: () => unawaited(ref.read(chatControllerProvider.notifier).refresh()));
+    _lifecycle = AppLifecycleListener(
+      onResume: () {
+        unawaited(ref.read(chatControllerProvider.notifier).refresh());
+        unawaited(ref.read(creativeActivityProvider.notifier).refresh());
+      },
+    );
   }
 
   void _openNotification(Map<String, String> data) {
@@ -115,7 +121,12 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
       darkTheme: themePreference.darkTheme,
       themeMode: themePreference.themeMode,
       routerConfig: ref.watch(routerProvider),
-      builder: (context, child) => UpdateBanner(child: child ?? const SizedBox.shrink()),
+      builder: (context, child) => UpdateBanner(
+        child: CreativeActivityShell(
+          onOpen: () => ref.read(routerProvider).go('/studio'),
+          child: child ?? const SizedBox.shrink(),
+        ),
+      ),
     );
   }
 }

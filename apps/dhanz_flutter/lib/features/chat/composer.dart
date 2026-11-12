@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,13 +9,14 @@ import '../../models/models.dart';
 import 'file_icons.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
+import 'draft_spelling.dart';
 
 /// Message input with model picker and send/stop button.
 /// Enter sends; Shift+Enter inserts a newline.
 class Composer extends ConsumerStatefulWidget {
   const Composer({super.key, required this.onSend});
 
-  final ValueChanged<String> onSend;
+  final Future<String?> Function(String text, VoidCallback onSubmitted) onSend;
 
   @override
   ConsumerState<Composer> createState() => _ComposerState();
@@ -21,6 +24,8 @@ class Composer extends ConsumerStatefulWidget {
 
 class _ComposerState extends ConsumerState<Composer> {
   final _controller = TextEditingController();
+  bool _deviceAutocorrect = true;
+  int _submitVersion = 0;
   late final FocusNode _focus = FocusNode(onKeyEvent: _onKey);
 
   @override
@@ -34,29 +39,33 @@ class _ComposerState extends ConsumerState<Composer> {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.enter &&
         !HardwareKeyboard.instance.isShiftPressed) {
-      _submit();
+      unawaited(_submit());
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
   Future<void> _attach() async {
-    final files = await pickFiles();
     final chat = ref.read(chatControllerProvider.notifier);
-    await Future.wait([for (final f in files) chat.attachFile(f.name, f.bytes)]);
+    await chat.attachFiles(pickFiles);
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     final chat = ref.read(chatControllerProvider);
     var text = _controller.text;
-    if (chat.streaming || chat.uploading > 0) return;
-    if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
-      // Attachments alone: ask for the obvious thing rather than refusing to send.
-      text = chat.attachments.every((a) => a.fileType == 'image') ? 'Describe this image.' : 'Summarize this file.';
+    if (chat.streaming || chat.sending) return;
+    final version = ++_submitVersion;
+    if (text.trim().isEmpty && (chat.attachments.isNotEmpty || chat.uploading > 0)) {
+      // Without an instruction, ask for intent rather than silently choosing a summary.
+      text = 'Read the attached files and ask what I would like you to do with them.';
     }
     if (text.trim().isEmpty) return;
-    _controller.clear();
-    widget.onSend(text);
+    final draft = _controller.text;
+    final id = await widget.onSend(text, () {
+      if (mounted && version == _submitVersion && _controller.text == draft) _controller.clear();
+    });
+    if (!mounted || version != _submitVersion) return;
+    if (id == null && _controller.text.isEmpty) _controller.text = draft;
     _focus.requestFocus();
   }
 
@@ -77,7 +86,7 @@ class _ComposerState extends ConsumerState<Composer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (chat.attachments.isNotEmpty || chat.uploading > 0)
+          if (chat.attachments.isNotEmpty || chat.uploading > 0 || chat.failedAttachments.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
               child: Align(
@@ -91,20 +100,34 @@ class _ComposerState extends ConsumerState<Composer> {
                         avatar: Icon(fileIcon(a.fileType), size: 18),
                         label: Text(a.title, overflow: TextOverflow.ellipsis),
                         tooltip: a.notes ?? a.title,
-                        onDeleted: () => ref.read(chatControllerProvider.notifier).removeAttachment(a.id),
+                        onDeleted: chat.sending
+                            ? null
+                            : () => ref.read(chatControllerProvider.notifier).removeAttachment(a.id),
                         deleteButtonTooltipMessage: 'Remove attachment',
+                      ),
+                    for (final name in chat.failedAttachments)
+                      InputChip(
+                        avatar: Icon(Icons.error_outline, color: theme.colorScheme.error, size: 18),
+                        label: Text('$name — upload failed'),
+                        onDeleted: chat.sending
+                            ? null
+                            : () => ref.read(chatControllerProvider.notifier).removeFailedAttachment(name),
+                        deleteButtonTooltipMessage: 'Remove failed attachment',
                       ),
                     if (chat.uploading > 0)
                       Chip(
                         avatar: const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                        label: Text('Uploading ${chat.uploading}…'),
+                        label: const Text('Uploading and reading files…'),
                       ),
                   ],
                 ),
               ),
             ),
           TextField(
+            readOnly: chat.sending,
             controller: _controller,
+            autocorrect: _deviceAutocorrect,
+            enableSuggestions: _deviceAutocorrect,
             focusNode: _focus,
             minLines: 1,
             maxLines: 8,
@@ -116,23 +139,54 @@ class _ComposerState extends ConsumerState<Composer> {
               focusedBorder: InputBorder.none,
             ),
           ),
+          if (chat.sending)
+            Semantics(
+              liveRegion: true,
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: Text('Your message is queued. Waiting for attachments to be ready…'),
+              ),
+            ),
           Row(
             children: [
               // Pickers take the free space (shrinking the model name if needed); send stays at the right edge.
               Expanded(
                 child: Row(
                   children: [
+                    DraftSpellingButton(
+                      enabled: !chat.sending,
+                      controller: _controller,
+                      deviceAutocorrect: _deviceAutocorrect,
+                      onDeviceAutocorrectChanged: (value) => setState(() => _deviceAutocorrect = value),
+                    ),
                     IconButton(
                       tooltip: 'Attach files',
                       icon: const Icon(Icons.attach_file),
-                      onPressed: chat.streaming ? null : _attach,
+                      onPressed: chat.streaming || chat.sending ? null : _attach,
                     ),
-                    Flexible(child: _ModelPicker(selected: chat.modelKey)),
-                    _WebModePicker(mode: chat.webMode),
+                    Flexible(
+                      child: IgnorePointer(
+                        ignoring: chat.sending,
+                        child: _ModelPicker(selected: chat.modelKey),
+                      ),
+                    ),
+                    IgnorePointer(
+                      ignoring: chat.sending,
+                      child: _WebModePicker(mode: chat.webMode),
+                    ),
                   ],
                 ),
               ),
-              if (chat.streaming)
+              if (chat.sending)
+                IconButton.filledTonal(
+                  tooltip: 'Cancel pending send',
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    _submitVersion++;
+                    ref.read(chatControllerProvider.notifier).cancelPendingSend();
+                  },
+                )
+              else if (chat.streaming)
                 IconButton.filledTonal(
                   tooltip: 'Stop generating',
                   icon: const Icon(Icons.stop_rounded),
@@ -144,7 +198,7 @@ class _ComposerState extends ConsumerState<Composer> {
                   builder: (context, _) => IconButton.filled(
                     tooltip: 'Send',
                     icon: const Icon(Icons.arrow_upward_rounded),
-                    onPressed: (_controller.text.trim().isEmpty && chat.attachments.isEmpty) || chat.uploading > 0
+                    onPressed: (_controller.text.trim().isEmpty && chat.attachments.isEmpty && chat.uploading == 0)
                         ? null
                         : _submit,
                   ),

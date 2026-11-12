@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Repository consolidation
+
+- The production line (web releases 0.9.3–0.10.11, server updaters, assistant skills, Windows
+  companion) is now on `main`. The live web app is built from `client_releases/0.10.0-updates`.
+- Removed the superseded 0.9.3–0.9.9 client copies and their build workflows; their builds remain
+  available as GitHub releases.
+- CI now fails when Flutter analysis, tests or the web build fail (they were hidden by a pipe).
+
 ### Themes
 
 - Settings → Appearance → **Theme** offers three themes with live previews: **Midnight Gold**

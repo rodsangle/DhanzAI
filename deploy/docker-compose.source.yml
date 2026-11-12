@@ -1,0 +1,7 @@
+# Build this checkout instead of using the published API image.
+services:
+  api:
+    image: dhanz-api:local
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile

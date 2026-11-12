@@ -10,6 +10,7 @@ known-first-party = ["app", "dhanz_ai", "dhanz_knowledge"]
 known-third-party = ["alembic"]
 
 [lint.per-file-ignores]
-"**/tests/**" = ["S105", "S106", "S108", "E501"]
+# Tests run fixed tools (bash, ffmpeg) and parse XML they generated themselves.
+"**/tests/**" = ["S105", "S106", "S108", "E501", "S603", "S607", "S314"]
 "backend/alembic/**" = ["E501"]
 "ai_engine/dhanz_ai/prompts.py" = ["E501"]

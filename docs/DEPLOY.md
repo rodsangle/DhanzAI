@@ -35,11 +35,63 @@ set by `docker-compose.prod.yml`.
 
 ## 3. Start
 
+### Build the browser app first
+
+The same HTTPS domain serves the browser app and `/api/v1` backend. On Windows,
+users open that domain in Edge or Chrome; no Windows installation is needed.
+The browser defaults to its own origin, so it never calls the user's localhost.
+An explicit `DHANZ_API_URL` build setting still overrides this default.
+
+With the Flutter version pinned in `.github/workflows/ci.yml`, run from the
+repository root:
+
+```bash
+cd apps/dhanz_flutter
+flutter pub get
+flutter build web --release --no-web-resources-cdn
+cd ../../deploy
+```
+
+Alternatively, download the `dhanz-web` artifact from a successful CI run and
+extract its contents into `apps/dhanz_flutter/build/web` on the server. Ensure
+`index.html` is directly inside that directory. Caddy mounts only this public
+build output; never copy `.env` files or provider keys into it.
+
+### Start the services
+
 ```bash
 docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml logs -f api      # migrations run automatically
 curl https://dhanz.example.com/api/v1/health/ready          # {"status":"ok", ...}
 ```
+
+Open `https://dhanz.example.com` in Edge or Chrome. Check sign-up/login, send a
+message, and reload a chat URL. Verify that API requests go to this public domain.
+The readiness endpoint returns HTTP 503 until a model provider is configured,
+even if the database is healthy. Run the existing API smoke test from the
+repository root with the Python development dependencies installed:
+
+```bash
+python tests/e2e/smoke_test.py --base-url https://dhanz.example.com
+```
+
+The smoke test needs registration enabled and creates/deletes a test account.
+Create your administrator account before exposing registration publicly.
+
+### Connect the Android app
+
+In the Android app's sign-in screen, expand the server setting and enter
+`https://dhanz.example.com` (without `/api/v1`). Alternatively, build an APK
+with your domain as its default, from `apps/dhanz_flutter`:
+
+```bash
+flutter build apk --release --dart-define=DHANZ_API_URL=https://dhanz.example.com
+```
+
+Use your own Android release signing configuration before distribution. The
+OpenAI key belongs only in the server's `deploy/.env`, never in an APK or web
+build. Android and browser users share the same accounts and conversation data.
+Google/Apple sign-in on the web is not wired up; use email/password there.
 
 Register in the app with your server URL. **The first account becomes the administrator**
 (Settings → Administration). More administrators: Administration → account menu → *Make

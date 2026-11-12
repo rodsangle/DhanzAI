@@ -10,6 +10,9 @@ venv/
 
 # Secrets
 .env
+.env.backup-*
+automation-session.bin
+companion.bin
 *.jks
 *.keystore
 key.properties

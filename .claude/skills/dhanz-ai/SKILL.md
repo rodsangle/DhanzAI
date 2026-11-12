@@ -33,43 +33,33 @@ name `dhanzai`).
 - Git: work on the session's assigned branch; no PRs unless the owner asks; never rewrite others'
   history (merge, don't rebase/force-push shared branches); no model names in commits or code.
 
-## Current state (2026-11-03)
+## Current state (2026-11-12)
 
-- `main` = **0.8.0** (`apps/dhanz_flutter/pubspec.yaml` `0.8.0+8`, API version in
-  `backend/app/main.py`). CI and CodeQL green. Includes public accounts (email codes, TOTP two-step,
-  Google/Apple sign-in), Office file generation + previews, Creative Studio (images via
-  OpenAI-compatible or xAI key with fail-closed screening, Runway video, credits ledger), optional
-  PDF OCR (Poppler + Tesseract), JWKS fresh-boot fix.
-- Alembic heads on `main`: `0007_creative_studio_jobs_credits_and_`, `0008_public_accounts`.
-- Releases on GitHub: `v0.8.0` (from main), `v0.8.1` (Tailscale), `v0.8.2` (downloads + daily local
-  news), `desktop-0.7.0`, `desktop-0.9.0` (Windows installer). README still links the 0.7.0 installer.
-- **Diverged release branch:** `v0.8.1`, `v0.8.2` and `desktop-0.9.0` were built from
-  `codex/tailscale-build-0.8.2`, which forked from main *before* 0.8.0 (merge-base `f00049b`) and was
-  never merged. It adds: per-account read-only GitHub repository assistance (`github_service.py`,
-  `routes/github.py`, `docs/GITHUB.md`), private Tailscale server config (`docs/TAILSCALE.md`,
-  `tailscale-build.yml`), visible document Download controls, a daily local news button. So those
-  installers **lack** 0.8.0's public accounts and Office files, and main lacks the Tailscale/GitHub
-  features. Merging it into main conflicts in `auth_controller.dart`, `chat_screen.dart`,
-  `tool_activity_view.dart`, `pubspec.yaml`, `assistant_tools.py`, `chat_service.py`,
-  `scripts/windows/dhanz_ai.iss`, and its migration `0008_github_connections.py` collides with
-  `0008_public_accounts.py` (renumber to `0009`, `down_revision` = public accounts).
-- **Themes (unreleased, on `claude/dhanz-ai-universal-assistant-k0xwhz`):** `lib/core/theme.dart`
-  defines `DhanzPalette` (Midnight Gold, Arctic Light, Aurora Teal), one `buildDhanzTheme` for all
-  component themes, `DhanzSemanticColors` (success, warning, code background) and
-  `ThemePreference` (system + the three). Stored under `app_theme`; the old `theme_mode` key is
-  migrated and still written. Settings selector: `features/settings/theme_selector.dart`. Use
-  `colorScheme` roles or `DhanzSemanticColors.of(context)` — never hard-coded colours (only the
-  logo and the QR code's white background are fixed). `test/theme_test.dart` enforces contrast.
-- No PC-control screens exist in the repository yet (checked all branches, 2026-11-03).
-- **Open PR #37** "Add Coding Agent mode" (`feature/coding-agent-mode`, 7 commits, up to date with
-  main): backend + Flutter green except `dart format` (one file unformatted) — fix with
-  `dart format lib test` in `apps/dhanz_flutter`.
+- **Live site:** dhanzai.com on a custom AWS server (Docker Compose behind Caddy). Its API is the
+  repository backend plus changes applied by `deploy/updaters/*.py` (code embedded as base64/gzip
+  payloads, pinned to fingerprints of the running server). Its web app is built from
+  `client_releases/0.10.0-updates` (version 0.10.11+52) by `.github/workflows/web-updates.yml` and
+  published as `web-updates-*` prereleases; the server installs them through Settings → App update.
+- **`main`** (after the consolidation PR) contains the former production branch
+  `codex/spreadsheets-commands` plus the theme work. Two Flutter apps still exist:
+  `client_releases/0.10.0-updates` (live) and `apps/dhanz_flutter` (0.8 line with public-account
+  screens, Office file preview and the three themes). The older 0.9.x snapshots were removed.
+- CI fails properly now: the Flutter job runs bash with pipefail (it used to hide failing analyze/test
+  behind `| tee`).
+- Updater fingerprints use `ast.dump`, whose output differs between Python versions: run
+  `tests/test_attachment_updater.py` with Python 3.12 (CI and the server), not 3.13.
+- Still unmerged elsewhere: `codex/tailscale-build-0.8.2` (Tailscale server, GitHub access), PR #37
+  (Coding Agent mode), Dependabot PRs #39–#46.
 
 ## Open work (in priority order)
 
-1. Merge `codex/tailscale-build-0.8.2` into `main` (resolve the conflicts above, renumber the
-   migration), then bump to 0.9.x so version numbers match the published installers.
-2. Fix formatting on PR #37 and merge it.
+1. One Flutter app: make the live client the only app (move it to `apps/dhanz_flutter`), port the
+   public-account screens, Office file preview and themes from the old app, point
+   `web-updates.yml` at it and let it run from `main`.
+2. Retire the updater scripts: move their payload code into `backend/` as readable source with
+   Alembic migrations, build the image in CI, deploy by image tag with a rollback tag.
+3. Merge `codex/tailscale-build-0.8.2` (renumber its `0008` migration) and PR #37; clear Dependabot.
+4. One version number across the app, API, web releases and installers; README installer link.
 3. Public-platform Milestone B: Free/Plus/Pro plans in the database, usage metering and quotas, AI
    cost tracking, Stripe Checkout + signed webhooks, Google Play Billing and StoreKit 2 verified
    server-side. (Creative Studio already has a credit ledger and plan allowances to build on.)
@@ -156,4 +146,7 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-02 — (owner) PR #37 Coding Agent mode opened.
 - 2026-11-03 — Reviewed repo state; created this skill.
 - 2026-11-03 — Three selectable themes + Follow system, preference migration, contrast tests
-  (Flutter only; not yet merged or released).
+  (merged to main in PR #38).
+- 2026-11-03/11 — (Codex) web releases 0.9.3–0.10.11 and server updaters on `codex/*` branches.
+- 2026-11-12 — Consolidation PR: production branch merged into main, duplicate theme picker dropped
+  (its `theme_style` choice migrates), seven old client snapshots removed, CI pipefail and lint fixed.

@@ -18,6 +18,33 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  windows-companion:
+    name: Windows companion (portable and DPAPI tests)
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest ruff
+      - run: python -m ruff check apps/windows_companion
+      - run: python -m ruff format --check apps/windows_companion
+      - run: python -m pytest -q apps/windows_companion
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'windows-latest'
+        with:
+          name: dhanz-windows-companion
+          path: |
+            apps/windows_companion/automation_companion.py
+            apps/windows_companion/desktop_control.py
+            apps/windows_companion/task_control.py
+            apps/windows_companion/requirements-desktop.txt
+            apps/windows_companion/start-companion.cmd
+            apps/windows_companion/README.md
+
   backend:
     name: Backend + AI engine (lint, unit tests)
     runs-on: ubuntu-latest
@@ -41,6 +68,8 @@ jobs:
       - name: Knowledge engine tests (coverage >= 85%)
         working-directory: knowledge_engine
         run: pytest -q --cov=dhanz_knowledge --cov-report=term-missing:skip-covered --cov-fail-under=85
+      - name: Deployment helper tests
+        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py
       - name: Backend tests (coverage >= 80%)
         working-directory: backend
         run: pytest -q --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=80
@@ -128,6 +157,8 @@ jobs:
     defaults:
       run:
         working-directory: apps/dhanz_flutter
+        # bash runs with pipefail, so `| tee` cannot hide a failing analyze, test or build.
+        shell: bash
     steps:
       - uses: actions/checkout@v7
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
@@ -135,13 +166,30 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - run: dart format --output=none --set-exit-if-changed lib test
-      - run: flutter analyze
-      - run: flutter test
+      - run: flutter analyze --no-pub 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
+      - run: flutter test --no-pub --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhanz-theme-previews
+          path: apps/dhanz_flutter/build/theme-previews
+      - name: Browser API origin configuration
+        run: flutter test --no-pub --platform chrome test/config_test.dart
       - name: Build Creative Studio web client
-        run: flutter build web --release
+        run: flutter build web --no-pub --release --no-web-resources-cdn 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-build.log"
       - uses: actions/upload-artifact@v4
         with:
           name: dhanz-web
           path: apps/dhanz_flutter/build/web
+      - name: Publish Flutter diagnostics
+        if: failure()
+        shell: python
+        run: |
+          import os, pathlib
+          report = pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"])
+          for name in ["analysis", "tests", "build"]:
+              path = pathlib.Path(os.environ["RUNNER_TEMP"]) / f"dhanz-flutter-{name}.log"
+              if path.exists():
+                  with report.open("a") as output:
+                      output.write(f"## Flutter {name}\n\n```text\n" + path.read_text()[-30000:] + "\n```\n")

@@ -1,0 +1,75 @@
+import importlib.util
+from pathlib import Path
+
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
+from sqlalchemy import create_engine, inspect, text
+
+
+def test_additive_migration_keeps_existing_records_and_seeds_worker_lease(tmp_path):
+    path = Path(__file__).resolve().parents[2] / "server_extensions/migrations/0011_assistant_studio.py"
+    spec = importlib.util.spec_from_file_location("studio_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = create_engine("sqlite:///" + str(tmp_path / "migration.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id CHAR(32) PRIMARY KEY, email TEXT)"))
+        conn.execute(text("CREATE TABLE messages (id CHAR(32) PRIMARY KEY, content TEXT)"))
+        conn.execute(text("INSERT INTO users VALUES ('existing', 'keep@example.test')"))
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.upgrade()
+        assert conn.scalar(text("SELECT id FROM builder_leases")) == 1
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+        assert {"response_feedback", "builder_projects", "builder_leases"} <= set(inspect(conn).get_table_names())
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.downgrade()
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+    engine.dispose()
+
+
+def test_coding_migration_is_additive_and_preserves_existing_project(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    engine = create_engine("sqlite:///" + str(tmp_path / "coding-migration.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id CHAR(32) PRIMARY KEY, email TEXT)"))
+        conn.execute(text("CREATE TABLE messages (id CHAR(32) PRIMARY KEY, content TEXT)"))
+        conn.execute(text("INSERT INTO users VALUES ('existing', 'keep@example.test')"))
+        for name in ("0011_assistant_studio.py", "0012_coding_workspace.py"):
+            spec = importlib.util.spec_from_file_location(
+                "migration_" + name[:4], root / "server_extensions/migrations" / name
+            )
+            migration = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(migration)
+            with Operations.context(MigrationContext.configure(conn)):
+                migration.upgrade()
+        assert "coding_drafts" in inspect(conn).get_table_names()
+        assert conn.scalar(text("SELECT id FROM builder_leases")) == 1
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.downgrade()
+        assert "builder_projects" in inspect(conn).get_table_names()
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+    engine.dispose()
+
+
+def test_operations_migration_preserves_users_and_uses_uuid_foreign_keys(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "operations_migration", root / "server_extensions/migrations/0013_connected_operations.py"
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    engine = create_engine("sqlite:///" + str(tmp_path / "operations-migration.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE users (id CHAR(32) PRIMARY KEY, email TEXT)"))
+        conn.execute(text("INSERT INTO users VALUES ('existing', 'keep@example.test')"))
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.upgrade()
+        for name in ("operation_servers", "operation_grants", "operation_jobs"):
+            fields = {c["name"]: c for c in inspect(conn).get_columns(name)}
+            assert str(fields["user_id"]["type"]) == "CHAR(32)"
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+        with Operations.context(MigrationContext.configure(conn)):
+            migration.downgrade()
+        assert conn.scalar(text("SELECT email FROM users")) == "keep@example.test"
+    engine.dispose()

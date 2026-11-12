@@ -2,8 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api/api_client.dart';
 import 'config.dart';
-import 'theme.dart';
 import 'storage/secure_store.dart';
+import 'theme.dart';
 
 /// Overridden in tests with [MemorySecureStore].
 final secureStoreProvider = Provider<SecureStore>((ref) => FlutterSecureStore());
@@ -30,7 +30,10 @@ class ThemePreferenceController extends Notifier<ThemePreference> {
     final store = ref.read(secureStoreProvider);
     try {
       final stored = await store.read(StoreKeys.appTheme);
-      final preference = ThemePreference.fromStored(stored: stored, legacy: await store.read(StoreKeys.themeMode));
+      final preference = ThemePreference.fromStored(
+        stored: stored ?? await store.read(StoreKeys.themeStyle),
+        legacy: await store.read(StoreKeys.themeMode),
+      );
       if (stored != preference.name) await store.write(StoreKeys.appTheme, preference.name); // migrate once
       if (ref.mounted) state = preference;
     } catch (_) {

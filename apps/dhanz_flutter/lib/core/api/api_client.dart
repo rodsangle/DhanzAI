@@ -247,6 +247,9 @@ class ApiClient {
   Future<List<Map<String, dynamic>>> creations({int offset = 0}) async =>
       (await _json('GET', '/creative/jobs', query: {'offset': '$offset'}) as List).cast<Map<String, dynamic>>();
 
+  Future<Map<String, dynamic>> creation(String id) async =>
+      await _json('GET', '/creative/jobs/$id') as Map<String, dynamic>;
+
   Future<Map<String, dynamic>> creativePolicy() async =>
       await _json('GET', '/creative/admin/policy') as Map<String, dynamic>;
 

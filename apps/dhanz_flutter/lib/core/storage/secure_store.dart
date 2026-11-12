@@ -53,6 +53,9 @@ abstract final class StoreKeys {
   /// Pre-0.9 light/dark/system choice; still written for older builds.
   static const themeMode = 'theme_mode';
   static const appTheme = 'app_theme';
+
+  /// Theme choice written by the 0.9 test builds' theme picker; read once and migrated to [appTheme].
+  static const themeStyle = 'theme_style';
   static const pushEnabled = 'push_enabled';
   static const pushToken = 'push_token';
   static const minimizeToTray = 'minimize_to_tray';

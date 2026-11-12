@@ -1,0 +1,142 @@
+name: Publish update preview downloads
+
+# Deliberately separate from v* app releases: no api:latest or stable update manifest.
+on:
+  push:
+    tags: ["updates-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: "3.47.8"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-dev.txt
+        working-directory: backend
+      - run: ruff check backend ai_engine knowledge_engine tests scripts apps/windows_companion
+      - run: ruff format --check backend ai_engine knowledge_engine tests scripts apps/windows_companion
+      - run: pytest -q --cov=app --cov-fail-under=80
+        working-directory: backend
+      - run: pytest -q --cov=dhanz_ai --cov-fail-under=85
+        working-directory: ai_engine
+      - run: pytest -q apps/windows_companion tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py
+
+  publish-source:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build preview packages and checksums
+        env:
+          RELEASE_ID: ${{ github.ref_name }}
+        run: python scripts/release/build_update_bundle.py --version "$RELEASE_ID" --output dist/update-preview
+      - name: Publish downloadable preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_ID" dist/update-preview/* --verify-tag --prerelease --latest=false --title "DHANZ AI update preview — $RELEASE_ID" --notes-file docs/UPDATE_PREVIEW.md
+
+  web:
+    needs: publish-source
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+        working-directory: apps/dhanz_flutter
+      - run: dart format --output=none --set-exit-if-changed lib test
+        working-directory: apps/dhanz_flutter
+      - run: flutter analyze --no-pub 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
+        working-directory: apps/dhanz_flutter
+        shell: bash  # pipefail: a failing analyze must fail the step
+      - run: flutter test --no-pub --dart-define=DHANZ_THEME_SCREENSHOTS=true
+        working-directory: apps/dhanz_flutter
+      - run: flutter build web --no-pub --release --no-web-resources-cdn
+        working-directory: apps/dhanz_flutter
+      - name: Publish failed Flutter analysis
+        if: failure()
+        shell: python
+        run: |
+          import os, pathlib
+          path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "dhanz-flutter-analysis.log"
+          if path.exists():
+              pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("```text\n" + path.read_text() + "\n```\n")
+      - name: Package and publish validated web build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import hashlib, os, pathlib, zipfile
+          root = pathlib.Path("apps/dhanz_flutter/build/web")
+          output = pathlib.Path("dist")
+          output.mkdir(exist_ok=True)
+          package = output / f"dhanz-web-{os.environ['RELEASE_ID']}.zip"
+          with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(root))
+          package.with_name(package.name + ".sha256").write_text(hashlib.sha256(package.read_bytes()).hexdigest() + "  " + package.name + "\n")
+          previews = output / f"dhanz-theme-previews-{os.environ['RELEASE_ID']}.zip"
+          with zipfile.ZipFile(previews, "w", zipfile.ZIP_DEFLATED) as archive:
+              for path in sorted(pathlib.Path("apps/dhanz_flutter/build/theme-previews").glob("*.png")):
+                  archive.write(path, path.name)
+          previews.with_name(previews.name + ".sha256").write_text(hashlib.sha256(previews.read_bytes()).hexdigest() + "  " + previews.name + "\n")
+          PY
+          gh release upload "$RELEASE_ID" dist/*
+
+  windows-executable:
+    needs: publish-source
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pytest pyinstaller -r apps/windows_companion/requirements-desktop.txt
+      - run: python -m pytest -q apps/windows_companion
+      - name: Build unsigned helper executable
+        run: python -m PyInstaller --noconfirm --clean --onedir --console --name DhanzPCCompanion apps/windows_companion/automation_companion.py
+      - name: Check packaged entry point
+        run: |
+          & .\dist\DhanzPCCompanion\DhanzPCCompanion.exe --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package and publish unsigned Windows helper
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ github.ref_name }}
+        shell: pwsh
+        run: |
+          Copy-Item apps/windows_companion/README.md dist/DhanzPCCompanion/README.md
+          $name = "dhanz-windows-companion-$env:RELEASE_ID-windows-x64.zip"
+          Compress-Archive -Path dist/DhanzPCCompanion -DestinationPath "dist/$name"
+          $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content -Encoding ascii "dist/$name.sha256"
+          gh release upload "$env:RELEASE_ID" "dist/$name" "dist/$name.sha256"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

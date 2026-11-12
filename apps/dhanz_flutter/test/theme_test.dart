@@ -72,6 +72,15 @@ void main() {
       expect(store.values[StoreKeys.refreshToken], 'refresh-123');
     });
 
+    test('a theme picked in a 0.9 test build carries over; its "original" falls back', () async {
+      store.values[StoreKeys.themeStyle] = 'auroraTeal';
+      final c = ProviderContainer(overrides: overrides());
+      addTearDown(c.dispose);
+      expect(await loaded(c), ThemePreference.auroraTeal);
+      expect(store.values[StoreKeys.appTheme], 'auroraTeal');
+      expect(ThemePreference.fromStored(stored: 'original', legacy: 'light'), ThemePreference.arcticLight);
+    });
+
     test('a choice survives a restart and keeps the old key in step for older builds', () async {
       final first = ProviderContainer(overrides: overrides());
       await loaded(first);
