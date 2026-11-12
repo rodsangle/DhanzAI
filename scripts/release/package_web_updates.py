@@ -7,7 +7,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[2]
-APP = ROOT / "client_releases/0.10.0-updates"
+APP = ROOT / "apps/dhanz_flutter"
 WEB = APP / "build/web"
 OUTPUT = ROOT / "dist/web-updates"
 RELEASE = "web-updates-0.10.11-preview.1"
@@ -49,7 +49,7 @@ def main():
                 "base_version": "0.9.9+27",
                 "source_commit": os.environ.get("GITHUB_SHA"),
                 "web_update_protocol": 1,
-                "source_subdirectory": "client_releases/0.10.0-updates",
+                "source_subdirectory": "apps/dhanz_flutter",
             },
             indent=2,
         )

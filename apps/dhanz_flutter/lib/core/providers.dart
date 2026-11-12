@@ -18,7 +18,8 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 ///
 /// Older versions stored only light/dark/system under `theme_mode`; that is converted on first
 /// load (light → Arctic Light, dark → Midnight Gold, system → Follow system) and saved under
-/// `app_theme`. The old key is kept up to date so an older build on the same device still works.
+/// `app_theme`. A 0.9 test build's `theme_style` choice is carried over too. The old key is kept
+/// up to date so an older build on the same device still works.
 class ThemePreferenceController extends Notifier<ThemePreference> {
   @override
   ThemePreference build() {
@@ -52,3 +53,12 @@ class ThemePreferenceController extends Notifier<ThemePreference> {
 final themePreferenceProvider = NotifierProvider<ThemePreferenceController, ThemePreference>(
   ThemePreferenceController.new,
 );
+
+/// Invalidates account-bound background work when the server connection changes.
+class ConnectionRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+  void changed() => state++;
+}
+
+final connectionRevisionProvider = NotifierProvider<ConnectionRevision, int>(ConnectionRevision.new);

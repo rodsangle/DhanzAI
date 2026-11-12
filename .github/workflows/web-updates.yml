@@ -1,13 +1,8 @@
 name: Build checked web client with chat preview
 
 on:
-  push:
-    branches: ["codex/web-updates-0100", "codex/spreadsheets-commands"]
-    paths:
-      - "client_releases/0.10.0-updates/**"
-      - "scripts/release/package_web_updates.py"
-      - "scripts/release/test_background_uploads.py"
-      - ".github/workflows/web-updates.yml"
+  # Publishing updates the web-update channel the live server installs from, so it is started
+  # by hand (Actions → this workflow → Run workflow on main) rather than on every push.
   workflow_dispatch:
 
 permissions:
@@ -18,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APP_DIR: client_releases/0.10.0-updates
+  APP_DIR: apps/dhanz_flutter
   RELEASE_ID: web-updates-0.10.11-preview.1
   WEB_VERSION: "0.10.11"
   WEB_BUILD: "52"

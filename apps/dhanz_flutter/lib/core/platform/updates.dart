@@ -7,9 +7,11 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../models/models.dart';
-import '../providers.dart';
 import 'app_version.dart';
+import 'github_updates.dart';
 import 'installer_stub.dart' if (dart.library.io) 'installer_io.dart' as installer;
+
+final releaseCheckProvider = Provider((ref) => checkGitHubRelease);
 
 /// The platform name used by the update manifest, or null where updates come from elsewhere (web).
 final updatePlatformProvider = Provider<String?>((ref) {
@@ -24,7 +26,9 @@ final updatePlatformProvider = Provider<String?>((ref) {
 });
 
 class UpdateState {
-  const UpdateState({this.info, this.dismissed = false, this.progress, this.error});
+  const UpdateState({this.info, this.dismissed = false, this.progress, this.error, this.downloadedPath});
+
+  final String? downloadedPath;
 
   final UpdateInfo? info;
   final bool dismissed;
@@ -36,34 +40,98 @@ class UpdateState {
   bool get showBanner => info != null && info!.updateAvailable && (!dismissed || info!.mandatory);
 }
 
-/// Checks the server for a newer app version once per start.
+/// Checks official releases at startup and every six hours while running.
 class UpdateController extends Notifier<UpdateState> {
+  bool _busy = false;
   @override
   UpdateState build() {
-    unawaited(check());
+    Future.microtask(check);
+    final timer = Timer.periodic(const Duration(hours: 6), (_) => unawaited(check()));
+    ref.onDispose(timer.cancel);
     return const UpdateState();
   }
 
   Future<void> check() async {
     final platform = ref.read(updatePlatformProvider);
-    if (platform == null) return;
+    if (platform == null || _busy) return;
+    _busy = true;
+    final client = http.Client();
     try {
       final version = await ref.read(appVersionProvider.future);
-      final info = await ref.read(apiClientProvider).checkForUpdate(platform, version);
-      if (ref.mounted) state = UpdateState(info: info);
-    } on Object catch (e) {
-      debugPrint('Update check failed: $e');
+      final info = await ref.read(releaseCheckProvider)(client, platform, version);
+      if (!ref.mounted) return;
+      if (state.info?.sha256 == info.sha256 && state.downloadedPath != null) return;
+      state = UpdateState(info: info);
+      if (platform == 'windows' && info.updateAvailable && info.sha256 != null) {
+        state = UpdateState(info: info, progress: 0);
+        final path = await installer.prepareWindowsUpdate(
+          Uri.parse(info.url!),
+          info.sha256!,
+          client: client,
+          onProgress: (p) {
+            if (ref.mounted) state = UpdateState(info: info, progress: p);
+          },
+        );
+        if (ref.mounted) state = UpdateState(info: info, downloadedPath: path);
+      }
+    } on Object {
+      if (ref.mounted) {
+        state = UpdateState(
+          info: state.info,
+          error: 'Update check or download failed. Tap app version in Settings to retry.',
+        );
+      }
+    } finally {
+      client.close();
+      _busy = false;
     }
   }
 
-  void dismiss() => state = UpdateState(info: state.info, dismissed: true);
+  void dismiss() => state = UpdateState(info: state.info, downloadedPath: state.downloadedPath, dismissed: true);
 
   Future<void> install() async {
     final info = state.info;
     final url = info?.url == null ? null : Uri.tryParse(info!.url!);
-    if (info == null || url == null) return;
+    if (info == null || url == null || _busy) return;
+    if (ref.read(updatePlatformProvider) == 'android') {
+      if (info.sha256 == null) {
+        state = UpdateState(info: info, error: 'This update has no verified checksum. Please check again later.');
+        return;
+      }
+      _busy = true;
+      final client = http.Client();
+      try {
+        state = UpdateState(info: info, progress: 0);
+        final path = await installer.prepareAndroidUpdate(
+          url,
+          info.sha256!,
+          client: client,
+          onProgress: (p) {
+            if (ref.mounted) state = UpdateState(info: info, progress: p);
+          },
+        );
+        if (!ref.mounted) return;
+        state = UpdateState(info: info, downloadedPath: path);
+        final opened = await installer.installAndroidUpdate(path);
+        if (ref.mounted && !opened) {
+          state = UpdateState(
+            info: info,
+            downloadedPath: path,
+            error: 'Allow updates from DHANZ AI in the Android screen, then return and tap Install update.',
+          );
+        }
+      } on Object catch (e) {
+        if (ref.mounted) state = UpdateState(info: info, error: 'The update could not be installed: $e');
+      } finally {
+        client.close();
+        _busy = false;
+      }
+      return;
+    }
     // Windows: download, verify and run the installer. Elsewhere the store / download page handles it.
     if (ref.read(updatePlatformProvider) == 'windows' && info.sha256 != null) {
+      _busy = true;
+      final downloadedPath = state.downloadedPath;
       state = UpdateState(info: info, progress: 0);
       final client = http.Client();
       try {
@@ -71,12 +139,16 @@ class UpdateController extends Notifier<UpdateState> {
           url,
           info.sha256!,
           client: client,
-          onProgress: (p) => state = UpdateState(info: info, progress: p),
+          downloadedPath: downloadedPath,
+          onProgress: (p) {
+            if (ref.mounted) state = UpdateState(info: info, progress: p);
+          },
         );
       } on Object catch (e) {
-        state = UpdateState(info: info, error: 'The update could not be installed: $e');
+        if (ref.mounted) state = UpdateState(info: info, error: 'The update could not be installed: $e');
       } finally {
         client.close();
+        _busy = false;
       }
       return;
     }
@@ -115,6 +187,8 @@ class UpdateBanner extends ConsumerWidget {
                   Text(
                     info.mandatory
                         ? 'DHANZ AI ${info.latestVersion} is required to keep using this server.'
+                        : update.downloadedPath != null
+                        ? 'DHANZ AI ${info.latestVersion} is downloaded and ready to install.'
                         : 'DHANZ AI ${info.latestVersion} is available.',
                   ),
                   if (info.notes != null) Text(info.notes!, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -126,7 +200,10 @@ class UpdateBanner extends ConsumerWidget {
               actions: [
                 if (!info.mandatory)
                   TextButton(onPressed: installing ? null : controller.dismiss, child: const Text('Later')),
-                FilledButton(onPressed: installing ? null : controller.install, child: const Text('Update')),
+                FilledButton(
+                  onPressed: installing ? null : controller.install,
+                  child: Text(update.downloadedPath != null ? 'Install update' : 'Update'),
+                ),
               ],
             ),
           ),

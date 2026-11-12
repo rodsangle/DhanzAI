@@ -14,9 +14,6 @@ class User {
     this.autoIndexWeb = true,
     this.memoryEnabled = false,
     this.retentionDays,
-    this.emailVerified = true,
-    this.mfaEnabled = false,
-    this.hasPassword = true,
   });
 
   factory User.fromJson(Map<String, dynamic> j) => User(
@@ -29,9 +26,6 @@ class User {
     autoIndexWeb: j['auto_index_web'] as bool? ?? true,
     memoryEnabled: j['memory_enabled'] as bool? ?? false,
     retentionDays: j['retention_days'] as int?,
-    emailVerified: j['email_verified'] as bool? ?? true,
-    mfaEnabled: j['mfa_enabled'] as bool? ?? false,
-    hasPassword: j['has_password'] as bool? ?? true,
   );
 
   final String id;
@@ -50,88 +44,7 @@ class User {
   /// Conversations idle this many days are deleted automatically; null keeps them.
   final int? retentionDays;
 
-  /// The user confirmed the address (emailed code, or Google/Apple vouched for it).
-  final bool emailVerified;
-
-  /// Signing in also needs a code from an authenticator app.
-  final bool mfaEnabled;
-
-  /// False for accounts that only sign in with Google or Apple.
-  final bool hasPassword;
-
   bool get isAdmin => role == 'admin';
-}
-
-/// What the sign-in screen can offer on this server.
-class AuthOptions {
-  const AuthOptions({
-    this.registrationOpen = true,
-    this.passwordReset = false,
-    this.emailVerification = false,
-    this.emailVerificationRequired = false,
-    this.googleClientId,
-    this.appleSignIn = false,
-  });
-
-  factory AuthOptions.fromJson(Map<String, dynamic> j) => AuthOptions(
-    registrationOpen: j['registration_open'] as bool? ?? true,
-    passwordReset: j['password_reset'] as bool? ?? false,
-    emailVerification: j['email_verification'] as bool? ?? false,
-    emailVerificationRequired: j['email_verification_required'] as bool? ?? false,
-    googleClientId: j['google_client_id'] as String?,
-    appleSignIn: j['apple_sign_in'] as bool? ?? false,
-  );
-
-  final bool registrationOpen;
-  final bool passwordReset;
-  final bool emailVerification;
-
-  /// Chats stay locked until the emailed code is entered.
-  final bool emailVerificationRequired;
-
-  /// The OAuth client ID Google ID tokens are requested for, when Google sign-in is enabled.
-  final String? googleClientId;
-  final bool appleSignIn;
-}
-
-/// The password (or Google/Apple) was accepted; a code from the authenticator app is still needed.
-class MfaChallenge {
-  const MfaChallenge(this.token);
-
-  final String token;
-}
-
-/// A new authenticator secret, before two-factor authentication is switched on.
-class MfaSetup {
-  const MfaSetup({required this.secret, required this.otpauthUri});
-
-  factory MfaSetup.fromJson(Map<String, dynamic> j) =>
-      MfaSetup(secret: j['secret'] as String, otpauthUri: j['otpauth_uri'] as String);
-
-  final String secret;
-  final String otpauthUri;
-
-  /// The secret in groups of four, easier to type into an authenticator app.
-  String get groupedSecret =>
-      [for (var i = 0; i < secret.length; i += 4) secret.substring(i, i + 4 > secret.length ? secret.length : i + 4)]
-          .join(' ');
-}
-
-/// A Google or Apple account linked for sign-in.
-class LinkedIdentity {
-  const LinkedIdentity({required this.provider, this.email});
-
-  factory LinkedIdentity.fromJson(Map<String, dynamic> j) =>
-      LinkedIdentity(provider: j['provider'] as String, email: j['email'] as String?);
-
-  final String provider;
-  final String? email;
-
-  String get providerName => provider == 'google'
-      ? 'Google'
-      : provider == 'apple'
-      ? 'Apple'
-      : provider;
 }
 
 /// A device signed in to the account.
@@ -221,7 +134,6 @@ class AdminUser {
     required this.displayName,
     required this.role,
     required this.isActive,
-    this.mfaEnabled = false,
     this.conversations = 0,
     this.messages30d = 0,
   });
@@ -232,7 +144,6 @@ class AdminUser {
     displayName: j['display_name'] as String,
     role: j['role'] as String,
     isActive: j['is_active'] as bool,
-    mfaEnabled: j['mfa_enabled'] as bool? ?? false,
     conversations: j['conversations'] as int? ?? 0,
     messages30d: j['messages_30d'] as int? ?? 0,
   );
@@ -242,7 +153,6 @@ class AdminUser {
   final String displayName;
   final String role;
   final bool isActive;
-  final bool mfaEnabled;
   final int conversations;
   final int messages30d;
 }
@@ -436,7 +346,7 @@ class ToolActivity {
   final String summary;
   final bool error;
 
-  /// Something the app can offer: {"type": "reminder"|"email"|"file", ...}.
+  /// Something the app can offer: {"type": "reminder", "id", ...} or {"type": "email", "mailto", ...}.
   final Map<String, dynamic>? action;
 }
 
@@ -590,100 +500,6 @@ class UpdateInfo {
   final String? url;
   final String? sha256;
   final String? notes;
-}
-
-class FilePreview {
-  const FilePreview({
-    required this.filename,
-    required this.fileType,
-    required this.kind,
-    required this.truncated,
-    required this.sheets,
-    required this.blocks,
-    required this.slides,
-    required this.pageCount,
-    this.note,
-  });
-
-  factory FilePreview.fromJson(Map<String, dynamic> json) => FilePreview(
-    filename: json['filename'] as String? ?? 'File',
-    fileType: json['file_type'] as String? ?? '',
-    kind: json['kind'] as String? ?? 'unsupported',
-    note: json['note'] as String?,
-    truncated: json['truncated'] as bool? ?? false,
-    pageCount: json['page_count'] as int? ?? 0,
-    sheets: [
-      for (final sheet in json['sheets'] as List<dynamic>? ?? const [])
-        PreviewSheet.fromJson(sheet as Map<String, dynamic>),
-    ],
-    blocks: [
-      for (final block in json['blocks'] as List<dynamic>? ?? const [])
-        PreviewBlock.fromJson(block as Map<String, dynamic>),
-    ],
-    slides: [
-      for (final slide in json['slides'] as List<dynamic>? ?? const [])
-        PreviewSlide.fromJson(slide as Map<String, dynamic>),
-    ],
-  );
-
-  final String filename;
-  final String fileType;
-  final String kind;
-  final String? note;
-  final bool truncated;
-  final List<PreviewSheet> sheets;
-  final List<PreviewBlock> blocks;
-  final List<PreviewSlide> slides;
-  final int pageCount;
-}
-
-class PreviewSheet {
-  const PreviewSheet({required this.name, required this.rows});
-
-  factory PreviewSheet.fromJson(Map<String, dynamic> json) => PreviewSheet(
-    name: json['name'] as String? ?? 'Sheet',
-    rows: [
-      for (final row in json['rows'] as List<dynamic>? ?? const []) [for (final cell in row as List<dynamic>) cell],
-    ],
-  );
-
-  final String name;
-  final List<List<dynamic>> rows;
-}
-
-class PreviewBlock {
-  const PreviewBlock({required this.type, required this.text, this.level = 1, this.rows = const []});
-
-  factory PreviewBlock.fromJson(Map<String, dynamic> json) => PreviewBlock(
-    type: json['type'] as String? ?? 'paragraph',
-    text: json['text'] as String? ?? '',
-    level: json['level'] as int? ?? 1,
-    rows: [
-      for (final row in json['rows'] as List<dynamic>? ?? const [])
-        [for (final cell in row as List<dynamic>) '${cell ?? ''}'],
-    ],
-  );
-
-  final String type;
-  final String text;
-  final int level;
-  final List<List<String>> rows;
-}
-
-class PreviewSlide {
-  const PreviewSlide({required this.number, required this.title, required this.bullets, required this.notes});
-
-  factory PreviewSlide.fromJson(Map<String, dynamic> json) => PreviewSlide(
-    number: json['number'] as int? ?? 1,
-    title: json['title'] as String? ?? '',
-    bullets: [for (final bullet in json['bullets'] as List<dynamic>? ?? const []) '$bullet'],
-    notes: json['notes'] as String? ?? '',
-  );
-
-  final int number;
-  final String title;
-  final List<String> bullets;
-  final String notes;
 }
 
 class KnowledgeDocument {

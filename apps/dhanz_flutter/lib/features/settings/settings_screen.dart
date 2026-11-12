@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import '../../core/platform/app_version.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/platform/push.dart';
 import '../../core/platform/updates.dart';
+import '../../core/platform/web_updates.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
@@ -26,6 +28,7 @@ class SettingsScreen extends ConsumerWidget {
     'best': ('Best quality', 'Prefer the most capable models'),
     'cheapest': ('Lowest cost', 'Prefer fast, inexpensive models'),
     'local_first': ('Local first', 'Prefer models running on your own Ollama server'),
+    'local_only': ('Local chat and media', 'No cloud AI fallback; web and app connections have separate permissions'),
   };
 
   Future<void> _guard(BuildContext context, Future<void> Function() action) async {
@@ -102,23 +105,19 @@ class SettingsScreen extends ConsumerWidget {
   });
 
   Future<void> _deleteAccount(BuildContext context, WidgetRef ref) async {
-    final user = ref.read(authControllerProvider).value;
-    if (user == null) return;
-    final confirmed = await showDialog<DeleteConfirmation>(
-      context: context,
-      builder: (_) => DeleteAccountDialog(user: user),
+    final password = await showTextPrompt(
+      context,
+      title: 'Delete account?',
+      confirmLabel: 'Delete forever',
+      destructive: true,
+      obscureText: true,
+      label: 'Confirm with your password',
+      message: const Text(
+        'Your account, conversations and knowledge library will be permanently deleted. This cannot be undone.',
+      ),
     );
-    if (confirmed != null && context.mounted) {
-      await _guard(
-        context,
-        () => ref
-            .read(authControllerProvider.notifier)
-            .deleteAccount(
-              password: confirmed.password,
-              confirmEmail: confirmed.confirmEmail,
-              mfaCode: confirmed.mfaCode,
-            ),
-      );
+    if (password != null && password.isNotEmpty && context.mounted) {
+      await _guard(context, () => ref.read(authControllerProvider.notifier).deleteAccount(password));
     }
   }
 
@@ -184,6 +183,30 @@ class SettingsScreen extends ConsumerWidget {
                   onChanged: ref.read(minimizeToTrayProvider.notifier).set,
                 ),
               section('AI model'),
+              ListTile(
+                leading: const Icon(Icons.hub_outlined),
+                title: const Text('Integrations'),
+                subtitle: const Text('Microsoft 365, Google Drive/Sheets, Outlook and Gmail'),
+                onTap: () => context.go('/integrations'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.extension_outlined),
+                title: const Text('Capabilities and skills'),
+                subtitle: const Text('Available tools, connections and reusable task instructions'),
+                onTap: () => context.go('/capabilities'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: const Text('Actions and PC control'),
+                subtitle: const Text('Review GitHub writes and approve actions on your Windows PC'),
+                onTap: () => context.go('/actions'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('GitHub repositories'),
+                subtitle: const Text('Connect selected repositories for code explanations and reviews'),
+                onTap: () => context.go('/github'),
+              ),
               ListTile(
                 leading: const Icon(Icons.computer),
                 title: const Text('Local / Cloud / Hybrid chat'),
@@ -309,12 +332,8 @@ class SettingsScreen extends ConsumerWidget {
               section('Account'),
               ListTile(
                 leading: const Icon(Icons.lock_outline),
-                title: const Text('Security'),
-                subtitle: Text(
-                  user.mfaEnabled
-                      ? 'Two-step verification is on · password, linked accounts and devices'
-                      : 'Password, two-step verification, linked accounts and devices',
-                ),
+                title: const Text('Password & devices'),
+                subtitle: const Text('Change your password, see and sign out devices'),
                 onTap: () => context.go('/security'),
               ),
               if (user.isAdmin)
@@ -329,24 +348,34 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('Server'),
                 subtitle: Text(ref.watch(apiClientProvider).baseUrl),
               ),
-              ListTile(
-                leading: const Icon(Icons.system_update_alt),
-                title: Text(version == null ? 'App version' : 'App version $version'),
-                subtitle: Text(
-                  update.info == null
-                      ? 'Checks for updates when the app starts'
-                      : update.info!.updateAvailable
-                      ? 'Version ${update.info!.latestVersion} is available'
-                      : 'You have the latest version',
+              if (kIsWeb)
+                const WebUpdateTile()
+              else
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt),
+                  title: Text(version == null ? 'App version' : 'App version $version'),
+                  subtitle: Text(
+                    update.error ??
+                        (update.progress != null
+                            ? 'Downloading update…'
+                            : update.downloadedPath != null
+                            ? 'Update downloaded. Ready to install.'
+                            : update.info == null
+                            ? 'Checks GitHub at startup and every 6 hours; downloads Windows updates automatically'
+                            : update.info!.updateAvailable
+                            ? 'Version ${update.info!.latestVersion} is available'
+                            : 'You have the latest version'),
+                  ),
+                  trailing: update.info?.updateAvailable ?? false
+                      ? FilledButton(
+                          onPressed: update.progress != null
+                              ? null
+                              : ref.read(updateControllerProvider.notifier).install,
+                          child: Text(update.downloadedPath != null ? 'Install update' : 'Update'),
+                        )
+                      : null,
+                  onTap: ref.read(updateControllerProvider.notifier).check,
                 ),
-                trailing: update.info?.updateAvailable ?? false
-                    ? FilledButton(
-                        onPressed: ref.read(updateControllerProvider.notifier).install,
-                        child: const Text('Update'),
-                      )
-                    : null,
-                onTap: ref.read(updateControllerProvider.notifier).check,
-              ),
               ListTile(
                 leading: const Icon(Icons.logout),
                 title: const Text('Sign out'),
@@ -365,85 +394,6 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-typedef DeleteConfirmation = ({String? password, String? confirmEmail, String? mfaCode});
-
-/// Asks for the password (or, without one, the email) and an authenticator code when 2-step is on.
-class DeleteAccountDialog extends StatefulWidget {
-  const DeleteAccountDialog({super.key, required this.user});
-
-  final User user;
-
-  @override
-  State<DeleteAccountDialog> createState() => _DeleteAccountDialogState();
-}
-
-class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
-  final _secret = TextEditingController();
-  final _code = TextEditingController();
-
-  @override
-  void dispose() {
-    _secret.dispose();
-    _code.dispose();
-    super.dispose();
-  }
-
-  bool get _ready => _secret.text.trim().isNotEmpty && (!widget.user.mfaEnabled || _code.text.trim().length >= 6);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final user = widget.user;
-    return AlertDialog(
-      title: const Text('Delete account?'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Your account, conversations and knowledge library will be permanently deleted. This cannot be undone.',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _secret,
-              obscureText: user.hasPassword,
-              keyboardType: user.hasPassword ? TextInputType.visiblePassword : TextInputType.emailAddress,
-              decoration: InputDecoration(
-                labelText: user.hasPassword ? 'Confirm with your password' : 'Type your email (${user.email})',
-              ),
-              onChanged: (_) => setState(() {}),
-            ),
-            if (user.mfaEnabled) ...[
-              const SizedBox(height: 12),
-              TextField(
-                controller: _code,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Code from your authenticator app'),
-                onChanged: (_) => setState(() {}),
-              ),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
-          onPressed: _ready
-              ? () => Navigator.pop<DeleteConfirmation>(context, (
-                  password: user.hasPassword ? _secret.text : null,
-                  confirmEmail: user.hasPassword ? null : _secret.text.trim(),
-                  mfaCode: user.mfaEnabled ? _code.text.trim() : null,
-                ))
-              : null,
-          child: const Text('Delete forever'),
-        ),
-      ],
     );
   }
 }

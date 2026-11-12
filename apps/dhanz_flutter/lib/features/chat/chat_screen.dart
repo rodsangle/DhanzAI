@@ -2,18 +2,32 @@ import 'dart:async';
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/config.dart';
+import '../../core/api/api_client.dart';
+import '../../core/providers.dart';
+import '../../core/uploads/upload_queue.dart';
+import '../projects/projects_controller.dart';
+import '../auth/auth_controller.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../conversations/conversation_panel.dart';
+import '../conversations/resizable_chat_sidebar.dart';
 import '../conversations/conversations_controller.dart';
+import '../automation/automation_screen.dart';
 import 'chat_controller.dart';
+import 'chat_suggestions.dart';
 import 'composer.dart';
+import 'daily_news_button.dart';
 import 'message_tile.dart';
+import 'attachment_chip.dart';
+import 'chat_preview.dart';
+import '../builder/app_simulator.dart';
 
 const _wideBreakpoint = 900.0;
 
@@ -28,20 +42,82 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
+  final _preview = ChatPreviewController();
+  int? _previewRevision;
   bool _dragging = false;
+  bool _discretion = false;
+  bool _savingDiscretion = false;
+  List<String> _suggestions = randomChatSuggestions();
+  bool get _windows => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   /// Files dropped onto the chat (desktop) are attached to the next message.
   Future<void> _dropped(DropDoneDetails details) async {
     setState(() => _dragging = false);
-    final chat = ref.read(chatControllerProvider.notifier);
-    await chat.attachFiles(() async => [for (final f in details.files) (name: f.name, bytes: await f.readAsBytes())]);
+    final queue = ref.read(uploadQueueProvider.notifier);
+    final ticket = queue.ticket();
+    final target = ref.read(chatControllerProvider.notifier).uploadTarget;
+    final project = ref.read(selectedProjectProvider);
+    try {
+      final files = await Future.wait(
+        details.files.map((file) async => (name: file.name, bytes: await file.readAsBytes())),
+      );
+      queue.files(files, ticket: ticket, projectId: project, target: target);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
   }
 
   @override
   void initState() {
     super.initState();
+    if (_windows) windowManager.addListener(this);
     _open();
+    unawaited(_loadDiscretion());
+  }
+
+  Future<void> _loadDiscretion() async {
+    try {
+      final enabled = await ref.read(apiClientProvider).autonomyEnabled();
+      if (mounted) setState(() => _discretion = enabled);
+    } catch (_) {}
+  }
+
+  Future<void> _toggleDiscretion() async {
+    if (_savingDiscretion) return;
+    setState(() => _savingDiscretion = true);
+    try {
+      await ref.read(apiClientProvider).setAutonomy(!_discretion);
+      if (!mounted) return;
+      setState(() => _discretion = !_discretion);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _discretion
+                ? 'Use discretion is on for chat and Codex. Existing permissions still apply.'
+                : 'Use discretion is off.',
+          ),
+        ),
+      );
+    } on ApiException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _savingDiscretion = false);
+    }
+  }
+
+  @override
+  void onWindowFocus() {
+    if (mounted) setState(() => _suggestions = randomChatSuggestions());
+  }
+
+  @override
+  void dispose() {
+    _preview.dispose();
+    if (_windows) windowManager.removeListener(this);
+    super.dispose();
   }
 
   @override
@@ -55,20 +131,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     Future.microtask(() => ref.read(chatControllerProvider.notifier).open(widget.conversationId));
   }
 
-  /// Leaves the open conversation in history and shows a blank chat.
-  ///
-  /// `/chat` is the parent of `/chat/:id`. Going there shows the original blank
-  /// screen again, but that screen does not reload, so the controller has to be
-  /// cleared here or the previous messages stay on screen.
-  void _newChat() {
-    ref.read(chatControllerProvider.notifier).open(null);
-    context.go('/chat');
+  Future<void> _send(String text, {bool? webOverride}) async {
+    final id = await ref.read(chatControllerProvider.notifier).send(text, webOverride: webOverride);
+    if (id != null && id != widget.conversationId && mounted) {
+      context.go('/chat/$id');
+    }
   }
 
-  Future<String?> _send(String text, VoidCallback onSubmitted) async {
-    final id = await ref.read(chatControllerProvider.notifier).send(text, onSubmitted: onSubmitted);
-    if (id != null && id != widget.conversationId && mounted) context.go('/chat/$id');
-    return id;
+  void _continueInCodex(String text) {
+    final chat = ref.read(chatControllerProvider);
+    context.go(
+      '/coding',
+      extra: <String, dynamic>{
+        'task': text,
+        'conversation_id': chat.temporary ? null : chat.conversationId,
+        'user_id': ref.read(authControllerProvider).value?.id,
+        'server': ref.read(apiClientProvider).baseUrl,
+        'temporary': chat.temporary,
+        'has_attachments': chat.attachments.isNotEmpty,
+      },
+    );
   }
 
   Future<void> _edit(ChatMessage message) async {
@@ -89,6 +171,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
     final chat = ref.watch(chatControllerProvider);
+    if (_previewRevision != chat.viewRevision) {
+      _previewRevision = chat.viewRevision;
+      _preview.clear(notify: false);
+    }
+
+    ref.listen(chatControllerProvider.select((state) => state.conversationId), (_, id) {
+      if (id != null && id != widget.conversationId && mounted) {
+        context.go('/chat/$id');
+      }
+    });
 
     ref.listen(chatControllerProvider.select((s) => s.notice), (_, notice) {
       if (notice != null) {
@@ -118,7 +210,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ),
         Expanded(
-          child: _MessageList(state: chat, onEdit: _edit, onSuggestion: (text) => _send(text, () {})),
+          child: _MessageList(
+            key: ValueKey(chat.viewRevision),
+            state: chat,
+            onEdit: _edit,
+            onSuggestion: _send,
+            suggestions: _suggestions,
+          ),
         ),
         SafeArea(
           top: false,
@@ -129,7 +227,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Composer(key: ValueKey(chat.conversationId ?? 'new'), onSend: _send),
+                  DailyNewsButton(enabled: !chat.loading, onSend: (text) => _send(text, webOverride: true)),
+                  Composer(key: ValueKey(chat.viewRevision), onSend: _send, onCodex: _continueInCodex),
                   const SizedBox(height: 6),
                   Text(
                     'Dhanz can make mistakes. Verify important information.',
@@ -144,13 +243,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ],
     );
     final body = DropTarget(
-      enable: !chat.streaming,
+      enable: !chat.loading,
       onDragEntered: (_) => setState(() => _dragging = true),
       onDragExited: (_) => setState(() => _dragging = false),
       onDragDone: (d) => unawaited(_dropped(d)),
       child: Stack(
         children: [
           column,
+          const Positioned.fill(child: ChatApprovalPanel()),
           if (_dragging)
             Positioned.fill(
               child: IgnorePointer(
@@ -179,7 +279,50 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       automaticallyImplyLeading: !wide,
       title: Text(listed?.title ?? chat.title ?? AppConfig.appName, overflow: TextOverflow.ellipsis),
       actions: [
-        if (chat.conversationId == null)
+        if (!wide)
+          PopupMenuButton<String>(
+            tooltip: 'Chat options',
+            onSelected: (value) {
+              if (value == 'discretion') unawaited(_toggleDiscretion());
+              if (value == 'temporary') ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary);
+              if (value == 'voice') context.go('/voice');
+            },
+            itemBuilder: (_) => [
+              CheckedPopupMenuItem(
+                value: 'discretion',
+                checked: _discretion,
+                enabled: !_savingDiscretion,
+                child: const Text('Use discretion'),
+              ),
+              if (chat.conversationId == null)
+                CheckedPopupMenuItem(value: 'temporary', checked: chat.temporary, child: const Text('Temporary chat')),
+              const PopupMenuItem(value: 'voice', child: Text('Talk to Dhanz')),
+            ],
+          ),
+        if (wide)
+          IconButton(
+            tooltip: _discretion ? 'Use discretion: on' : 'Use discretion: off',
+            isSelected: _discretion,
+            icon: const Icon(Icons.auto_awesome),
+            onPressed: _savingDiscretion ? null : _toggleDiscretion,
+          ),
+        IconButton(
+          tooltip: 'App simulator',
+          icon: const Icon(Icons.smartphone_outlined),
+          onPressed: () => _preview.open(
+            const ChatPreviewTarget(documentId: 'app-simulator', filename: 'App simulator', simulator: true),
+          ),
+        ),
+        AnimatedBuilder(
+          animation: _preview,
+          builder: (context, _) => IconButton(
+            tooltip: _preview.visible ? 'Close preview' : 'Preview',
+            icon: const Icon(Icons.vertical_split_outlined),
+            isSelected: _preview.visible,
+            onPressed: _preview.visible ? _preview.close : _preview.show,
+          ),
+        ),
+        if (wide && chat.conversationId == null)
           IconButton(
             tooltip: chat.temporary ? 'Temporary chat on' : 'Temporary chat',
             isSelected: chat.temporary,
@@ -187,45 +330,64 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             selectedIcon: const Icon(Icons.timer),
             onPressed: () => ref.read(chatControllerProvider.notifier).setTemporary(!chat.temporary),
           ),
-        IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
-        IconButton(tooltip: 'New chat', icon: const Icon(Icons.edit_square), onPressed: _newChat),
+        if (wide)
+          IconButton(tooltip: 'Talk to Dhanz', icon: const Icon(Icons.mic_none), onPressed: () => context.go('/voice')),
+        IconButton(
+          tooltip: 'New chat',
+          icon: const Icon(Icons.edit_square),
+          onPressed: () {
+            _preview.clear();
+            ref.read(chatControllerProvider.notifier).open(null);
+            context.go('/chat');
+          },
+        ),
       ],
     );
 
+    final previewBody = ChatPreviewHost(
+      controller: _preview,
+      previewBuilder: (context, target) => target.simulator
+          ? AppSimulatorPanel(
+              initialProjectId: target.projectId,
+              listProjects: ref.read(apiClientProvider).builderProjects,
+              loadProject: ref.read(apiClientProvider).builderProject,
+              reviseProject: ref.read(apiClientProvider).reviseBuilderProject,
+              downloadProject: ref.read(apiClientProvider).downloadBuilderProject,
+            )
+          : FilePreviewContent(documentId: target.documentId, filename: target.filename, embedded: true),
+      child: body,
+    );
     if (wide) {
       return Scaffold(
-        body: Row(
-          children: [
-            const SizedBox(width: 300, child: ConversationPanel()),
-            const VerticalDivider(width: 1),
-            Expanded(
-              child: Scaffold(appBar: appBar, body: body),
-            ),
-          ],
+        body: ResizableChatSidebar(
+          store: ref.read(secureStoreProvider),
+          sidebar: const ConversationPanel(),
+          child: Scaffold(appBar: appBar, body: previewBody),
         ),
       );
     }
     return Scaffold(
       appBar: appBar,
       drawer: const Drawer(width: 320, child: ConversationPanel(inDrawer: true)),
-      body: body,
+      body: previewBody,
     );
   }
 }
 
 class _MessageList extends ConsumerWidget {
-  const _MessageList({required this.state, required this.onEdit, required this.onSuggestion});
+  const _MessageList({
+    super.key,
+    required this.state,
+    required this.onEdit,
+    required this.onSuggestion,
+    required this.suggestions,
+  });
 
   final ChatState state;
   final ValueChanged<ChatMessage> onEdit;
   final ValueChanged<String> onSuggestion;
 
-  static const _suggestions = [
-    'Explain how solar panels convert light into electricity',
-    'Write a Python function that removes duplicates from a list',
-    'Help me plan a productive week',
-    'Summarize the pros and cons of electric cars',
-  ];
+  final List<String> suggestions;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -252,7 +414,7 @@ class _MessageList extends ConsumerWidget {
                   spacing: 10,
                   runSpacing: 10,
                   children: [
-                    for (final s in _suggestions)
+                    for (final s in suggestions)
                       ActionChip(
                         label: Text(s),
                         onPressed: () => onSuggestion(s),

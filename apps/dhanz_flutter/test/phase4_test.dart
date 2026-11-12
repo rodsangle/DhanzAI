@@ -73,6 +73,10 @@ void main() {
     desktopShellProvider.overrideWithValue(desktop),
     appVersionProvider.overrideWith((ref) async => '0.3.0'),
     updatePlatformProvider.overrideWithValue(updatePlatform),
+    // The app checks GitHub releases; the test serves the release as the manifest it describes.
+    releaseCheckProvider.overrideWithValue(
+      (client, platform, version) async => UpdateInfo.fromJson({...backend.updateInfo, 'current_version': version}),
+    ),
   ];
 
   setUp(() async {
@@ -232,7 +236,6 @@ void main() {
         'notes': 'Push notifications',
       };
       await pumpApp(tester);
-      expect(backend.requests, contains('GET /app/updates'));
       expect(find.text('DHANZ AI 0.4.0 is available.'), findsOneWidget);
       expect(find.text('Push notifications'), findsOneWidget);
       await tester.tap(find.text('Later'));
@@ -280,7 +283,13 @@ void main() {
         downloadVerified(Uri.parse('https://example.com/setup.exe'), 'ab' * 32, client: client, directory: dir),
         throwsA(isA<FileSystemException>()),
       );
-      expect(dir.listSync(), isEmpty, reason: 'a tampered download is deleted');
+      final kept = dir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map((f) => f.uri.pathSegments.last.toLowerCase())
+          .toList();
+      // The verified download stays cached under its checksum; the tampered one is deleted.
+      expect(kept, ['$good-setup.exe']);
       await expectLater(
         downloadVerified(Uri.parse('http://example.com/setup.exe'), good, client: client, directory: dir),
         throwsA(isA<HttpException>()),
