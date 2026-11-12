@@ -73,6 +73,24 @@ class PrivateDownloadLogFilter(logging.Filter):
         return True
 
 
+_ADDRESS_FORBIDDEN = frozenset("<>@,;")
+
+
+def single_address(value):
+    """One plain email address: local@domain.tld, no spaces, brackets, commas or semicolons.
+
+    Same rule as the former pattern `[^\\s<>@,;]+@[^\\s<>@,;]+\\.[^\\s<>@,;]+`, checked without a
+    backtracking regular expression.
+    """
+    if not isinstance(value, str) or not 0 < len(value) <= 254 or value.count("@") != 1:
+        return False
+    local, domain = value.split("@")
+    if any(c.isspace() or c in _ADDRESS_FORBIDDEN for c in local + domain):
+        return False
+    # The domain needs a dot with at least one character on each side.
+    return bool(local) and "." in domain[1:-1]
+
+
 def identifier(value):
     if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_!+=/-]{1,512}", value):
         raise IntegrationError("Use the file or message ID returned by the integration.")
@@ -532,8 +550,7 @@ class Service:
         }
 
     async def draft(self, uid, name, to, subject, body):
-        # Length first: it bounds the work the address pattern can do.
-        if not isinstance(to, str) or len(to) > 254 or not re.fullmatch(r"[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+", to):
+        if not single_address(to):
             raise IntegrationError("Enter one recipient email address.")
         if (
             not isinstance(subject, str)
