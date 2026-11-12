@@ -1,0 +1,27 @@
+# Optional CPU inference alongside production. No public inference port.
+# Read docs/LOCAL_MODELS.md before enabling on a small server.
+services:
+  ollama:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: 5m
+      OLLAMA_CONTEXT_LENGTH: "2048"
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+  api:
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODELS: ${DHANZ_LOCAL_MODEL:-qwen2.5:1.5b}
+      OLLAMA_NUM_CTX: "2048"
+      DEFAULT_ROUTING_POLICY: local_first
+    depends_on:
+      ollama:
+        condition: service_started
+
+volumes:
+  ollama_models:

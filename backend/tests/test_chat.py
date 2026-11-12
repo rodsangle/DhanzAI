@@ -52,6 +52,24 @@ def test_multi_turn_history(client, auth, provider):
     assert provider.last_messages[-1].content == "second"
 
 
+def test_published_skill_pack_reaches_real_chat_requests(client, auth, provider):
+    cid = new_conv(client, auth)
+    _, events = send(client, auth, cid, "Review this PDF layout")
+    assert events[-1]["type"] == "done"
+    system = provider.last_messages[0].content
+    assert "dhanz-general-assistant v1.0.0" in system
+    assert "Retrieval snippets do not prove the entire PDF was read" in system
+
+
+def test_skill_pack_can_be_disabled_without_disabling_chat(client, auth, provider, settings):
+    settings.assistant_skill_pack_enabled = False
+    cid = new_conv(client, auth)
+    _, events = send(client, auth, cid, "Review this PDF layout")
+    assert events[-1]["type"] == "done"
+    assert "Bundled Dhanz skill:" not in provider.last_messages[0].content
+    assert "Honesty rules" in provider.last_messages[0].content
+
+
 def test_regenerate_replaces_last_reply(client, auth):
     cid = new_conv(client, auth)
     send(client, auth, cid, "hello")

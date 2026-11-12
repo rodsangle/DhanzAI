@@ -518,6 +518,7 @@ enum ThemePreference {
   String get legacyName => themeMode.name;
 
   /// Reads the stored preference, falling back to the old light/dark/system setting.
+  /// [stored] may also be a 0.9 test-build `theme_style` value; its "original" choice falls back too.
   /// Nothing stored at all means Midnight Gold, the previous default dark theme.
   static ThemePreference fromStored({String? stored, String? legacy}) {
     final current = ThemePreference.values.asNameMap()[stored];

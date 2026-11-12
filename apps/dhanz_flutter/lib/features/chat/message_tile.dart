@@ -5,6 +5,7 @@ import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import 'attachment_chip.dart';
 import 'markdown_view.dart';
+import 'reply_reader.dart';
 import 'sources_view.dart';
 import 'tool_activity_view.dart';
 
@@ -157,6 +158,8 @@ class MessageTile extends StatelessWidget {
                   children: [
                     if (message.content.isNotEmpty)
                       _ActionIcon(icon: Icons.copy_rounded, tooltip: 'Copy', onPressed: () => _copy(context)),
+                    if (message.content.trim().isNotEmpty)
+                      ReadAloudButton(key: ValueKey(message.id), text: message.content),
                     if (isLast && !busy)
                       _ActionIcon(icon: Icons.refresh_rounded, tooltip: 'Regenerate', onPressed: onRegenerate),
                     if (message.model != null) ...[

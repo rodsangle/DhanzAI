@@ -16,6 +16,7 @@ import '../../core/providers.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../chat/chat_controller.dart';
+import 'creative_activity.dart';
 import 'studio_admin_screen.dart';
 
 typedef StudioData = ({
@@ -210,8 +211,11 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       _pendingFingerprint = fingerprint;
     }
     body['request_key'] = _pendingKey;
+    final activity = ref.read(creativeActivityProvider.notifier);
+    final owner = ref.read(authControllerProvider).value?.id;
     try {
-      await ref.read(apiClientProvider).generateMedia(body);
+      final job = await ref.read(apiClientProvider).generateMedia(body);
+      activity.track(job, owner);
       _pendingKey = null;
       if (!mounted) return;
       ref.invalidate(studioProvider);
