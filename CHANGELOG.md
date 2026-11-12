@@ -2,10 +2,21 @@
 
 ## Unreleased
 
+### One Flutter app (web 0.10.12+53)
+
+- `apps/dhanz_flutter` is now the app the live site runs (previously copied in
+  `client_releases/0.10.0-updates`), with the Android, iOS, Windows and macOS projects.
+- The live app gains the three themes and Follow system, and the public-account screens:
+  email confirmation, two-step verification (shown only when the server supports it),
+  Google/Apple sign-in where configured, linked accounts, account deletion for password-less
+  accounts, and the admin "turn off two-step verification" action.
+- Files created by the backend's document tools appear in chat like other generated files.
+- The web-update workflow publishes only when started by hand from the Actions tab.
+
 ### Repository consolidation
 
 - The production line (web releases 0.9.3–0.10.11, server updaters, assistant skills, Windows
-  companion) is now on `main`. The live web app is built from `client_releases/0.10.0-updates`.
+  companion) is now on `main`.
 - Removed the superseded 0.9.3–0.9.9 client copies and their build workflows; their builds remain
   available as GitHub releases.
 - CI now fails when Flutter analysis, tests or the web build fail (they were hidden by a pipe).

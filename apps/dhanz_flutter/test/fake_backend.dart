@@ -72,6 +72,9 @@ class FakeBackend {
 
   // ---- public accounts: email codes, two-step verification, Google/Apple -------------------------
   Map<String, dynamic> authOptions = {'registration_open': true, 'password_reset': true};
+
+  /// A server without public-account features: users carry no `mfa_enabled` / `email_verified`.
+  bool legacyServer = false;
   static const emailCode = '482913';
   static const mfaCode = '123456';
   static const recoveryCode = 'AAAA-BBBB-CCCC';
@@ -144,6 +147,8 @@ class FakeBackend {
         'role': users.isEmpty ? 'admin' : 'user', // the first account administers the server
         'routing_policy': 'balanced',
         'preferred_model': null,
+        // A current server reports these; set [legacyServer] to imitate one that predates them.
+        if (!legacyServer) ...{'email_verified': true, 'mfa_enabled': false, 'has_password': true},
         'created_at': DateTime.now().toUtc().toIso8601String(),
       };
       users[user['email'] as String] = user;

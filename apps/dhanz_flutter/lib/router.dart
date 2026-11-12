@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'features/account/reset_password_screen.dart';
 import 'features/account/security_screen.dart';
+import 'features/account/verify_email_screen.dart';
 import 'features/admin/admin_screen.dart';
 import 'features/builder/builder_screen.dart';
 import 'features/coding/coding_screen.dart';
@@ -35,6 +36,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   // Re-run redirects whenever the auth state changes.
   final authChanges = ValueNotifier<int>(0);
   ref.listen(authControllerProvider, (_, _) => authChanges.value++);
+  ref.listen(authOptionsProvider, (_, _) => authChanges.value++);
   ref.onDispose(authChanges.dispose);
 
   final router = GoRouter(
@@ -51,6 +53,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       if (!signedIn) {
         return _publicRoutes.contains(location) ? null : '/welcome';
       }
+      // Servers that require a confirmed email keep everything else locked until the code is entered.
+      final mustVerify =
+          ref.read(authOptionsProvider).value?.emailVerificationRequired == true && !auth.value!.emailVerified;
+      if (mustVerify) return location == '/verify-email' ? null : '/verify-email';
       if (_publicRoutes.contains(location) || location == '/splash') {
         return '/chat';
       }
@@ -97,6 +103,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/media-editor', builder: (context, state) => const MediaEditorScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
       GoRoute(path: '/security', builder: (context, state) => const SecurityScreen()),
+      GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),
       GoRoute(path: '/reminders', builder: (context, state) => const RemindersScreen()),
       GoRoute(
         path: '/admin',

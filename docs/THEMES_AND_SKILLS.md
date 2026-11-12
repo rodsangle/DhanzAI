@@ -54,8 +54,7 @@ flutter test
 flutter build web --release --no-web-resources-cdn
 ```
 
-The live web client (`client_releases/0.10.0-updates`) does not have these themes yet; they
-come to it when the two Flutter apps are merged into one.
+The themes ship in the live web client from 0.10.12.
 
 AI-engine tests exercise all seven workflows, bounded selection, injection/path
 isolation, portable/bundled consistency and prompt opt-out. A backend test verifies
