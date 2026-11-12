@@ -39,7 +39,8 @@ MAX_CONTEXT = 120000
 def contains_secret(text):
     return bool(
         re.search(
-            r"(?:sk-(?:proj-|ant-)?|ghp_|github_pat_)[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|BEGIN [A-Z ]*PRIVATE KEY", text
+            r"(?:sk-(?:proj-|ant-)?|ghp_|github_pat_)[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16}|BEGIN [A-Z ]{0,40}PRIVATE KEY",
+            text,
         )
     )
 
@@ -255,7 +256,7 @@ async def queue_draft(db, settings, user, body):
         )
     if len(prompt) > MAX_CONTEXT:
         raise gh.GitHubError("Repair context is too large. Select fewer files or create a smaller task.")
-    if re.search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY", body.instructions):
+    if re.search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]{0,40}PRIVATE KEY", body.instructions):
         raise gh.GitHubError("Use credential placeholders in coding instructions, never actual keys.")
     project = BuilderProject(
         user_id=user.id,

@@ -532,7 +532,8 @@ class Service:
         }
 
     async def draft(self, uid, name, to, subject, body):
-        if not isinstance(to, str) or not re.fullmatch(r"[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+", to) or len(to) > 254:
+        # Length first: it bounds the work the address pattern can do.
+        if not isinstance(to, str) or len(to) > 254 or not re.fullmatch(r"[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+", to):
             raise IntegrationError("Enter one recipient email address.")
         if (
             not isinstance(subject, str)

@@ -247,6 +247,20 @@ async def test_google_sheet_import_export_and_draft_use_documented_endpoints(set
     assert not any("/send" in r.url.path for r in requests)
 
 
+@pytest.mark.asyncio
+async def test_draft_rejects_overlong_recipient_before_matching_it(setup):
+    s = setup
+
+    def handler(request):
+        raise AssertionError("no request may be sent for an invalid recipient")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        async with Service(s.store, client) as service:
+            for to in ("a@" + "!." * 20000, "x" * 250 + "@example.test"):
+                with pytest.raises(IntegrationError, match="one recipient"):
+                    await service.draft(s.uid, "google", to, "Subject", "Body")
+
+
 @pytest_asyncio.fixture
 async def web(setup, monkeypatch):
     s = setup

@@ -114,7 +114,7 @@ async def create_project(body: BuildRequest, user: CurrentUser, db: DbDep, setti
     await rate_limit.enforce(f"builder:{user.id}", 5)
     if user.routing_policy == "local_only":
         raise HTTPException(403, "External code generation is disabled in local-only mode.")
-    if __import__("re").search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]*PRIVATE KEY", body.prompt):
+    if __import__("re").search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|BEGIN [A-Z ]{0,40}PRIVATE KEY", body.prompt):
         raise HTTPException(422, "Use placeholders for credentials, not actual keys, in project instructions.")
     existing = await db.scalar(
         select(BuilderProject).where(BuilderProject.user_id == user.id, BuilderProject.request_key == body.request_key)

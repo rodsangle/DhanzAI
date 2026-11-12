@@ -143,3 +143,11 @@ async def test_token_exhaustion_reports_real_cause_without_publishing_partial_fi
                 SimpleNamespace(kind="agent", name="Agent", prompt="Make an agent", model="gpt-5-codex"),
                 client=client,
             )
+
+
+def test_key_header_check_still_matches_real_headers():
+    # The header pattern is length-bounded (CodeQL polynomial-regex finding); real headers still match.
+    headers = ("-----BEGIN PRIVATE KEY-----", "-----BEGIN RSA PRIVATE KEY-----", "-----BEGIN OPENSSH PRIVATE KEY-----")
+    for header in headers:
+        with pytest.raises(builder.BuildError):
+            builder.validate_files([{"path": "a.py", "content": 'KEY = """' + header + '"""'}])

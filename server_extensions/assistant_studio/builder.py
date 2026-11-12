@@ -179,7 +179,7 @@ def validate_files(raw):
         total += size
         if size > 150000 or total > 600000 or "\x00" in content:
             raise BuildError("Generated code exceeds the project size limit.")
-        if re.search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY", content):
+        if re.search(r"sk-(?:proj-|ant-)[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]{0,40}PRIVATE KEY", content):
             raise BuildError("The generated project contains apparent credentials and was not saved.")
         seen.add(name.casefold())
         result.append({"path": name, "content": content})
