@@ -13,6 +13,7 @@ class ResizableChatSidebar extends StatefulWidget {
   final Widget sidebar;
   final Widget child;
   static const storageKey = 'chat_sidebar_width';
+  static const collapsedKey = 'chat_sidebar_collapsed';
 
   @override
   State<ResizableChatSidebar> createState() => _ResizableChatSidebarState();
@@ -21,6 +22,8 @@ class ResizableChatSidebar extends StatefulWidget {
 class _ResizableChatSidebarState extends State<ResizableChatSidebar> {
   double _width = 364;
   bool _touched = false;
+  bool _collapsed = false;
+  bool _collapseTouched = false;
 
   @override
   void initState() {
@@ -29,6 +32,12 @@ class _ResizableChatSidebarState extends State<ResizableChatSidebar> {
   }
 
   Future<void> _load() async {
+    try {
+      final collapsed = await widget.store.read(ResizableChatSidebar.collapsedKey);
+      if (mounted && !_collapseTouched && collapsed == 'true') setState(() => _collapsed = true);
+    } catch (_) {
+      // Collapsing still works for this session when device storage is unavailable.
+    }
     try {
       final saved = double.tryParse(await widget.store.read(ResizableChatSidebar.storageKey) ?? '');
       if (mounted && !_touched && saved != null && saved.isFinite) {
@@ -47,6 +56,16 @@ class _ResizableChatSidebarState extends State<ResizableChatSidebar> {
     }
   }
 
+  Future<void> _setCollapsed(bool collapsed) async {
+    _collapseTouched = true;
+    setState(() => _collapsed = collapsed);
+    try {
+      await widget.store.write(ResizableChatSidebar.collapsedKey, collapsed.toString());
+    } catch (_) {
+      // Keep the choice for this session if device storage is unavailable.
+    }
+  }
+
   void _resize(double width, double maximum, {bool save = false}) {
     _touched = true;
     setState(() => _width = width.clamp(300.0, maximum).toDouble());
@@ -58,9 +77,57 @@ class _ResizableChatSidebarState extends State<ResizableChatSidebar> {
     builder: (context, constraints) {
       final maximum = math.max(300.0, math.min(520.0, constraints.maxWidth - 492));
       final width = _width.clamp(300.0, maximum).toDouble();
+      if (_collapsed) {
+        return Row(
+          children: [
+            Material(
+              key: const ValueKey('chat-history-collapsed'),
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              child: SafeArea(
+                child: SizedBox(
+                  width: 56,
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 12),
+                      IconButton(
+                        key: const ValueKey('chat-history-expand'),
+                        tooltip: 'Show chat history',
+                        icon: const Icon(Icons.view_sidebar_outlined),
+                        onPressed: () => _setCollapsed(false),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(child: widget.child),
+          ],
+        );
+      }
       return Row(
         children: [
-          SizedBox(key: const ValueKey('chat-history-width'), width: width, child: widget.sidebar),
+          SizedBox(
+            key: const ValueKey('chat-history-width'),
+            width: width,
+            child: Stack(
+              children: [
+                Positioned.fill(child: widget.sidebar),
+                Positioned(
+                  top: 14,
+                  right: 6,
+                  child: SafeArea(
+                    child: IconButton(
+                      key: const ValueKey('chat-history-collapse'),
+                      tooltip: 'Hide chat history',
+                      icon: const Icon(Icons.keyboard_double_arrow_left),
+                      onPressed: () => _setCollapsed(true),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Semantics(
             label: 'Resize chat history',
             value: '${width.round()} pixels',

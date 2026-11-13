@@ -67,7 +67,8 @@ void main() {
     await tester.pumpWidget(host(store));
     await tester.pumpAndSettle();
     expect(sidebarWidth(tester), 364);
-    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab); // "Hide chat history" button
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab); // resize handle
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pumpAndSettle();
     expect(sidebarWidth(tester), 388);
@@ -86,6 +87,30 @@ void main() {
     await tester.tap(handle);
     await tester.pumpAndSettle();
     expect(sidebarWidth(tester), 364);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('chat history collapses to a strip, expands again and remembers the choice', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = MemorySecureStore();
+    await tester.pumpWidget(host(store));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Hide chat history'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chat-history-width')), findsNothing);
+    expect(tester.getSize(find.byKey(const ValueKey('chat-history-collapsed'))).width, 56);
+    expect(find.text('Chat remains available'), findsOneWidget);
+    expect(store.values[ResizableChatSidebar.collapsedKey], 'true');
+
+    await tester.pumpWidget(host(store, panelKey: const ValueKey('remount')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chat-history-collapsed')), findsOneWidget); // remembered
+
+    await tester.tap(find.byTooltip('Show chat history'));
+    await tester.pumpAndSettle();
+    expect(sidebarWidth(tester), 364);
+    expect(store.values[ResizableChatSidebar.collapsedKey], 'false');
     expect(tester.takeException(), isNull);
   });
 }

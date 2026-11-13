@@ -2,11 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class ChatPreviewTarget {
-  const ChatPreviewTarget({required this.documentId, required this.filename, this.simulator = false, this.projectId});
+  const ChatPreviewTarget({
+    required this.documentId,
+    required this.filename,
+    this.simulator = false,
+    this.projectId,
+    this.creation,
+  });
   final String documentId;
   final String filename;
   final bool simulator;
   final String? projectId;
+
+  /// A finished Creative Studio job (photo or video) shown in the panel instead of a file.
+  final Map<String, dynamic>? creation;
 }
 
 class ChatPreviewController extends ChangeNotifier {

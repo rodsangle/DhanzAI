@@ -22,6 +22,7 @@ import '../conversations/conversations_controller.dart';
 import '../automation/automation_screen.dart';
 import 'chat_controller.dart';
 import 'chat_suggestions.dart';
+import '../creative/studio_screen.dart';
 import 'composer.dart';
 import 'daily_news_button.dart';
 import 'message_tile.dart';
@@ -354,6 +355,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
               reviseProject: ref.read(apiClientProvider).reviseBuilderProject,
               downloadProject: ref.read(apiClientProvider).downloadBuilderProject,
             )
+          : target.creation != null
+          ? CreationPreview(key: ValueKey(target.documentId), job: target.creation!)
           : FilePreviewContent(documentId: target.documentId, filename: target.filename, embedded: true),
       child: body,
     );
