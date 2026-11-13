@@ -111,7 +111,7 @@ def package_current(container: str, target: str) -> bool:
         live = subprocess.run(  # noqa: S603 - fixed argv
             base.docker("exec", container, "cat", f"{target}/{path.name}"), capture_output=True, check=False
         )
-        if live.returncode != 0 or live.stdout != path.read_bytes():
+        if live.returncode != 0 or base.normalized(live.stdout) != base.normalized(path.read_bytes()):
             return False
     return True
 
