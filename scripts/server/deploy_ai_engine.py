@@ -31,11 +31,24 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = ("providers/openai.py", "orchestrator.py", "types.py")  # relative to the dhanz_ai package
+PACKAGE = ROOT / "ai_engine/dhanz_ai"
+
+
+def package_files() -> list[str]:
+    """Every file of the repository's dhanz_ai package (relative paths); they must match each other."""
+    return sorted(
+        str(p.relative_to(PACKAGE)) for p in PACKAGE.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+    )
+
+
+FILES = tuple(package_files())
 MARKER = "ADAPTIVE_PARAMS = True"
 
 SMOKE_TEST = r"""
-import asyncio, json, httpx
+import asyncio, importlib, json, pkgutil, httpx
+import dhanz_ai
+for module in pkgutil.walk_packages(dhanz_ai.__path__, "dhanz_ai."):  # every module imports together
+    importlib.import_module(module.name)
 import app.main  # the backend still starts with these files
 from dhanz_ai import ChatMessage, GenerationParams, ToolSpec
 from dhanz_ai.providers.openai import ADAPTIVE_PARAMS, OpenAIProvider
@@ -116,19 +129,28 @@ def repo_versions(relative: str) -> set[str]:
     return digests
 
 
-def plan(container: str, pkg: str) -> dict[str, str]:
-    """Per file: 'replace', 'current' (already new) or 'unknown' (not a repository version)."""
+def live_files(container: str, pkg: str) -> set[str]:
+    listing = output(docker("exec", container, "find", pkg, "-type", "f", "-not", "-path", "*/__pycache__/*"))
+    return {line[len(pkg) + 1 :] for line in listing.split() if line.startswith(pkg + "/")}
+
+
+def plan(container: str, pkg: str, live: set[str] | None = None) -> dict[str, str]:
+    """Per repository file: 'current', 'replace' (an older repository version), 'new' (missing on the
+    server) or 'unknown' (differs from every repository version). Server-only files are kept as they are."""
+    live = live_files(container, pkg) if live is None else live
     states = {}
     for relative in FILES:
-        live = subprocess.run(  # noqa: S603 - fixed argv
+        if relative not in live:
+            states[relative] = "new"
+            continue
+        data = subprocess.run(  # noqa: S603 - fixed argv
             docker("exec", container, "cat", f"{pkg}/{relative}"), capture_output=True, check=True
         ).stdout
-        live = normalized(live)
-        new = normalized((ROOT / "ai_engine/dhanz_ai" / relative).read_bytes())
-        digest = hashlib.sha256(live).hexdigest()
-        if live == new:
+        data = normalized(data)
+        new = normalized((PACKAGE / relative).read_bytes())
+        if data == new:
             states[relative] = "current"
-        elif digest in repo_versions(relative):
+        elif hashlib.sha256(data).hexdigest() in repo_versions(relative):
             states[relative] = "replace"
         else:
             states[relative] = "unknown"
@@ -160,13 +182,13 @@ def apply(api: dict, pkg: str) -> int:
     # Keep the running image under a rollback name first; the new image is built from it.
     run(docker("tag", api["image_id"], rollback_tag))
     with tempfile.TemporaryDirectory(prefix="dhanz-ai-engine-") as folder:
-        dockerfile = [f"FROM {rollback_tag}"]
-        for relative in FILES:
-            name = relative.replace("/", "__")
-            (Path(folder) / name).write_bytes((ROOT / "ai_engine/dhanz_ai" / relative).read_bytes())
-            dockerfile.append(f"COPY {name} {pkg}/{relative}")
+        dockerfile = [f"FROM {rollback_tag}", f"COPY dhanz_ai/ {pkg}/"]
+        for relative in FILES:  # the whole package as one matching set; server-only files stay
+            target = Path(folder) / "dhanz_ai" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((PACKAGE / relative).read_bytes())
         (Path(folder) / "Dockerfile").write_text("\n".join(dockerfile) + "\n")
-        print("Building", new_tag, "from the running image (only the AI engine files change).", flush=True)
+        print("Building", new_tag, "from the running image (only the AI engine package changes).", flush=True)
         run(docker("build", "-q", "-t", new_tag, folder))
     print("Testing the new image before switching (with the running API's own settings).", flush=True)
     with tempfile.NamedTemporaryFile("w", prefix="dhanz-api-env-", suffix=".list") as env_file:
@@ -199,10 +221,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Rolled back to", args.rollback, "- healthy" if healthy(api["name"]) else "- check the API logs")
         return 0
     pkg = package_dir(api["name"])
-    states = plan(api["name"], pkg)
+    live = live_files(api["name"], pkg)
+    states = plan(api["name"], pkg, live)
     print(f"API container {api['name']} ({api['image_name']}), AI engine at {pkg}")
     for relative, state in states.items():
-        print(f"  {relative}: {state}")
+        if state != "current":
+            print(f"  {relative}: {state}")
+    print(f"  ({sum(s == 'current' for s in states.values())} files already current)")
+    for extra in sorted(live - set(FILES)):
+        print(f"  {extra}: server-only, kept as it is")
     if "unknown" in states.values():
         print("A file differs from every version in this repository. Nothing was changed; share this output.")
         return 2
