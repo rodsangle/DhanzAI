@@ -181,7 +181,7 @@ User 1-n CustomAssistant; User 1-n Creation.
 ## Feature matrix
 
 See `features.csv` (50 rows). Must: 20, should: 16, could: 9, skip: 5.
-DHANZ today, from its roadmap and code: 19 yes, 15 partial, 11 no.
+DHANZ today, from its roadmap and code: 23 yes, 15 partial, 7 no (after round 1: branch, archive, share links, shared-link settings).
 Musts not yet done: plans and payment (no), Google/Apple sign-in on web and desktop (partial),
 image creation live verification (partial), store listings (partial).
 

@@ -30,6 +30,7 @@ from app.api.routes import (
     voice,
 )
 from app.api.routes import knowledge as knowledge_routes
+from app.conversation_extras import install as install_conversation_extras
 from app.core import rate_limit
 from app.core.config import Settings, get_settings
 from app.core.observability import (
@@ -259,6 +260,8 @@ def create_app(
         )
     # Expiring shared media links carry their own signature and must not require a session.
     app.include_router(creative.public_router, prefix=settings.api_prefix)
+    # Branch, archive and share conversations: self-contained, see app/conversation_extras.
+    install_conversation_extras(app)
     return app
 
 

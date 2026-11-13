@@ -17,6 +17,7 @@ import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../conversations/conversation_panel.dart';
+import '../conversations/sharing.dart';
 import '../conversations/resizable_chat_sidebar.dart';
 import '../conversations/conversations_controller.dart';
 import '../automation/automation_screen.dart';
@@ -154,6 +155,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
     );
   }
 
+  /// "Branch in new chat": copy this chat up to [message] into a new chat and open it.
+  Future<void> _branch(ChatMessage message) async {
+    final conversationId = ref.read(chatControllerProvider).conversationId;
+    if (conversationId == null) return;
+    try {
+      final id = await ref.read(apiClientProvider).branchConversation(conversationId, message.id);
+      await ref.read(conversationsProvider.notifier).refresh();
+      if (mounted) context.go('/chat/$id');
+    } on ApiException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   Future<void> _edit(ChatMessage message) async {
     final result = await showTextPrompt(
       context,
@@ -215,6 +229,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             key: ValueKey(chat.viewRevision),
             state: chat,
             onEdit: _edit,
+            onBranch: chat.temporary || chat.conversationId == null ? null : _branch,
             onSuggestion: _send,
             suggestions: _suggestions,
           ),
@@ -307,6 +322,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WindowListener {
             icon: const Icon(Icons.auto_awesome),
             onPressed: _savingDiscretion ? null : _toggleDiscretion,
           ),
+        if (chat.conversationId != null && !chat.temporary)
+          IconButton(
+            tooltip: 'Share chat',
+            icon: const Icon(Icons.ios_share),
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => ShareChatDialog(conversationId: chat.conversationId!),
+            ),
+          ),
         IconButton(
           tooltip: 'App simulator',
           icon: const Icon(Icons.smartphone_outlined),
@@ -384,10 +408,12 @@ class _MessageList extends ConsumerWidget {
     required this.onEdit,
     required this.onSuggestion,
     required this.suggestions,
+    this.onBranch,
   });
 
   final ChatState state;
   final ValueChanged<ChatMessage> onEdit;
+  final ValueChanged<ChatMessage>? onBranch;
   final ValueChanged<String> onSuggestion;
 
   final List<String> suggestions;
@@ -455,6 +481,7 @@ class _MessageList extends ConsumerWidget {
                 busy: state.streaming,
                 onRegenerate: controller.regenerate,
                 onEdit: onEdit,
+                onBranch: onBranch,
                 researchStatus: m.status == MessageStatus.streaming ? state.researchStatus : null,
               ),
             ),

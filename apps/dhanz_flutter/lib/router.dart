@@ -28,6 +28,7 @@ import 'features/settings/settings_screen.dart';
 import 'features/settings/integrations_screen.dart';
 import 'features/settings/capabilities_screen.dart';
 import 'features/voice/voice_screen.dart';
+import 'features/conversations/sharing.dart';
 import 'features/media_editor/media_editor_screen.dart';
 
 const _publicRoutes = {'/welcome', '/login', '/register', '/reset-password'};
@@ -46,6 +47,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
       if (location == '/local') return null;
+      // Shared chats are public: readable signed in or out, even while sign-in is still loading.
+      if (location.startsWith('/share/')) return null;
       if (auth.isLoading || auth.hasError) {
         return location == '/splash' ? null : '/splash';
       }
@@ -64,6 +67,16 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(path: '/local', builder: (context, state) => const LocalChatScreen()),
+      GoRoute(
+        path: '/share/:token',
+        builder: (context, state) {
+          final token = state.pathParameters['token']!;
+          // A new key per link, so opening another link loads it instead of keeping the last one.
+          return SharedChatScreen(key: ValueKey('share-$token'), token: token);
+        },
+      ),
+      GoRoute(path: '/archived', builder: (context, state) => const ArchivedChatsScreen()),
+      GoRoute(path: '/shared-links', builder: (context, state) => const SharedLinksScreen()),
       GoRoute(path: '/splash', builder: (context, state) => const SplashScreen()),
       GoRoute(path: '/welcome', builder: (context, state) => const WelcomeScreen()),
       GoRoute(path: '/login', builder: (context, state) => const AuthScreen(register: false)),

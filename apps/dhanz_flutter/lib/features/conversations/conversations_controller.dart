@@ -15,6 +15,18 @@ class ConversationSearch extends Notifier<String> {
 
 final conversationSearchProvider = NotifierProvider<ConversationSearch, String>(ConversationSearch.new);
 
+/// Archived chats ({id, title, archived_at}). Servers without the feature have none.
+final archivedConversationsProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
+  final userId = ref.watch(authControllerProvider.select((s) => s.value?.id));
+  if (userId == null) return const [];
+  try {
+    return await ref.read(apiClientProvider).archivedConversations();
+  } on ApiException catch (e) {
+    if (e.statusCode == 404 || e.statusCode == 405) return const [];
+    rethrow;
+  }
+});
+
 /// The signed-in user's conversations (pinned first, then most recent), filtered by the search box.
 class ConversationsController extends AsyncNotifier<List<ConversationSummary>> {
   @override
@@ -24,7 +36,28 @@ class ConversationsController extends AsyncNotifier<List<ConversationSummary>> {
     if (userId == null) return const [];
     final query = ref.watch(conversationSearchProvider);
     final projectId = ref.watch(selectedProjectProvider);
-    return ref.read(apiClientProvider).conversations(query: query, projectId: projectId);
+    // Read every provider before the first await: after it, this build may already be replaced.
+    final api = ref.read(apiClientProvider);
+    final archivedFuture = ref.watch(archivedConversationsProvider.future);
+    final all = await api.conversations(query: query, projectId: projectId);
+    final archived = {for (final a in await archivedFuture) a['id'] as String};
+    return [
+      for (final c in all)
+        if (!archived.contains(c.id)) c,
+    ];
+  }
+
+  /// Hide a chat from the history without deleting it (Settings → Archived chats restores it).
+  Future<void> archive(String id) async {
+    await ref.read(apiClientProvider).archiveConversation(id);
+    ref.invalidate(archivedConversationsProvider);
+    await refresh();
+  }
+
+  Future<void> unarchive(String id) async {
+    await ref.read(apiClientProvider).unarchiveConversation(id);
+    ref.invalidate(archivedConversationsProvider);
+    await refresh();
   }
 
   Future<void> refresh() async {
