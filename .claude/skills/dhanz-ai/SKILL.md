@@ -123,6 +123,8 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 
 ## Pitfalls learned
 
+- `scripts/release/package_web_updates.py` reads WEB_VERSION/WEB_BUILD/RELEASE_ID from the workflow;
+  it once hard-coded 0.10.11+52 and failed the 0.10.12 publish. Run it locally before a release.
 - `tray_manager` must stay on 0.5.x (0.6+ needs native libraries that break `flutter test`);
   Dependabot ignores `>=0.6.0`.
 - Pin third-party GitHub Actions to commit SHAs (CodeQL flags tags).
@@ -154,3 +156,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-12 — One Flutter app: live client moved to `apps/dhanz_flutter` with themes and account
   screens (web 0.10.12+53); web-updates workflow made manual.
 - 2026-11-13 — Server model-upgrade script; ROG test stage for Wan 2.2 TI2V-5B + Z-Image-Turbo.
+- 2026-11-13 — Web publish fix: packager takes its version from the workflow (0.10.12 run failed on it).

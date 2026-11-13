@@ -10,11 +10,20 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "apps/dhanz_flutter"
 WEB = APP / "build/web"
 OUTPUT = ROOT / "dist/web-updates"
-RELEASE = "web-updates-0.10.11-preview.1"
-PACKAGE = "dhanz-web-0.10.11-update.zip"
+
+
+def release_settings():
+    """Version, build and release id come from the workflow (WEB_VERSION, WEB_BUILD, RELEASE_ID)."""
+    version = os.environ["WEB_VERSION"]
+    build = int(os.environ["WEB_BUILD"])
+    release = os.environ["RELEASE_ID"]
+    if not release.startswith("web-updates-" + version + "-preview."):
+        raise ValueError("RELEASE_ID does not match WEB_VERSION.")
+    return version, build, release, "dhanz-web-" + version + "-update.zip"
 
 
 def main():
+    version, build, release, package_name = release_settings()
     for name in (
         "index.html",
         "main.dart.js",
@@ -26,8 +35,11 @@ def main():
         if not (WEB / name).is_file():
             raise ValueError("A complete compiled browser build is required.")
     metadata = json.loads((WEB / "version.json").read_text())
-    if metadata.get("version") != "0.10.11" or str(metadata.get("build_number")) != "52":
-        raise ValueError("Unexpected browser version/build.")
+    if metadata.get("version") != version or str(metadata.get("build_number")) != str(build):
+        raise ValueError(
+            f"Compiled build is {metadata.get('version')}+{metadata.get('build_number')}, expected {version}+{build}. "
+            "Keep pubspec.yaml and WEB_VERSION/WEB_BUILD in the workflow in step."
+        )
     digest = hashlib.sha256()
     for path in sorted(APP.rglob("*")):
         relative = path.relative_to(APP)
@@ -43,7 +55,7 @@ def main():
     (WEB / "release.json").write_text(
         json.dumps(
             {
-                "release_id": RELEASE,
+                "release_id": release,
                 "source_sha256": digest.hexdigest(),
                 "base_release_id": "20261103T041017Z-5fb2c2e2a5c5",
                 "base_version": "0.9.9+27",
@@ -56,23 +68,23 @@ def main():
         + "\n"
     )
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    package = OUTPUT / PACKAGE
+    package = OUTPUT / package_name
     with ZipFile(package, "w", ZIP_DEFLATED) as archive:
         for path in sorted(WEB.rglob("*")):
             if path.is_file():
                 archive.write(path, path.relative_to(WEB).as_posix())
-    (OUTPUT / (PACKAGE + ".sha256")).write_text(
-        hashlib.sha256(package.read_bytes()).hexdigest() + "  " + PACKAGE + "\n"
+    (OUTPUT / (package_name + ".sha256")).write_text(
+        hashlib.sha256(package.read_bytes()).hexdigest() + "  " + package_name + "\n"
     )
     (OUTPUT / "latest-web.json").write_text(
         json.dumps(
             {
                 "schema": 1,
                 "protocol": 1,
-                "version": "0.10.11",
-                "build": 52,
-                "release": RELEASE,
-                "asset": PACKAGE,
+                "version": version,
+                "build": build,
+                "release": release,
+                "asset": package_name,
                 "sha256": hashlib.sha256(package.read_bytes()).hexdigest(),
                 "source_commit": os.environ["GITHUB_SHA"],
             },
