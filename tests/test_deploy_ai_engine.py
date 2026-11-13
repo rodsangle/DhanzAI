@@ -30,15 +30,29 @@ def repo_file(relative: str) -> bytes:
 def test_windows_line_endings_are_not_a_difference(monkeypatch):
     crlf = {r: repo_file(r).replace(b"\n", b"\r\n") for r in dae.FILES}
     live_files(monkeypatch, crlf)
-    assert dae.plan("api", "/pkg/dhanz_ai") == {r: "current" for r in dae.FILES}
+    assert dae.plan("api", "/pkg/dhanz_ai", set(dae.FILES)) == {r: "current" for r in dae.FILES}
 
 
 def test_a_real_edit_is_still_unknown(monkeypatch):
     edited = {r: repo_file(r) for r in dae.FILES}
     edited["orchestrator.py"] += b"\n# a server-only change\n"
     live_files(monkeypatch, edited)
-    assert dae.plan("api", "/pkg/dhanz_ai")["orchestrator.py"] == "unknown"
+    assert dae.plan("api", "/pkg/dhanz_ai", set(dae.FILES))["orchestrator.py"] == "unknown"
 
 
 def test_normalized_only_touches_crlf():
     assert dae.normalized(b"a\r\nb\nc\r") == b"a\nb\nc\r"
+
+
+def test_the_whole_package_is_checked_and_missing_files_are_new(monkeypatch):
+    assert {"providers/base.py", "providers/openai.py", "orchestrator.py", "types.py", "__init__.py"} <= set(dae.FILES)
+    present = {r: repo_file(r) for r in dae.FILES if r != "skill_pack.py"}
+    live_files(monkeypatch, present)
+    states = dae.plan("api", "/pkg/dhanz_ai", set(present))
+    assert states["skill_pack.py"] == "new"
+    assert all(state == "current" for r, state in states.items() if r != "skill_pack.py")
+
+
+def test_smoke_test_imports_every_module_before_the_backend():
+    assert "pkgutil.walk_packages(dhanz_ai.__path__" in dae.SMOKE_TEST
+    assert dae.SMOKE_TEST.index("walk_packages") < dae.SMOKE_TEST.index("import app.main")
