@@ -73,7 +73,8 @@ def test_report_only_by_default_and_apply_keeps_backup(tmp_path, capsys, monkeyp
     original = "# comment\nOPENAI_API_KEY=sk-secret\nOPENAI_MODELS=gpt-4.1\nJWT_SECRET=x\n"
     env_file.write_text(original)
     monkeypatch.setattr(um, "http", FakeProviders(["gpt-6.1-terra", "gpt-4.1"]))
-    monkeypatch.setattr(um.plan, "__defaults__", (um.http,))
+    monkeypatch.setattr(um.plan, "__defaults__", (um.http, False))
+    monkeypatch.setattr(um, "server_adapts_settings", lambda: False)
 
     assert um.main(["--env", str(env_file)]) == 0
     out = capsys.readouterr().out
@@ -110,7 +111,7 @@ class LiveLike(FakeProviders):
     def __call__(self, method, url, headers, body):
         if body and body["model"].endswith("-pro"):
             return 404, {"error": {"message": "This is not a chat model"}}
-        if body and body["model"] in self.temperature_one_only and body["temperature"] != 1:
+        if body and body["model"] in self.temperature_one_only and body.get("temperature", 1) != 1:
             msg = "Unsupported value: 'temperature' does not support 0.7 with this model. "
             return 400, {"error": {"message": msg + "Only the default (1) value is supported."}}
         return super().__call__(method, url, headers, body)
@@ -129,7 +130,7 @@ def test_temperature_one_models_are_skipped_and_older_models_are_not_added():
     assert [r.setting for r in results] == ["OPENAI_MODELS"]  # no DEFAULT_TEMPERATURE change
     chat = results[0]
     assert not chat.changed  # GPT-6/5.5 need temperature 1; 5.2/5.1 are older than 5.4
-    assert any("needs temperature 1" in n for n in chat.notes)
+    assert any("GPT-6 support update" in n for n in chat.notes)
     probed_pro = [body for _, _, body in fake.calls if body and body["model"].endswith("-pro")]
     assert probed_pro == []
 
@@ -161,3 +162,29 @@ def test_models_that_reject_tools_are_not_chosen():
     assert not any(m.startswith("gpt-6") for m in chat.proposed.split(","))
     assert any("Function tools" in n for n in chat.notes)
     assert all(body.get("tools") for _, url, body in fake.calls if body)
+
+
+class LiveGpt6(LiveLike):
+    """GPT-6 also refuses tools unless reasoning_effort is 'none'."""
+
+    def __call__(self, method, url, headers, body):
+        if body and body["model"].startswith("gpt-6") and body.get("tools") and body.get("reasoning_effort") != "none":
+            if body.get("temperature", 1) == 1:  # temperature is checked first, as on the live API
+                msg = "Function tools with reasoning_effort are not supported. Set reasoning_effort to 'none'."
+                return 400, {"error": {"message": msg}}
+        return super().__call__(method, url, headers, body)
+
+
+def test_adaptive_server_gets_gpt6_tested_the_way_it_will_be_called():
+    fake = LiveGpt6(LIVE_IDS)
+    results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake, adaptive=True)
+    assert [r.setting for r in results] == ["OPENAI_MODELS"]  # never a temperature change
+    assert results[0].proposed == "gpt-6.1-sol,gpt-6.1-terra,gpt-6-astra," + LIVE_CURRENT
+    final = [b for _, _, b in fake.calls if b and b["model"] == "gpt-6.1-sol"][-1]
+    assert "temperature" not in final and final["reasoning_effort"] == "none" and final["tools"]
+
+
+def test_same_models_without_the_update_are_skipped_with_the_reason():
+    results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, LiveGpt6(LIVE_IDS))
+    assert not results[0].changed
+    assert any("deploy_ai_engine.py" in n for n in results[0].notes)

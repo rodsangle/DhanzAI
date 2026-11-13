@@ -138,6 +138,27 @@ async def test_non_retryable_error_is_not_masked():
         [rc async for rc in o.stream_chat([ChatMessage("user", "hello")])]
 
 
+async def test_model_refusing_the_request_falls_back_to_the_next_model():
+    # e.g. "Function tools ... not supported for this model": HTTP 400 before any output.
+    refused = ProviderError("b", "HTTP 400: tools not supported for mid", status_code=400, retryable=False)
+    failing = ScriptedProvider("b", [MID], error=refused)
+    o, _ = orch(b=failing)
+    out = [rc async for rc in o.stream_chat([ChatMessage("user", "hello")])]
+    assert failing.calls == 1
+    assert "".join(rc.chunk.text for rc in out) == "ok"
+    assert out[0].model != MID
+
+
+async def test_every_model_refusing_keeps_the_status_for_the_user_message():
+    def refusing(name, model):
+        return ScriptedProvider(name, [model], error=ProviderError(name, "too long", status_code=400, retryable=False))
+
+    o, _ = orch(a=refusing("a", CHEAP), b=refusing("b", MID), c=refusing("c", TOP), ollama=refusing("ollama", LOCAL))
+    with pytest.raises(ProviderError, match="All candidate models failed") as caught:
+        [rc async for rc in o.stream_chat([ChatMessage("user", "hello")])]
+    assert caught.value.status_code == 400
+
+
 def test_system_prompt_mentions_identity_and_honesty():
     p = build_system_prompt(user_preferences="Answer in French", project_instructions="Use metric units")
     assert "Dhanz" in p and "Never fabricate" in p and "Answer in French" in p and "Use metric units" in p

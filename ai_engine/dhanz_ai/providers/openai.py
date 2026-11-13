@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import AsyncIterator, Sequence
 
@@ -20,6 +21,14 @@ from dhanz_ai.types import (
     ToolCall,
     ToolSpec,
 )
+
+log = logging.getLogger(__name__)
+
+# Read by scripts/server/upgrade_models.py to know the server adapts per-model request settings.
+ADAPTIVE_PARAMS = True
+# Request settings some models refuse, learned from the provider's own HTTP 400 replies:
+NO_TEMPERATURE = "no_temperature"  # "Only the default (1) value is supported" (GPT-5.5/5.6/6.x)
+REASONING_NONE_WITH_TOOLS = "reasoning_none_with_tools"  # "Function tools with reasoning_effort ... set 'none'"
 
 
 class OpenAIProvider(Provider):
@@ -39,6 +48,8 @@ class OpenAIProvider(Provider):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self._models = list(models)
+        # Per model: settings to change, learned from a rejected request and kept for the process lifetime.
+        self._adjustments: dict[str, set[str]] = {}
         if name:
             # Allows registering OpenAI-compatible endpoints (e.g. Groq, Together) under another name.
             self.name = name
@@ -56,17 +67,19 @@ class OpenAIProvider(Provider):
             infos.append(ModelInfo(self.name, m, m, frozenset(caps), tier))
         return infos
 
-    async def stream(
-        self, model: str, messages: Sequence[ChatMessage], params: GenerationParams, tools: Sequence[ToolSpec] = ()
-    ) -> AsyncIterator[StreamChunk]:
+    def _payload(
+        self, model: str, messages: Sequence[ChatMessage], params: GenerationParams, tools: Sequence[ToolSpec]
+    ) -> dict:
+        adjust = self._adjustments.get(model, set())
         payload: dict = {
             "model": model,
             "messages": [_to_openai(m) for m in messages],
             "stream": True,
             "stream_options": {"include_usage": True},
-            "temperature": params.temperature,
             "max_completion_tokens": params.max_tokens,
         }
+        if NO_TEMPERATURE not in adjust:
+            payload["temperature"] = params.temperature
         if tools:
             payload["tools"] = [
                 {
@@ -75,6 +88,46 @@ class OpenAIProvider(Provider):
                 }
                 for t in tools
             ]
+            if REASONING_NONE_WITH_TOOLS in adjust:
+                payload["reasoning_effort"] = "none"
+        return payload
+
+    def _learn(self, model: str, exc: ProviderError, with_tools: bool) -> bool:
+        """Record a setting this model refused. True when the request is worth sending again."""
+        if exc.status_code != 400:
+            return False
+        text = str(exc).lower()
+        adjust = self._adjustments.setdefault(model, set())
+        if "temperature" in text and ("only the default" in text or "unsupported value" in text):
+            change = NO_TEMPERATURE
+        elif with_tools and "reasoning_effort" in text and "'none'" in text:
+            change = REASONING_NONE_WITH_TOOLS
+        else:
+            return False
+        if change in adjust:
+            return False
+        adjust.add(change)
+        log.info("Model %s refused a request setting; sending again with %s", model, change)
+        return True
+
+    async def stream(
+        self, model: str, messages: Sequence[ChatMessage], params: GenerationParams, tools: Sequence[ToolSpec] = ()
+    ) -> AsyncIterator[StreamChunk]:
+        # A refused setting is reported (HTTP 400) before any output, so the request can be sent again.
+        for attempt in range(3):
+            chunks = self._stream_once(self._payload(model, messages, params, tools))
+            try:
+                first = await anext(chunks)
+            except ProviderError as exc:
+                if attempt < 2 and self._learn(model, exc, bool(tools)):
+                    continue
+                raise
+            yield first
+            async for chunk in chunks:
+                yield chunk
+            return
+
+    async def _stream_once(self, payload: dict) -> AsyncIterator[StreamChunk]:
         headers = {"Authorization": f"Bearer {self.api_key}"}
         input_tokens = output_tokens = None
         calls: dict[int, dict] = {}  # tool-call fragments by index

@@ -118,3 +118,11 @@ class ProviderError(Exception):
         self.provider = provider
         self.status_code = status_code
         self.retryable = retryable
+
+    @property
+    def model_rejected(self) -> bool:
+        """The provider refused this request for this model (unsupported setting, unknown model).
+
+        Nothing was generated, so another model may still answer the same request.
+        """
+        return self.status_code in (400, 404, 422)
