@@ -41,6 +41,7 @@ class RoutingPolicy(str, Enum):
     CHEAPEST = "cheapest"
     BEST = "best"
     LOCAL_FIRST = "local_first"
+    LOCAL_ONLY = "local_only"
 
 
 class TaskType(str, Enum):
@@ -114,10 +115,14 @@ class Orchestrator:
 
     def candidates(self, request: RoutingRequest, task: TaskType) -> list[ModelInfo]:
         available = self.available_models()
+        if request.policy == RoutingPolicy.LOCAL_ONLY:
+            available = [model for model in available if Capability.LOCAL in model.capabilities]
+            if not available:
+                raise NoModelAvailableError("Local-only AI is enabled, but no configured local model is available.")
         if not available:
             raise NoModelAvailableError(
                 "No AI provider is configured. Set at least one of OPENAI_API_KEY, ANTHROPIC_API_KEY, "
-                "GEMINI_API_KEY or OLLAMA_BASE_URL on the backend."
+                "GEMINI_API_KEY, XAI_API_KEY, GROQ_API_KEY or OLLAMA_BASE_URL on the backend."
             )
 
         ordered: list[ModelInfo] = []
@@ -134,6 +139,8 @@ class Orchestrator:
                 raise NoModelAvailableError(
                     f"Model {request.explicit_provider}:{request.explicit_model} is not available."
                 )
+            if request.policy == RoutingPolicy.LOCAL_ONLY and Capability.LOCAL not in explicit.capabilities:
+                raise NoModelAvailableError("This cloud model is excluded by your local-only AI setting.")
             if not request.required <= explicit.capabilities:
                 raise NoModelAvailableError(
                     f"{explicit.display_name} cannot handle this message (it needs "
@@ -147,7 +154,7 @@ class Orchestrator:
             provider, _, model = request.preferred_model_key.partition(":")
             preferred = self.find_model(provider, model)
             if (
-                preferred and request.required <= preferred.capabilities
+                preferred in available and request.required <= preferred.capabilities
             ):  # a stale preference silently falls through to automatic routing
                 ordered.append(preferred)
 
