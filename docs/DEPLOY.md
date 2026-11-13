@@ -205,12 +205,15 @@ setting changed (once per model per process; nothing is shown to the user). Sepa
 model refuses a request before answering (HTTP 400/404/422), DHANZ tries the next model instead
 of failing the chat.
 
-The live API image predates this, so install it with the deploy script (it only replaces three
-AI engine files inside the running image and keeps a rollback image):
+The live API image predates this, so install it with the deploy script. It replaces only the four
+files the support needs (`providers/base.py`, `providers/openai.py`, `orchestrator.py`, `types.py`)
+inside the running image, keeps a rollback image, and never touches the server's own customised
+engine files (its `prompts.py`, `providers/ollama.py`, `providers/lmstudio.py` and the rest). The
+image test imports every engine module, the server's own included, before anything is switched:
 
 ```bash
 cd ~/DhanzAI && git pull
-python3 scripts/server/deploy_ai_engine.py            # check: every file must be a repository version
+python3 scripts/server/deploy_ai_engine.py            # check: the four files must be repository versions
 python3 scripts/server/deploy_ai_engine.py --apply    # build, test, switch, health check
 sudo python3 scripts/server/upgrade_models.py         # report: now tests GPT-6 the same way
 ```

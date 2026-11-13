@@ -26,8 +26,9 @@
 - The OpenAI adapter drops a refused temperature and sends `reasoning_effort: "none"` with tools
   when a model asks for it (learned per model from the HTTP 400 reply).
 - A model that refuses a request before answering no longer fails the chat: the next model answers.
-- `scripts/server/deploy_ai_engine.py` installs these files into the running API with a test and a
-  rollback image; `upgrade_models.py` tests models the same way once the server has them.
+- `scripts/server/deploy_ai_engine.py` installs these four files (base, openai, orchestrator, types)
+  into the running API with a test and a rollback image, leaving the server's own customised engine
+  files (prompts, Ollama, LM Studio) untouched; `upgrade_models.py` tests models the same way once the server has them.
 
 ### Newest AI models on the server
 

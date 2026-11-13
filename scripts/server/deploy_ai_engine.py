@@ -8,10 +8,13 @@ Run on the server from the repository checkout, as the normal user:
     python3 scripts/server/deploy_ai_engine.py --rollback dhanz-api:rollback-YYYYmmdd-HHMMSS
 
 What --apply does:
-1. Reads the AI engine files inside the running API and checks each one is an unmodified version
+1. Reads the four AI engine files GPT-6 support needs (providers/base.py, providers/openai.py,
+   orchestrator.py, types.py) inside the running API and checks each one is an unmodified version
    from this repository's history. Anything else (a hand edit, a server-only patch) stops it.
-2. Builds a new image FROM the running image, replacing only those files.
-3. Tests the new image before using it: the backend still imports, and a simulated GPT-6 reply
+   Every other engine file, including the server's own customised ones, stays exactly as it is.
+2. Builds a new image FROM the running image, replacing only those four files.
+3. Tests the new image before using it: every AI engine module (the server's own included) and
+   the backend still import, and a simulated GPT-6 reply
    (refused temperature, then refused tools) completes.
 4. Tags the running image as a rollback image, gives the new image the running image's name, and
    recreates only the API with the compose files it was started with. Then checks /health.
@@ -34,14 +37,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "ai_engine/dhanz_ai"
 
 
-def package_files() -> list[str]:
-    """Every file of the repository's dhanz_ai package (relative paths); they must match each other."""
-    return sorted(
-        str(p.relative_to(PACKAGE)) for p in PACKAGE.rglob("*") if p.is_file() and "__pycache__" not in p.parts
-    )
-
-
-FILES = tuple(package_files())
+# Only the files GPT-5.5/5.6/6.x support needs. The live server runs its own edition of other
+# engine files (prompts.py, providers/ollama.py, providers/lmstudio.py, ...); those are never touched.
+# base.py's newer version only adds names (read timeouts) and keeps the old ones, so the server's own
+# providers keep working; the smoke test imports every module to prove it.
+FILES = ("providers/base.py", "providers/openai.py", "orchestrator.py", "types.py")
 MARKER = "ADAPTIVE_PARAMS = True"
 
 SMOKE_TEST = r"""
@@ -183,12 +183,12 @@ def apply(api: dict, pkg: str) -> int:
     run(docker("tag", api["image_id"], rollback_tag))
     with tempfile.TemporaryDirectory(prefix="dhanz-ai-engine-") as folder:
         dockerfile = [f"FROM {rollback_tag}", f"COPY dhanz_ai/ {pkg}/"]
-        for relative in FILES:  # the whole package as one matching set; server-only files stay
+        for relative in FILES:  # only these files; every other file in the image stays as it is
             target = Path(folder) / "dhanz_ai" / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes((PACKAGE / relative).read_bytes())
         (Path(folder) / "Dockerfile").write_text("\n".join(dockerfile) + "\n")
-        print("Building", new_tag, "from the running image (only the AI engine package changes).", flush=True)
+        print("Building", new_tag, "from the running image (only the four GPT-6 files change).", flush=True)
         run(docker("build", "-q", "-t", new_tag, folder))
     print("Testing the new image before switching (with the running API's own settings).", flush=True)
     with tempfile.NamedTemporaryFile("w", prefix="dhanz-api-env-", suffix=".list") as env_file:
@@ -227,9 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     for relative, state in states.items():
         if state != "current":
             print(f"  {relative}: {state}")
-    print(f"  ({sum(s == 'current' for s in states.values())} files already current)")
-    for extra in sorted(live - set(FILES)):
-        print(f"  {extra}: server-only, kept as it is")
+    print(f"  ({sum(s == 'current' for s in states.values())} of {len(FILES)} files already current)")
+    print(f"  ({len(live - set(FILES))} other engine files, including server customisations, are not touched)")
     if "unknown" in states.values():
         print("A file differs from every version in this repository. Nothing was changed; share this output.")
         return 2
