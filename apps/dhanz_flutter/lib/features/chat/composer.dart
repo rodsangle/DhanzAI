@@ -14,6 +14,17 @@ import 'chat_controller.dart';
 import 'draft_spelling.dart';
 import '../voice/prompt_microphone.dart';
 
+/// What the message box makes: a chat reply, a photo, a video, or a coding task.
+enum ComposerMode { chat, photo, video, code }
+
+/// The chat message sent for a photo or video. The assistant starts the generation in this
+/// conversation, so the generation card and result stay in the chat history.
+String creationRequest(ComposerMode mode, String text) => switch (mode) {
+  ComposerMode.photo => 'Create an image: $text',
+  ComposerMode.video => 'Create a video: $text',
+  _ => text,
+};
+
 /// Message input with model picker and send/stop button.
 /// Enter sends; Shift+Enter inserts a newline.
 class Composer extends ConsumerStatefulWidget {
@@ -28,6 +39,7 @@ class Composer extends ConsumerStatefulWidget {
 
 class _ComposerState extends ConsumerState<Composer> {
   final _controller = TextEditingController();
+  ComposerMode _mode = ComposerMode.chat;
   bool _deviceAutocorrect = true;
   bool _folderBusy = false;
   bool _pasteBusy = false;
@@ -119,7 +131,11 @@ class _ComposerState extends ConsumerState<Composer> {
     if (_folderBusy || _pasteBusy || chat.uploading > 0 || chat.loading) {
       return;
     }
-    if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
+    if (_mode == ComposerMode.code) {
+      if (text.trim().isNotEmpty && widget.onCodex != null) widget.onCodex!(text);
+      return;
+    }
+    if (_mode == ComposerMode.chat && text.trim().isEmpty && chat.attachments.isNotEmpty) {
       // Attachments alone: ask for the obvious thing rather than refusing to send.
       text = chat.attachments.every((a) => a.fileType == 'image') ? 'Describe this image.' : 'Summarize this file.';
     }
@@ -127,7 +143,7 @@ class _ComposerState extends ConsumerState<Composer> {
       return;
     }
     _controller.clear();
-    widget.onSend(text);
+    widget.onSend(creationRequest(_mode, text));
     _focus.requestFocus();
   }
 
@@ -221,8 +237,13 @@ class _ComposerState extends ConsumerState<Composer> {
             minLines: 1,
             maxLines: 8,
             textInputAction: TextInputAction.newline,
-            decoration: const InputDecoration(
-              hintText: 'Message Dhanz…',
+            decoration: InputDecoration(
+              hintText: switch (_mode) {
+                ComposerMode.chat => 'Message Dhanz…',
+                ComposerMode.photo => 'Describe the photo to create…',
+                ComposerMode.video => 'Describe the video to create…',
+                ComposerMode.code => 'Describe the coding task…',
+              },
               filled: false,
               border: InputBorder.none,
               focusedBorder: InputBorder.none,
@@ -236,17 +257,41 @@ class _ComposerState extends ConsumerState<Composer> {
               onPressed: _folderBusy || _pasteBusy || chat.loading || chat.uploading > 0 ? null : _attachFolder,
             ),
           ),
-          if (widget.onCodex != null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                icon: const Icon(Icons.code),
-                label: const Text('Continue in Codex'),
-                onPressed: _folderBusy || chat.loading || chat.streaming || chat.uploading > 0
-                    ? null
-                    : () => widget.onCodex!(_controller.text),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<ComposerMode>(
+                key: const ValueKey('composer-mode'),
+                showSelectedIcon: false,
+                style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                segments: [
+                  const ButtonSegment(
+                    value: ComposerMode.chat,
+                    icon: Icon(Icons.chat_bubble_outline),
+                    label: Text('Chat'),
+                  ),
+                  const ButtonSegment(
+                    value: ComposerMode.photo,
+                    icon: Icon(Icons.image_outlined),
+                    label: Text('Photo'),
+                  ),
+                  const ButtonSegment(
+                    value: ComposerMode.video,
+                    icon: Icon(Icons.movie_outlined),
+                    label: Text('Video'),
+                  ),
+                  if (widget.onCodex != null)
+                    const ButtonSegment(value: ComposerMode.code, icon: Icon(Icons.code), label: Text('Code')),
+                ],
+                selected: {_mode},
+                onSelectionChanged: (selection) {
+                  setState(() => _mode = selection.single);
+                  _focus.requestFocus();
+                },
               ),
             ),
+          ),
           Row(
             children: [
               // Pickers take the free space (shrinking the model name if needed); send stays at the right edge.
@@ -294,12 +339,18 @@ class _ComposerState extends ConsumerState<Composer> {
               ListenableBuilder(
                 listenable: _controller,
                 builder: (context, _) => IconButton.filled(
-                  tooltip: chat.streaming ? 'Queue prompt' : 'Send',
+                  tooltip: switch (_mode) {
+                    ComposerMode.photo => 'Create photo',
+                    ComposerMode.video => 'Create video',
+                    ComposerMode.code => 'Open in the coding workspace',
+                    ComposerMode.chat => chat.streaming ? 'Queue prompt' : 'Send',
+                  },
                   icon: const Icon(Icons.arrow_upward_rounded),
                   onPressed:
                       _folderBusy ||
                           _pasteBusy ||
-                          (_controller.text.trim().isEmpty && chat.attachments.isEmpty) ||
+                          (_controller.text.trim().isEmpty &&
+                              (_mode != ComposerMode.chat || chat.attachments.isEmpty)) ||
                           chat.uploading > 0 ||
                           chat.loading
                       ? null

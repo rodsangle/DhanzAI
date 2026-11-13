@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### One chat box and previews (web 0.10.13+54)
+
+- Chat · Photo · Video · Code selector in the message box. Photo and video requests are sent into the
+  conversation so the generation card and result stay in its history; Code opens the coding
+  workspace (replaces the separate "Continue in Codex" button).
+- Finished photos and videos: a Preview chip opens them in the chat side panel (dialog on phones).
+- The chat history sidebar can be hidden to a thin strip and shown again; the choice is remembered.
+
+### GPT-5.5 / 5.6 / 6.x support
+
+- The OpenAI adapter drops a refused temperature and sends `reasoning_effort: "none"` with tools
+  when a model asks for it (learned per model from the HTTP 400 reply).
+- A model that refuses a request before answering no longer fails the chat: the next model answers.
+- `scripts/server/deploy_ai_engine.py` installs these files into the running API with a test and a
+  rollback image; `upgrade_models.py` tests models the same way once the server has them.
+
 ### Newest AI models on the server
 
 - `scripts/server/upgrade_models.py` switches the server to the newest chat and image models its

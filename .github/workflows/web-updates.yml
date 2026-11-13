@@ -14,9 +14,9 @@ concurrency:
 
 env:
   APP_DIR: apps/dhanz_flutter
-  RELEASE_ID: web-updates-0.10.12-preview.1
-  WEB_VERSION: "0.10.12"
-  WEB_BUILD: "53"
+  RELEASE_ID: web-updates-0.10.13-preview.1
+  WEB_VERSION: "0.10.13"
+  WEB_BUILD: "54"
 
 jobs:
   build:
@@ -86,7 +86,7 @@ jobs:
           if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
             gh release upload "$RELEASE_ID" dist/web-updates/* --clobber
           else
-            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.12 themes and account security" --notes "Checked Dhanz 0.10.12 web build. Adds the Midnight Gold, Arctic Light and Aurora Teal themes with Follow system (Settings → Appearance), and the public-account screens: email confirmation codes, two-step verification with authenticator apps and recovery codes, linked Google/Apple accounts and the matching account-deletion confirmation. Two-step verification only appears when the server supports it. Shows Word, Excel, PowerPoint, CSV and PDF files created in chat by the backend document tools. Keeps every 0.10.11 feature. Web only; no native APK or Windows installer is published."
+            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.13 one chat box and previews" --notes "Checked Dhanz 0.10.13 web build. One chat box for Chat, Photo, Video and Code: pick the mode above the message box; photo and video requests stay in the conversation with their generation card, and Code opens the coding workspace. Finished photos and videos have a Preview button that opens in the side panel like file previews. The chat history sidebar can be hidden and shown again, and the choice is remembered. Keeps every 0.10.12 feature. Web only; no native APK or Windows installer is published."
           fi
       - name: Publish latest web channel after the checked release assets
         if: steps.channel.outputs.promote == 'true'

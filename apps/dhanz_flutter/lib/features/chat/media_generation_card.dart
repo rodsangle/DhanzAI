@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
 import '../creative/studio_screen.dart';
+import 'chat_preview.dart';
 import '../creative/creative_defaults.dart';
 
 bool supportsVideoDuration(Map<String, dynamic> model, dynamic duration) {
@@ -310,18 +311,38 @@ class _MediaGenerationCardState extends ConsumerState<MediaGenerationCard> {
                 child: const Text('Cancel generation'),
               ),
             if (job?['has_media'] == true)
-              FilledButton.tonal(
-                onPressed: () => showDialog<void>(
-                  context: context,
-                  builder: (_) => Dialog(
-                    child: SizedBox(width: 900, height: 650, child: CreationPreview(job: job!)),
-                  ),
-                ),
-                child: const Text('Preview / download'),
+              ActionChip(
+                avatar: const Icon(Icons.visibility_outlined, size: 18),
+                label: const Text('Preview'),
+                tooltip: 'Preview and download this ${widget.action['kind'] == 'video' ? 'video' : 'image'}',
+                onPressed: () => openCreationPreview(context, job!),
               ),
           ],
         ),
       ),
     );
   }
+}
+
+/// Opens a finished photo or video like a file preview: in the chat's side panel when there is one,
+/// otherwise full size in a dialog.
+void openCreationPreview(BuildContext context, Map<String, dynamic> job) {
+  final panel = ChatPreviewScope.of(context);
+  final kind = job['kind'] == 'video' ? 'Video' : 'Image';
+  final prompt = '${job['prompt'] ?? ''}'.trim();
+  final title = prompt.isEmpty ? kind : '$kind · ${prompt.length > 40 ? '${prompt.substring(0, 40)}…' : prompt}';
+  if (panel != null) {
+    panel.open(ChatPreviewTarget(documentId: 'creation:${job['id']}', filename: title, creation: job));
+    return;
+  }
+  showDialog<void>(
+    context: context,
+    builder: (_) => Dialog(
+      child: SizedBox(
+        width: 900,
+        height: MediaQuery.sizeOf(context).height * 0.85,
+        child: CreationPreview(job: job),
+      ),
+    ),
+  );
 }

@@ -195,3 +195,27 @@ sudo python3 scripts/server/upgrade_models.py --apply --restart  # save and rest
 
 `--apply` saves a timestamped `.env.bak-*` backup first. To undo, copy the backup over `.env`
 and run the restart again. Video uses Runway `gen4.5` when `RUNWAY_API_KEY` is set.
+
+## GPT-5.5, 5.6 and 6.x support (AI engine update)
+
+Newer OpenAI models refuse two things DHANZ normally sends: a temperature other than 1, and
+function tools on `/v1/chat/completions` unless `reasoning_effort` is `none`. The OpenAI adapter
+now learns this from the provider's own HTTP 400 reply and sends the request again with the
+setting changed (once per model per process; nothing is shown to the user). Separately, when a
+model refuses a request before answering (HTTP 400/404/422), DHANZ tries the next model instead
+of failing the chat.
+
+The live API image predates this, so install it with the deploy script (it only replaces three
+AI engine files inside the running image and keeps a rollback image):
+
+```bash
+cd ~/DhanzAI && git pull
+python3 scripts/server/deploy_ai_engine.py            # check: every file must be a repository version
+python3 scripts/server/deploy_ai_engine.py --apply    # build, test, switch, health check
+sudo python3 scripts/server/upgrade_models.py         # report: now tests GPT-6 the same way
+```
+
+`--apply` prints the rollback command
+(`python3 scripts/server/deploy_ai_engine.py --rollback dhanz-api:rollback-<time>`).
+A future `docker compose pull` of the published image replaces this local image; re-run the
+script afterwards if the published image is older.

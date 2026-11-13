@@ -195,6 +195,7 @@ class Orchestrator:
             candidates = candidates[:1]
 
         errors: list[str] = []
+        statuses: set[int | None] = set()
         for info in candidates:
             provider = self._providers[info.provider]
             produced_output = False
@@ -240,10 +241,16 @@ class Orchestrator:
             except ProviderError as exc:
                 log.warning("Provider %s failed (model %s): %s", info.provider, info.model, exc)
                 # Once text has been streamed (or a tool has run) we cannot transparently switch models.
-                if produced_output or not exc.retryable:
+                # A request this model refused (HTTP 400/404/422) produced nothing, so try the next one.
+                if produced_output or not (exc.retryable or exc.model_rejected):
                     raise
                 errors.append(str(exc))
-        raise ProviderError("orchestrator", "All candidate models failed: " + " | ".join(errors), retryable=False)
+                statuses.add(exc.status_code)
+        # Keep the provider's status when every candidate failed the same way, for a precise user message.
+        status = statuses.pop() if len(statuses) == 1 else None
+        raise ProviderError(
+            "orchestrator", "All candidate models failed: " + " | ".join(errors), status_code=status, retryable=False
+        )
 
 
 def _add(total: int | None, value: int | None) -> int | None:

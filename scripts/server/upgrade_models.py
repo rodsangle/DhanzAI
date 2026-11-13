@@ -212,7 +212,34 @@ def _choose(
 _DEFAULT_TEMPERATURE_ONLY = "Only the default (1) value is supported"
 
 
-def openai_chat(env: dict[str, str], call: Http) -> list[Result] | None:
+def server_adapts_settings() -> bool:
+    """True when the running API's OpenAI adapter adjusts refused settings itself (GPT-5.5/5.6/6.x support)."""
+    try:
+        return _server_adapts_settings()
+    except OSError:  # no docker on this machine
+        return False
+
+
+def _server_adapts_settings() -> bool:
+    names = subprocess.run(  # noqa: S603 - fixed argv
+        ["docker", "ps", "--filter", "label=com.docker.compose.service=api", "--format", "{{.Names}}"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.split()
+    if not names:
+        return False
+    check = "import dhanz_ai.providers.openai as m; print(getattr(m, 'ADAPTIVE_PARAMS', False))"
+    out = subprocess.run(  # noqa: S603 - fixed argv
+        ["docker", "exec", names[0], "python", "-c", check],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    return out == "True"
+
+
+def openai_chat(env: dict[str, str], call: Http, adaptive: bool = False) -> list[Result] | None:
     key = env.get("OPENAI_API_KEY")
     if not key:
         return None
@@ -228,47 +255,47 @@ def openai_chat(env: dict[str, str], call: Http) -> list[Result] | None:
         for m in _ids(payload)
         if re.fullmatch(r"gpt-\d+(\.\d+)?(-[a-z]+)?", m) and not _NOT_CHAT.search(m) and not m.endswith("-pro")
     ]
-    cache: dict[tuple[str, float], bool] = {}
-
-    def works_at(temperature: float, reasons: dict[str, str]) -> Callable[[str], bool]:
-        def works(model: str) -> bool:
-            if (model, temperature) not in cache:
-                body = {
-                    "model": model,
-                    "messages": [{"role": "user", "content": PROBE_PROMPT}],
-                    "stream": True,
-                    "stream_options": {"include_usage": True},
-                    "temperature": temperature,
-                    "max_completion_tokens": 256,
-                    # Real chats always offer the assistant tools; some models reject tools on this API.
-                    "tools": [PROBE_TOOL],
-                }
-                status, payload = call("POST", f"{base}/chat/completions", auth, body)
-                cache[(model, temperature)] = status == 200
-                if status != 200:
-                    reasons[model] = _reason(status, payload)
-            return cache[(model, temperature)]
-
-        return works
-
     temperature = float(env.get("DEFAULT_TEMPERATURE") or 0.7)
+    cache: dict[str, bool] = {}
     reasons: dict[str, str] = {}
-    result = _choose("OPENAI_MODELS", current, newest(listed), works_at(temperature, reasons), reasons)
-    # Models that accept only temperature 1 stay skipped: some features (PC control, document
-    # checks) deliberately ask for temperature 0, and a rejected request is not retried elsewhere.
-    for i, note in enumerate(result.notes):
-        if _DEFAULT_TEMPERATURE_ONLY in note:
-            result.notes[i] = note + " [needs temperature 1, which other DHANZ features cannot use]"
-    return [result]
-    # Newer models that only accept temperature 1: test everything again at 1 and switch only when
-    # that gives a newer model while every currently working model still answers.
-    alt_reasons: dict[str, str] = {}
-    alt = _choose("OPENAI_MODELS", current, newest(listed), works_at(1.0, alt_reasons), alt_reasons)
-    proposed, alternative = csv(result.proposed), csv(alt.proposed)
-    kept = [m for m in proposed if m in current]
-    if alternative and is_newer(alternative[0], proposed) and all(m in alternative for m in kept):
-        note = f"needed by {alternative[0]}; every listed model answered at 1 (was {temperature:g})"
-        return [alt, Result("DEFAULT_TEMPERATURE", f"{temperature:g}", "1", [note])]
+
+    def works(model: str) -> bool:
+        if model in cache:
+            return cache[model]
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": PROBE_PROMPT}],
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "temperature": temperature,
+            "max_completion_tokens": 256,
+            # Real chats always offer the assistant tools; some models reject tools on this API.
+            "tools": [PROBE_TOOL],
+        }
+        # An adaptive server drops a refused temperature and sends reasoning_effort "none" with tools;
+        # test the same way. Otherwise one refusal means the model cannot be used.
+        for _ in range(3):
+            status, payload = call("POST", f"{base}/chat/completions", auth, body)
+            if status == 200:
+                break
+            why = _reason(status, payload)
+            low = why.lower()
+            if adaptive and status == 400 and "temperature" in low and "temperature" in body:
+                body.pop("temperature")
+            elif adaptive and status == 400 and "reasoning_effort" in low and "'none'" in low:
+                body["reasoning_effort"] = "none"
+            else:
+                break
+        cache[model] = status == 200
+        if status != 200:
+            reasons[model] = why
+        return cache[model]
+
+    result = _choose("OPENAI_MODELS", current, newest(listed), works, reasons)
+    if not adaptive:
+        for i, note in enumerate(result.notes):
+            if _DEFAULT_TEMPERATURE_ONLY in note or "reasoning_effort" in note:
+                result.notes[i] = note + " [the server needs the GPT-6 support update: deploy_ai_engine.py]"
     return [result]
 
 
@@ -408,9 +435,10 @@ def restart(env_path: Path) -> int:
 # ---------------------------------------------------------------------------------------------
 
 
-def plan(env: dict[str, str], call: Http = http) -> list[Result]:
+def plan(env: dict[str, str], call: Http = http, adaptive: bool = False) -> list[Result]:
     results = []
-    for check in (openai_chat, anthropic_chat, gemini_chat, image_model):
+    checks = (lambda e, c: openai_chat(e, c, adaptive), anthropic_chat, gemini_chat, image_model)
+    for check in checks:
         result = check(env, call)
         if isinstance(result, list):
             results.extend(result)
@@ -430,7 +458,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     env = read_env(args.env)
     print("Checking providers with keys in", args.env, "(keys are not shown)\n")
-    results = plan(env)
+    adaptive = server_adapts_settings()
+    if adaptive:
+        print("The API adapts per-model settings (GPT-5.5/5.6/6.x supported); testing models the same way.\n")
+    results = plan(env, adaptive=adaptive)
     if not results:
         print("No provider keys found in .env, so there is nothing to upgrade.")
     for result in results:
