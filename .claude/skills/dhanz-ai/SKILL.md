@@ -125,6 +125,10 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 
 - `scripts/release/package_web_updates.py` reads WEB_VERSION/WEB_BUILD/RELEASE_ID from the workflow;
   it once hard-coded 0.10.11+52 and failed the 0.10.12 publish. Run it locally before a release.
+- OpenAI GPT-5.5/5.6/6.x reject function tools on /v1/chat/completions unless reasoning_effort is
+  'none', and accept only temperature 1. The live server (2026-11-13) runs gpt-5.4, gpt-5.4-mini,
+  gpt-4.1-mini, gpt-4.1 at temperature 0.7 and gpt-image-2.6-sunburst. A 400 from a provider is not
+  retried on another model, so one bad model breaks every chat. Test models with tools before switching.
 - `tray_manager` must stay on 0.5.x (0.6+ needs native libraries that break `flutter test`);
   Dependabot ignores `>=0.6.0`.
 - Pin third-party GitHub Actions to commit SHAs (CodeQL flags tags).
@@ -157,3 +161,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
   screens (web 0.10.12+53); web-updates workflow made manual.
 - 2026-11-13 — Server model-upgrade script; ROG test stage for Wan 2.2 TI2V-5B + Z-Image-Turbo.
 - 2026-11-13 — Web publish fix: packager takes its version from the workflow (0.10.12 run failed on it).
+- 2026-11-13 — Live: web 0.10.12 installed; chat on gpt-5.4 family, images gpt-image-2.6-sunburst (GPT-6 needs a backend change).

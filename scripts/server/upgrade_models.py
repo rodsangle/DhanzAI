@@ -254,9 +254,12 @@ def openai_chat(env: dict[str, str], call: Http) -> list[Result] | None:
     temperature = float(env.get("DEFAULT_TEMPERATURE") or 0.7)
     reasons: dict[str, str] = {}
     result = _choose("OPENAI_MODELS", current, newest(listed), works_at(temperature, reasons), reasons)
-    needs_default = any(_DEFAULT_TEMPERATURE_ONLY in why for why in reasons.values())
-    if not needs_default or temperature == 1.0:
-        return [result]
+    # Models that accept only temperature 1 stay skipped: some features (PC control, document
+    # checks) deliberately ask for temperature 0, and a rejected request is not retried elsewhere.
+    for i, note in enumerate(result.notes):
+        if _DEFAULT_TEMPERATURE_ONLY in note:
+            result.notes[i] = note + " [needs temperature 1, which other DHANZ features cannot use]"
+    return [result]
     # Newer models that only accept temperature 1: test everything again at 1 and switch only when
     # that gives a newer model while every currently working model still answers.
     alt_reasons: dict[str, str] = {}

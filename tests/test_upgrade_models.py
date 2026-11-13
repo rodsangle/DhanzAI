@@ -123,12 +123,13 @@ LIVE_IDS = [
 LIVE_CURRENT = "gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-4.1-mini,gpt-4.1"
 
 
-def test_temperature_one_models_switch_default_temperature_and_older_models_are_not_added():
+def test_temperature_one_models_are_skipped_and_older_models_are_not_added():
     fake = LiveLike(LIVE_IDS)
-    chat, temperature = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake)
-    assert chat.proposed == "gpt-6.1-sol,gpt-6.1-terra,gpt-6-astra," + LIVE_CURRENT
-    assert (temperature.setting, temperature.current, temperature.proposed) == ("DEFAULT_TEMPERATURE", "0.7", "1")
-    assert not {"gpt-5.2", "gpt-5.1", "gpt-5.5-pro"} & set(chat.proposed.split(","))
+    results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake)
+    assert [r.setting for r in results] == ["OPENAI_MODELS"]  # no DEFAULT_TEMPERATURE change
+    chat = results[0]
+    assert not chat.changed  # GPT-6/5.5 need temperature 1; 5.2/5.1 are older than 5.4
+    assert any("needs temperature 1" in n for n in chat.notes)
     probed_pro = [body for _, _, body in fake.calls if body and body["model"].endswith("-pro")]
     assert probed_pro == []
 
