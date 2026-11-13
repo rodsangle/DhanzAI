@@ -1,0 +1,51 @@
+feature,area,priority,original,clone,notes
+Streamed chat replies with stop,chat,must,yes,yes,SSE; stopped replies saved
+Edit a sent message and resend,chat,must,yes,yes,
+Regenerate a reply,chat,must,yes,yes,
+Model picker with automatic choice,chat,must,yes,yes,Auto routing plus named models
+Markdown and code blocks with copy,chat,must,yes,yes,
+Conversation history with search rename pin delete,history,must,yes,yes,
+Collapsible sidebar,history,must,yes,yes,Added in web 0.10.13 (PR #59)
+Sign up with email Google Apple,account,must,yes,partial,Google on Android/iOS and Apple on iOS only; not web/desktop
+File uploads and questions about documents,files,must,yes,yes,PDF Office CSV text code images; OCR optional
+Images understood in chat (vision),files,must,yes,yes,
+Web search with numbered citations,search,must,yes,yes,Needs a search provider key
+Projects with files and instructions,projects,must,yes,yes,
+Long-term memory with manage screen,memory,must,yes,yes,Opt-in in DHANZ
+Temporary chat (no memory or history),privacy,must,yes,yes,Deleted after 24 h
+Image creation in chat,creation,must,yes,partial,Creative Studio; live verification pending
+Voice conversation,voice,must,yes,yes,Server speech-to-text plus device text-to-speech; not real-time speech-to-speech
+Read reply aloud,voice,must,yes,yes,
+Export all data and delete account,privacy,must,yes,yes,
+Mobile and desktop apps,platform,must,yes,partial,Built for all platforms; store listings not done
+Plans and payment,billing,must,yes,no,No plans quotas or payment gateway yet
+Branch a conversation from any reply,chat,should,yes,no,Needs a message tree or copy-to-new-chat
+Share a chat by public link (revocable),sharing,should,yes,no,DHANZ shares only a reply's text
+Search across chats from a shortcut,history,should,yes,partial,Sidebar search exists; no keyboard shortcut dialog
+Custom instructions and personality,personalisation,should,yes,partial,User preferences reach the system prompt; no personality presets
+Memory summary and project-only memory,memory,should,yes,no,
+Deep research reports,search,should,yes,partial,Multi-source research exists; no long-running plan and progress view
+Scheduled recurring tasks,automation,should,yes,partial,Reminders and desktop action approvals exist; no recurring prompt runner
+Archive chats,history,should,yes,no,
+Image editing by chatting,creation,should,yes,partial,Reference editing in Creative Studio
+Library of created images,creation,should,yes,yes,Creative Studio gallery
+Canvas side editor for documents and code,editing,should,yes,partial,Coding workspace and file previews; no inline document editor
+Coding agent,coding,should,yes,yes,Coding workspace (Codex)
+Connectors to Drive Outlook Notion,integrations,should,yes,partial,GitHub and cloud integrations; not Google or Microsoft accounts
+Video creation,creation,should,unclear,partial,Sources disagree on whether ChatGPT still offers Sora video; DHANZ has Runway gen4.5 when a key is set
+Like/dislike feedback on replies,chat,should,yes,yes,Response rating
+Shared-link management in settings,sharing,should,yes,no,Depends on public share links
+Custom assistants with instructions and files,assistants,could,yes,partial,Projects cover instructions and files; no shareable assistant
+Agent that uses a browser and apps with approvals,agent,could,yes,partial,Desktop actions with approvals; no hosted browser
+Group chats,collaboration,could,ended,no,Creation of new group chats ended 9 July 2026 per OpenAI release notes
+Study or tutor mode,personalisation,could,yes,no,Unconfirmed in sources
+Pinned projects in sidebar,history,could,yes,partial,Chats can be pinned
+Project sharing,projects,could,yes,no,
+Keyboard shortcuts sheet,ui,could,yes,no,
+In-chat ads on free plan,billing,could,yes,skip,Not wanted for DHANZ
+Real-time speech-to-speech voice,voice,could,yes,no,Needs a realtime audio API
+Business workspace with admin and SSO,teams,could,yes,partial,Admin screen and roles; no SSO or SCIM
+GPT store of third-party assistants,assistants,could,yes,skip,Their creators' network and content
+Partner apps inside chat (Canva Spotify Instacart),integrations,could,yes,skip,Partner deals
+Shopping results,commerce,could,yes,skip,Merchant data and partnerships
+OpenAI's own models,models,must,yes,skip,DHANZ uses providers' public APIs including OpenAI's
