@@ -415,3 +415,6 @@ __all__ = [
     "User",
     "VerificationCode",
 ]
+
+# Self-contained conversation features (branch, archive, share); imported so Alembic sees them.
+from app.conversation_extras.models import ConversationArchive, SharedConversation  # noqa: E402,F401

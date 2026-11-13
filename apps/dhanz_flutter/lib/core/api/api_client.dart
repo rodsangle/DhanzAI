@@ -728,6 +728,49 @@ class ApiClient {
 
   Future<void> deleteConversation(String id) => _json('DELETE', '/conversations/$id');
 
+  // Branch, archive and share (server package "conversation-extras"; older servers answer 404).
+
+  /// FastAPI answers an unknown route with "Not Found"; say what is actually missing.
+  Future<Object?> _extras(String method, String path, {Object? body, bool auth = true}) async {
+    try {
+      return await _json(method, path, body: body, auth: auth);
+    } on ApiException catch (e) {
+      if (e.statusCode == 404 && e.message == 'Not Found') {
+        throw ApiException(404, 'This needs the latest DHANZ server update (conversation extras).');
+      }
+      rethrow;
+    }
+  }
+
+  /// New chat with this chat's messages up to and including [messageId]; returns its id.
+  Future<String> branchConversation(String id, String messageId) async {
+    final body = await _extras('POST', '/conversation-extras/$id/branch', body: {'message_id': messageId});
+    return (body as Map<String, dynamic>)['id'] as String;
+  }
+
+  Future<List<Map<String, dynamic>>> archivedConversations() async =>
+      ((await _extras('GET', '/conversation-extras/archived')) as List).cast<Map<String, dynamic>>();
+
+  Future<void> archiveConversation(String id) => _extras('PUT', '/conversation-extras/$id/archive');
+
+  Future<void> unarchiveConversation(String id) => _extras('DELETE', '/conversation-extras/$id/archive');
+
+  /// Freezes the chat as it is now behind a new link: {token, title, created_at, message_count}.
+  Future<Map<String, dynamic>> shareConversation(String id) async =>
+      (await _extras('POST', '/conversation-extras/$id/share')) as Map<String, dynamic>;
+
+  Future<List<Map<String, dynamic>>> sharedLinks() async =>
+      ((await _extras('GET', '/conversation-extras/shares')) as List).cast<Map<String, dynamic>>();
+
+  Future<void> revokeSharedLink(String token) => _extras('DELETE', '/conversation-extras/shares/$token');
+
+  /// A shared chat, read without signing in: {title, shared_at, messages}.
+  Future<Map<String, dynamic>> sharedConversation(String token) async =>
+      (await _extras('GET', '/shared/${Uri.encodeComponent(token)}', auth: false)) as Map<String, dynamic>;
+
+  /// The public web address of a shared chat (the web app uses # routes under /app/).
+  String sharedConversationUrl(String token) => '${baseUrl.replaceAll(RegExp(r'/+$'), '')}/app/#/share/$token';
+
   Future<String> exportConversation(String id, {String format = 'markdown'}) async =>
       utf8.decode(await exportConversationBytes(id, format: format));
 

@@ -19,6 +19,7 @@ class MessageTile extends StatelessWidget {
     required this.busy,
     required this.onRegenerate,
     required this.onEdit,
+    this.onBranch,
     this.researchStatus,
   });
 
@@ -27,6 +28,9 @@ class MessageTile extends StatelessWidget {
   final bool busy;
   final VoidCallback onRegenerate;
   final ValueChanged<ChatMessage> onEdit;
+
+  /// Start a new chat from this reply (null hides the action, e.g. in temporary chats).
+  final ValueChanged<ChatMessage>? onBranch;
 
   /// Live research progress shown before the reply text arrives.
   final String? researchStatus;
@@ -185,6 +189,12 @@ class MessageTile extends StatelessWidget {
                     if (!message.id.startsWith('pending')) ResponseRating(messageId: message.id),
                     if (isLast && !busy)
                       _ActionIcon(icon: Icons.refresh_rounded, tooltip: 'Regenerate', onPressed: onRegenerate),
+                    if (onBranch != null && !busy && !message.id.startsWith('pending'))
+                      _ActionIcon(
+                        icon: Icons.call_split_rounded,
+                        tooltip: 'Branch in new chat',
+                        onPressed: () => onBranch!(message),
+                      ),
                     if (message.model != null) ...[
                       const SizedBox(width: 6),
                       ConstrainedBox(

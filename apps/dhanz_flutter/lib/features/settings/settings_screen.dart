@@ -322,6 +322,20 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
               ListTile(
+                leading: const Icon(Icons.archive_outlined),
+                title: const Text('Archived chats'),
+                subtitle: const Text('Chats you archived from the history; restore them here'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/archived'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.link),
+                title: const Text('Shared links'),
+                subtitle: const Text('Public links to your chats; revoke them here'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.go('/shared-links'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.download_outlined),
                 title: const Text('Export my data'),
                 subtitle: const Text('Your profile and every conversation as JSON'),

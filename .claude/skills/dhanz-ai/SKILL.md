@@ -164,3 +164,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-13 — Web publish fix: packager takes its version from the workflow (0.10.12 run failed on it).
 - 2026-11-13 — Live: web 0.10.12 installed; chat on gpt-5.4 family, images gpt-image-2.6-sunburst (GPT-6 needs a backend change).
 - 2026-11-13 — GPT-6 support: adaptive OpenAI settings, fallback on refused requests, deploy_ai_engine.py (rehearsed).
+- 2026-11-13 — ChatGPT parity round 1 (replica/): branch, archive, share links; app/conversation_extras + deploy_conversation_extras.py (rehearsed); web 0.10.14.

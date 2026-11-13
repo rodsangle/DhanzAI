@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Branch, archive and share chats (web 0.10.14+55, ChatGPT parity round 1)
+
+- **Branch in new chat** on any finished reply: a new chat with the messages up to that reply.
+- **Archive** from a chat's menu hides it from the history; Settings → Archived chats restores it.
+- **Share chat** creates a revocable public read-only link to a frozen copy of the chat (no
+  attachments, tool details or the owner's name); Settings → Shared links lists and revokes them.
+- Backend package `app/conversation_extras` with its own tables (migration 0009); installed on the
+  live server by `scripts/server/deploy_conversation_extras.py` (rehearsed: check, apply, routes,
+  repeat, rollback).
+- `replica/`: ChatGPT recon map, feature matrix and build plan.
+
 ### One chat box and previews (web 0.10.13+54)
 
 - Chat · Photo · Video · Code selector in the message box. Photo and video requests are sent into the

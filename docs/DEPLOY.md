@@ -219,3 +219,20 @@ sudo python3 scripts/server/upgrade_models.py         # report: now tests GPT-6 
 (`python3 scripts/server/deploy_ai_engine.py --rollback dhanz-api:rollback-<time>`).
 A future `docker compose pull` of the published image replaces this local image; re-run the
 script afterwards if the published image is older.
+
+## Branch, archive and share links (conversation extras)
+
+The live API image has patched core files, so these features ship as a self-contained package
+(`backend/app/conversation_extras`) with two one-line hooks and two new tables. The script checks
+the hooks can be placed, builds an image from the running one, tests it with the API's own
+settings, creates `conversation_archives` and `shared_conversations` if missing (existing tables are
+not changed), keeps a rollback image, switches the API and checks `/health`:
+
+```bash
+cd ~/DhanzAI && git pull
+python3 scripts/server/deploy_conversation_extras.py            # check
+python3 scripts/server/deploy_conversation_extras.py --apply    # install (prints a rollback command)
+```
+
+Shared chats open at `https://<your domain>/app/#/share/<token>` without signing in. Deleting a
+chat or an account deletes its links (foreign-key cascade).

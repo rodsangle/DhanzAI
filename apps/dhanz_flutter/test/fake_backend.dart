@@ -24,6 +24,11 @@ class FakeBackend {
   String transcript = 'Hey Dhanz, what is the capital of France?';
   final chatBodies = <Map<String, dynamic>>[];
 
+  /// Branch, archive and share (server package "conversation-extras"). False = an older server.
+  bool conversationExtras = true;
+  final archived = <String, String>{}; // conversation id -> archived_at
+  final shares = <String, Map<String, dynamic>>{}; // token -> share
+
   /// Simulates the connection dropping right after the reply started: the reply stays "streaming"
   /// on the server until the test finishes it.
   bool dropAfterMeta = false;
@@ -220,6 +225,14 @@ class FakeBackend {
     }
     if (path == '/app/updates') return json({...updateInfo, 'current_version': req.url.queryParameters['version']});
 
+    // Public shared-chat page: no sign-in, like the real server.
+    final publicShare = RegExp(r'^/shared/([^/]+)$').firstMatch(path)?.group(1);
+    if (publicShare != null && req.method == 'GET') {
+      if (!conversationExtras) return json({'detail': 'Not Found'}, 404);
+      final share = shares[publicShare];
+      if (share == null) return json({'detail': 'This shared chat does not exist or was removed.'}, 404);
+      return json({'title': share['title'], 'shared_at': share['created_at'], 'messages': share['messages']});
+    }
     if (req.headers['Authorization'] != 'Bearer $validAccess') {
       return json({'detail': 'Not authenticated'}, 401);
     }
@@ -459,6 +472,65 @@ class FakeBackend {
     if (path == '/devices/unregister') {
       devices.remove(body['token']);
       return json(null, 204);
+    }
+    if (path.startsWith('/conversation-extras/') || path.startsWith('/shared/')) {
+      if (!conversationExtras) return json({'detail': 'Not Found'}, 404);
+      final now = DateTime.now().toUtc().toIso8601String();
+      if (path == '/conversation-extras/archived') {
+        return json([
+          for (final e in archived.entries)
+            {'id': e.key, 'title': conversations[e.key]?['title'] ?? 'Chat', 'archived_at': e.value},
+        ]);
+      }
+      if (path == '/conversation-extras/shares') {
+        return json([
+          for (final s in shares.values)
+            {'token': s['token'], 'title': s['title'], 'created_at': s['created_at'], 'message_count': s['count']},
+        ]);
+      }
+      final shareToken = RegExp(r'^/(?:conversation-extras/shares|shared)/([^/]+)$').firstMatch(path)?.group(1);
+      if (shareToken != null) {
+        final share = shares[shareToken];
+        if (share == null) return json({'detail': 'This shared chat does not exist or was removed.'}, 404);
+        if (req.method == 'DELETE') {
+          shares.remove(shareToken);
+          return json(null, 204);
+        }
+        return json({'title': share['title'], 'shared_at': share['created_at'], 'messages': share['messages']});
+      }
+      final extra = RegExp(r'^/conversation-extras/([^/]+)/(branch|archive|share)$').firstMatch(path);
+      final c = extra == null ? null : conversations[extra.group(1)];
+      if (c == null) return json({'detail': 'Conversation not found'}, 404);
+      final messages = (c['messages'] as List<Object>).cast<Map<String, dynamic>>();
+      switch (extra!.group(2)) {
+        case 'archive':
+          if (req.method == 'PUT') archived[c['id'] as String] = now;
+          if (req.method == 'DELETE') archived.remove(c['id']);
+          return json(null, 204);
+        case 'branch':
+          final upTo = messages.indexWhere((m) => m['id'] == body['message_id']);
+          if (upTo < 0) return json({'detail': 'Message not found'}, 404);
+          final copy = _conversation()
+            ..['title'] = 'Branch · ${c['title']}'
+            ..['messages'] = <Object>[
+              for (final m in messages.take(upTo + 1)) {...m, 'id': _id()},
+            ];
+          conversations[copy['id'] as String] = copy;
+          return json({'id': copy['id'], 'title': copy['title']}, 201);
+        default:
+          final token = 'tok${_id().replaceAll('-', '')}';
+          shares[token] = {
+            'token': token,
+            'title': c['title'],
+            'created_at': now,
+            'count': messages.length,
+            'messages': [
+              for (final m in messages)
+                {'role': m['role'], 'content': m['content'], 'model': m['model'], 'sources': []},
+            ],
+          };
+          return json({'token': token, 'title': c['title'], 'created_at': now, 'message_count': messages.length}, 201);
+      }
     }
     final match = RegExp(r'^/conversations/([^/]+)(/messages|/regenerate|/stop)?$').firstMatch(path);
     if (match != null) {
