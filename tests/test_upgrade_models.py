@@ -144,3 +144,19 @@ def test_temperature_stays_when_already_one():
     results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT, "DEFAULT_TEMPERATURE": "1"}, fake)
     assert [r.setting for r in results] == ["OPENAI_MODELS"]
     assert results[0].proposed.startswith("gpt-6.1-sol,gpt-6.1-terra,gpt-6-astra,")
+
+
+def test_models_that_reject_tools_are_not_chosen():
+    class ToolRejecting(LiveLike):
+        def __call__(self, method, url, headers, body):
+            if body and body["model"].startswith("gpt-6") and body.get("tools"):
+                msg = "Function tools with reasoning_effort are not supported for this model in /v1/chat/completions."
+                return 400, {"error": {"message": msg}}
+            return super().__call__(method, url, headers, body)
+
+    fake = ToolRejecting(LIVE_IDS)
+    results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake)
+    chat = results[0]
+    assert not any(m.startswith("gpt-6") for m in chat.proposed.split(","))
+    assert any("Function tools" in n for n in chat.notes)
+    assert all(body.get("tools") for _, url, body in fake.calls if body)

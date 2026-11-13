@@ -36,6 +36,15 @@ ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV = ROOT / "deploy" / ".env"
 MAX_NEW_CHAT_MODELS = 3
 PROBE_PROMPT = "Reply with the single word OK."
+# A minimal function tool, so the test request has the same shape as a real chat with assistant tools.
+PROBE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_time",
+        "description": "Current time. Not needed for this reply.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+}
 
 # Model ids that are not general chat models even though they share a family prefix.
 _NOT_CHAT = re.compile(
@@ -231,6 +240,8 @@ def openai_chat(env: dict[str, str], call: Http) -> list[Result] | None:
                     "stream_options": {"include_usage": True},
                     "temperature": temperature,
                     "max_completion_tokens": 256,
+                    # Real chats always offer the assistant tools; some models reject tools on this API.
+                    "tools": [PROBE_TOOL],
                 }
                 status, payload = call("POST", f"{base}/chat/completions", auth, body)
                 cache[(model, temperature)] = status == 200
