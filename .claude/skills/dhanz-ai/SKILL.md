@@ -45,6 +45,9 @@ name `dhanzai`).
   the three themes (`lib/core/theme.dart`), public-account screens (two-step shown only when the
   user JSON contains `mfa_enabled`), and the old app's tests on `test/fake_backend.dart`.
 - Not ported from the old app: its creative-activity indicator ("N creations in progress").
+- Models: `scripts/server/upgrade_models.py` (run on AWS) switches to the newest chat/image models the
+  server's keys answer with. ROG (Ryzen AI Max+ 395, 128 GB, 64 GB to GPU, Ubuntu 24.04 WSL2):
+  `setup_next_models.py` tests Wan 2.2 TI2V-5B and Z-Image-Turbo; not yet wired to the worker.
 - CI fails properly now: the Flutter job runs bash with pipefail (it used to hide failing analyze/test
   behind `| tee`).
 - Updater fingerprints use `ast.dump`, whose output differs between Python versions: run
@@ -150,3 +153,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
   (its `theme_style` choice migrates), seven old client snapshots removed, CI pipefail and lint fixed.
 - 2026-11-12 — One Flutter app: live client moved to `apps/dhanz_flutter` with themes and account
   screens (web 0.10.12+53); web-updates workflow made manual.
+- 2026-11-13 — Server model-upgrade script; ROG test stage for Wan 2.2 TI2V-5B + Z-Image-Turbo.
