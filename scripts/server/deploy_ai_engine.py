@@ -95,6 +95,11 @@ def package_dir(container: str) -> str:
     return output(docker("exec", container, "python", "-c", code)).strip()
 
 
+def normalized(data: bytes) -> bytes:
+    """Ignore Windows line endings: a file installed from a CRLF checkout is the same code."""
+    return data.replace(b"\r\n", b"\n")
+
+
 def repo_versions(relative: str) -> set[str]:
     """SHA-256 of every committed version of ai_engine/dhanz_ai/<relative>."""
     path = "ai_engine/dhanz_ai/" + relative
@@ -107,7 +112,7 @@ def repo_versions(relative: str) -> set[str]:
             check=False,
         )
         if blob.returncode == 0:
-            digests.add(hashlib.sha256(blob.stdout).hexdigest())
+            digests.add(hashlib.sha256(normalized(blob.stdout)).hexdigest())
     return digests
 
 
@@ -118,7 +123,8 @@ def plan(container: str, pkg: str) -> dict[str, str]:
         live = subprocess.run(  # noqa: S603 - fixed argv
             docker("exec", container, "cat", f"{pkg}/{relative}"), capture_output=True, check=True
         ).stdout
-        new = (ROOT / "ai_engine/dhanz_ai" / relative).read_bytes()
+        live = normalized(live)
+        new = normalized((ROOT / "ai_engine/dhanz_ai" / relative).read_bytes())
         digest = hashlib.sha256(live).hexdigest()
         if live == new:
             states[relative] = "current"
