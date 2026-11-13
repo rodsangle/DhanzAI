@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import '../../core/platform/app_version.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/platform/push.dart';
 import '../../core/platform/updates.dart';
+import '../../core/platform/web_updates.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
@@ -26,6 +28,7 @@ class SettingsScreen extends ConsumerWidget {
     'best': ('Best quality', 'Prefer the most capable models'),
     'cheapest': ('Lowest cost', 'Prefer fast, inexpensive models'),
     'local_first': ('Local first', 'Prefer models running on your own Ollama server'),
+    'local_only': ('Local chat and media', 'No cloud AI fallback; web and app connections have separate permissions'),
   };
 
   Future<void> _guard(BuildContext context, Future<void> Function() action) async {
@@ -185,6 +188,30 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               section('AI model'),
               ListTile(
+                leading: const Icon(Icons.hub_outlined),
+                title: const Text('Integrations'),
+                subtitle: const Text('Microsoft 365, Google Drive/Sheets, Outlook and Gmail'),
+                onTap: () => context.go('/integrations'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.extension_outlined),
+                title: const Text('Capabilities and skills'),
+                subtitle: const Text('Available tools, connections and reusable task instructions'),
+                onTap: () => context.go('/capabilities'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.verified_user_outlined),
+                title: const Text('Actions and PC control'),
+                subtitle: const Text('Review GitHub writes and approve actions on your Windows PC'),
+                onTap: () => context.go('/actions'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.code),
+                title: const Text('GitHub repositories'),
+                subtitle: const Text('Connect selected repositories for code explanations and reviews'),
+                onTap: () => context.go('/github'),
+              ),
+              ListTile(
                 leading: const Icon(Icons.computer),
                 title: const Text('Local / Cloud / Hybrid chat'),
                 subtitle: const Text('Connect to Ollama on this PC · Qwen3 8B or 14B'),
@@ -313,7 +340,7 @@ class SettingsScreen extends ConsumerWidget {
                 subtitle: Text(
                   user.mfaEnabled
                       ? 'Two-step verification is on · password, linked accounts and devices'
-                      : 'Password, two-step verification, linked accounts and devices',
+                      : 'Password, linked accounts and signed-in devices',
                 ),
                 onTap: () => context.go('/security'),
               ),
@@ -329,24 +356,34 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('Server'),
                 subtitle: Text(ref.watch(apiClientProvider).baseUrl),
               ),
-              ListTile(
-                leading: const Icon(Icons.system_update_alt),
-                title: Text(version == null ? 'App version' : 'App version $version'),
-                subtitle: Text(
-                  update.info == null
-                      ? 'Checks for updates when the app starts'
-                      : update.info!.updateAvailable
-                      ? 'Version ${update.info!.latestVersion} is available'
-                      : 'You have the latest version',
+              if (kIsWeb)
+                const WebUpdateTile()
+              else
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt),
+                  title: Text(version == null ? 'App version' : 'App version $version'),
+                  subtitle: Text(
+                    update.error ??
+                        (update.progress != null
+                            ? 'Downloading update…'
+                            : update.downloadedPath != null
+                            ? 'Update downloaded. Ready to install.'
+                            : update.info == null
+                            ? 'Checks GitHub at startup and every 6 hours; downloads Windows updates automatically'
+                            : update.info!.updateAvailable
+                            ? 'Version ${update.info!.latestVersion} is available'
+                            : 'You have the latest version'),
+                  ),
+                  trailing: update.info?.updateAvailable ?? false
+                      ? FilledButton(
+                          onPressed: update.progress != null
+                              ? null
+                              : ref.read(updateControllerProvider.notifier).install,
+                          child: Text(update.downloadedPath != null ? 'Install update' : 'Update'),
+                        )
+                      : null,
+                  onTap: ref.read(updateControllerProvider.notifier).check,
                 ),
-                trailing: update.info?.updateAvailable ?? false
-                    ? FilledButton(
-                        onPressed: ref.read(updateControllerProvider.notifier).install,
-                        child: const Text('Update'),
-                      )
-                    : null,
-                onTap: ref.read(updateControllerProvider.notifier).check,
-              ),
               ListTile(
                 leading: const Icon(Icons.logout),
                 title: const Text('Sign out'),

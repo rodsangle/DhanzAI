@@ -150,17 +150,19 @@ class SecurityScreen extends ConsumerWidget {
                   onTap: () => context.go('/verify-email'),
                 ),
               if (user != null) ...[
-                SwitchListTile(
-                  secondary: const Icon(Icons.verified_user_outlined),
-                  title: const Text('Two-step verification'),
-                  subtitle: Text(
-                    user.mfaEnabled
-                        ? 'On: signing in also needs a code from your authenticator app'
-                        : 'Protect your account with a code from an authenticator app',
+                // Hidden on servers without two-step verification (they do not report it).
+                if (user.mfaSupported)
+                  SwitchListTile(
+                    secondary: const Icon(Icons.verified_user_outlined),
+                    title: const Text('Two-step verification'),
+                    subtitle: Text(
+                      user.mfaEnabled
+                          ? 'On: signing in also needs a code from your authenticator app'
+                          : 'Protect your account with a code from an authenticator app',
+                    ),
+                    value: user.mfaEnabled,
+                    onChanged: (on) => on ? _enableMfa(context, ref, user) : _disableMfa(context, ref),
                   ),
-                  value: user.mfaEnabled,
-                  onChanged: (on) => on ? _enableMfa(context, ref, user) : _disableMfa(context, ref),
-                ),
                 if (user.mfaEnabled)
                   ListTile(
                     leading: const Icon(Icons.key_outlined),

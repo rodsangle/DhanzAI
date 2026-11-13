@@ -6,19 +6,29 @@ import 'features/account/reset_password_screen.dart';
 import 'features/account/security_screen.dart';
 import 'features/account/verify_email_screen.dart';
 import 'features/admin/admin_screen.dart';
+import 'features/builder/builder_screen.dart';
+import 'features/coding/coding_screen.dart';
+import 'features/operations/operations_screen.dart';
 import 'features/auth/auth_controller.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/chat/chat_screen.dart';
 import 'features/chat/local_chat_screen.dart';
 import 'features/creative/studio_screen.dart';
+import 'features/github/github_screen.dart';
+import 'features/automation/automation_screen.dart';
 import 'features/library/library_screen.dart';
+import 'features/library/uploads_screen.dart';
+import 'core/platform/web_updates.dart';
 import 'features/memory/memory_screen.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'features/onboarding/welcome_screen.dart';
 import 'features/projects/projects_screen.dart';
 import 'features/reminders/reminders_screen.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/settings/integrations_screen.dart';
+import 'features/settings/capabilities_screen.dart';
 import 'features/voice/voice_screen.dart';
+import 'features/media_editor/media_editor_screen.dart';
 
 const _publicRoutes = {'/welcome', '/login', '/register', '/reset-password'};
 
@@ -36,14 +46,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authControllerProvider);
       final location = state.matchedLocation;
       if (location == '/local') return null;
-      if (auth.isLoading || auth.hasError) return location == '/splash' ? null : '/splash';
+      if (auth.isLoading || auth.hasError) {
+        return location == '/splash' ? null : '/splash';
+      }
       final signedIn = auth.value != null;
-      if (!signedIn) return _publicRoutes.contains(location) ? null : '/welcome';
+      if (!signedIn) {
+        return _publicRoutes.contains(location) ? null : '/welcome';
+      }
       // Servers that require a confirmed email keep everything else locked until the code is entered.
       final mustVerify =
           ref.read(authOptionsProvider).value?.emailVerificationRequired == true && !auth.value!.emailVerified;
       if (mustVerify) return location == '/verify-email' ? null : '/verify-email';
-      if (_publicRoutes.contains(location) || location == '/splash') return '/chat';
+      if (_publicRoutes.contains(location) || location == '/splash') {
+        return '/chat';
+      }
       return null;
     },
     routes: [
@@ -66,11 +82,25 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
+      GoRoute(path: '/updates', builder: (context, state) => const WebUpdatesScreen()),
       GoRoute(path: '/settings', builder: (context, state) => const SettingsScreen()),
+      GoRoute(path: '/integrations', builder: (context, state) => const IntegrationsScreen()),
+      GoRoute(path: '/capabilities', builder: (context, state) => const CapabilitiesScreen()),
+      GoRoute(path: '/uploads', builder: (context, state) => const UploadsScreen()),
       GoRoute(path: '/library', builder: (context, state) => const LibraryScreen()),
+      GoRoute(
+        path: '/coding',
+        builder: (context, state) =>
+            CodingScreen(seed: state.extra is Map<String, dynamic> ? state.extra as Map<String, dynamic> : null),
+      ),
+      GoRoute(path: '/operations', builder: (context, state) => const OperationsScreen()),
+      GoRoute(path: '/builder', builder: (context, state) => const BuilderScreen()),
       GoRoute(path: '/studio', builder: (context, state) => const StudioScreen()),
+      GoRoute(path: '/github', builder: (context, state) => const GitHubScreen()),
+      GoRoute(path: '/actions', builder: (context, state) => const AutomationScreen()),
       GoRoute(path: '/projects', builder: (context, state) => const ProjectsScreen()),
       GoRoute(path: '/memory', builder: (context, state) => const MemoryScreen()),
+      GoRoute(path: '/media-editor', builder: (context, state) => const MediaEditorScreen()),
       GoRoute(path: '/voice', builder: (context, state) => const VoiceScreen()),
       GoRoute(path: '/security', builder: (context, state) => const SecurityScreen()),
       GoRoute(path: '/verify-email', builder: (context, state) => const VerifyEmailScreen()),

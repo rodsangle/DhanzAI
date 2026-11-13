@@ -1,22 +1,26 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/files.dart';
+import '../../core/clipboard_images.dart';
+import '../../core/uploads/upload_queue.dart';
+import '../../core/uploads/folder_upload_action.dart';
+import '../projects/projects_controller.dart';
 import '../../models/models.dart';
 import 'file_icons.dart';
 import '../conversations/conversations_controller.dart';
 import 'chat_controller.dart';
 import 'draft_spelling.dart';
+import '../voice/prompt_microphone.dart';
 
 /// Message input with model picker and send/stop button.
 /// Enter sends; Shift+Enter inserts a newline.
 class Composer extends ConsumerStatefulWidget {
-  const Composer({super.key, required this.onSend});
+  const Composer({super.key, required this.onSend, this.onCodex});
 
-  final Future<String?> Function(String text, VoidCallback onSubmitted) onSend;
+  final ValueChanged<String> onSend;
+  final ValueChanged<String>? onCodex;
 
   @override
   ConsumerState<Composer> createState() => _ComposerState();
@@ -25,11 +29,50 @@ class Composer extends ConsumerStatefulWidget {
 class _ComposerState extends ConsumerState<Composer> {
   final _controller = TextEditingController();
   bool _deviceAutocorrect = true;
-  int _submitVersion = 0;
+  bool _folderBusy = false;
+  bool _pasteBusy = false;
+  late final void Function() _unbindPaste;
+
+  @override
+  void initState() {
+    super.initState();
+    _unbindPaste = bindClipboardImages(
+      active: () => mounted && _focus.hasFocus,
+      onImages: (images) => _pasteImages(images),
+    );
+  }
+
+  Future<void> _pasteImages(List<ClipboardImageSource>? images) async {
+    if (_pasteBusy) {
+      return;
+    }
+    setState(() => _pasteBusy = true);
+    try {
+      final queue = ref.read(uploadQueueProvider.notifier);
+      final ticket = queue.ticket();
+      final project = ref.read(selectedProjectProvider);
+      final target = ref.read(chatControllerProvider.notifier).uploadTarget;
+      final sources = images ?? await readClipboardImages();
+      validateClipboardImages(sources);
+      final files = await Future.wait(sources.map((image) async => (name: image.name, bytes: await image.read())));
+      if (files.any((file) => file.bytes.isEmpty || file.bytes.length > 10 * 1024 * 1024)) {
+        throw StateError('Clipboard image is empty or exceeds 10 MB.');
+      }
+      queue.files(files, ticket: ticket, projectId: project, target: target);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _pasteBusy = false);
+    }
+  }
+
   late final FocusNode _focus = FocusNode(onKeyEvent: _onKey);
 
   @override
   void dispose() {
+    _unbindPaste();
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -39,33 +82,52 @@ class _ComposerState extends ConsumerState<Composer> {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.enter &&
         !HardwareKeyboard.instance.isShiftPressed) {
-      unawaited(_submit());
+      _submit();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
   Future<void> _attach() async {
-    final chat = ref.read(chatControllerProvider.notifier);
-    await chat.attachFiles(pickFiles);
+    final queue = ref.read(uploadQueueProvider.notifier);
+    final ticket = queue.ticket();
+    final project = ref.read(selectedProjectProvider);
+    final target = ref.read(chatControllerProvider.notifier).uploadTarget;
+    try {
+      final files = await pickFiles();
+      queue.files(files, ticket: ticket, projectId: project, target: target);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
   }
 
-  Future<void> _submit() async {
+  Future<void> _attachFolder() async {
+    setState(() => _folderBusy = true);
+    final target = ref.read(chatControllerProvider.notifier).uploadTarget;
+    try {
+      await queueFolderUpload(context, ref, target: target);
+    } finally {
+      if (mounted) setState(() => _folderBusy = false);
+    }
+  }
+
+  void _submit() {
     final chat = ref.read(chatControllerProvider);
     var text = _controller.text;
-    if (chat.streaming || chat.sending) return;
-    final version = ++_submitVersion;
-    if (text.trim().isEmpty && (chat.attachments.isNotEmpty || chat.uploading > 0)) {
-      // Without an instruction, ask for intent rather than silently choosing a summary.
-      text = 'Read the attached files and ask what I would like you to do with them.';
+    if (_folderBusy || _pasteBusy || chat.uploading > 0 || chat.loading) {
+      return;
     }
-    if (text.trim().isEmpty) return;
-    final draft = _controller.text;
-    final id = await widget.onSend(text, () {
-      if (mounted && version == _submitVersion && _controller.text == draft) _controller.clear();
-    });
-    if (!mounted || version != _submitVersion) return;
-    if (id == null && _controller.text.isEmpty) _controller.text = draft;
+    if (text.trim().isEmpty && chat.attachments.isNotEmpty) {
+      // Attachments alone: ask for the obvious thing rather than refusing to send.
+      text = chat.attachments.every((a) => a.fileType == 'image') ? 'Describe this image.' : 'Summarize this file.';
+    }
+    if (text.trim().isEmpty) {
+      return;
+    }
+    _controller.clear();
+    widget.onSend(text);
     _focus.requestFocus();
   }
 
@@ -86,7 +148,46 @@ class _ComposerState extends ConsumerState<Composer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (chat.attachments.isNotEmpty || chat.uploading > 0 || chat.failedAttachments.isNotEmpty)
+          if (chat.queuedPrompts.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 130),
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            chat.queuePaused ? 'Queued prompts · paused' : 'Queued · sends after this reply',
+                            style: theme.textTheme.labelMedium,
+                          ),
+                        ),
+                        if (chat.queuePaused)
+                          TextButton(
+                            onPressed: () => ref.read(chatControllerProvider.notifier).resumeQueue(),
+                            child: const Text('Resume'),
+                          ),
+                      ],
+                    ),
+                    for (final prompt in chat.queuedPrompts)
+                      Row(
+                        children: [
+                          const Icon(Icons.schedule, size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(child: Text(prompt.text, maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          if (prompt.attachments.isNotEmpty) Text(' · ${prompt.attachments.length} files'),
+                          IconButton(
+                            tooltip: 'Remove queued prompt',
+                            icon: const Icon(Icons.close, size: 18),
+                            onPressed: () => ref.read(chatControllerProvider.notifier).removeQueuedPrompt(prompt.id),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          if (chat.attachments.isNotEmpty || chat.uploading > 0)
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
               child: Align(
@@ -100,31 +201,19 @@ class _ComposerState extends ConsumerState<Composer> {
                         avatar: Icon(fileIcon(a.fileType), size: 18),
                         label: Text(a.title, overflow: TextOverflow.ellipsis),
                         tooltip: a.notes ?? a.title,
-                        onDeleted: chat.sending
-                            ? null
-                            : () => ref.read(chatControllerProvider.notifier).removeAttachment(a.id),
+                        onDeleted: () => ref.read(chatControllerProvider.notifier).removeAttachment(a.id),
                         deleteButtonTooltipMessage: 'Remove attachment',
-                      ),
-                    for (final name in chat.failedAttachments)
-                      InputChip(
-                        avatar: Icon(Icons.error_outline, color: theme.colorScheme.error, size: 18),
-                        label: Text('$name — upload failed'),
-                        onDeleted: chat.sending
-                            ? null
-                            : () => ref.read(chatControllerProvider.notifier).removeFailedAttachment(name),
-                        deleteButtonTooltipMessage: 'Remove failed attachment',
                       ),
                     if (chat.uploading > 0)
                       Chip(
                         avatar: const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                        label: const Text('Uploading and reading files…'),
+                        label: Text('Uploading ${chat.uploading}…'),
                       ),
                   ],
                 ),
               ),
             ),
           TextField(
-            readOnly: chat.sending,
             controller: _controller,
             autocorrect: _deviceAutocorrect,
             enableSuggestions: _deviceAutocorrect,
@@ -139,12 +228,23 @@ class _ComposerState extends ConsumerState<Composer> {
               focusedBorder: InputBorder.none,
             ),
           ),
-          if (chat.sending)
-            Semantics(
-              liveRegion: true,
-              child: Padding(
-                padding: EdgeInsets.all(8),
-                child: Text('Your message is queued. Waiting for attachments to be ready…'),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: Icon(_folderBusy ? Icons.hourglass_top : Icons.create_new_folder_outlined),
+              label: Text(_folderBusy ? 'Preparing folder…' : 'Upload folder'),
+              onPressed: _folderBusy || _pasteBusy || chat.loading || chat.uploading > 0 ? null : _attachFolder,
+            ),
+          ),
+          if (widget.onCodex != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                icon: const Icon(Icons.code),
+                label: const Text('Continue in Codex'),
+                onPressed: _folderBusy || chat.loading || chat.streaming || chat.uploading > 0
+                    ? null
+                    : () => widget.onCodex!(_controller.text),
               ),
             ),
           Row(
@@ -154,55 +254,58 @@ class _ComposerState extends ConsumerState<Composer> {
                 child: Row(
                   children: [
                     DraftSpellingButton(
-                      enabled: !chat.sending,
+                      enabled: !chat.loading,
                       controller: _controller,
                       deviceAutocorrect: _deviceAutocorrect,
                       onDeviceAutocorrectChanged: (value) => setState(() => _deviceAutocorrect = value),
                     ),
                     IconButton(
+                      tooltip: 'Paste image',
+                      icon: Icon(_pasteBusy ? Icons.hourglass_top : Icons.content_paste),
+                      onPressed: _pasteBusy ? null : () => _pasteImages(null),
+                    ),
+                    IconButton(
                       tooltip: 'Attach files',
                       icon: const Icon(Icons.attach_file),
-                      onPressed: chat.streaming || chat.sending ? null : _attach,
+                      onPressed: chat.loading || _folderBusy ? null : _attach,
                     ),
-                    Flexible(
-                      child: IgnorePointer(
-                        ignoring: chat.sending,
-                        child: _ModelPicker(selected: chat.modelKey),
-                      ),
+                    PromptMicrophone(
+                      compact: true,
+                      label: 'Dictate message',
+                      enabled: !chat.loading,
+                      onTranscript: (text) {
+                        final prefix = _controller.text.trimRight();
+                        _controller.text = '$prefix${prefix.isEmpty ? '' : ' '}$text';
+                        _controller.selection = TextSelection.collapsed(offset: _controller.text.length);
+                      },
+                      onError: (text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text))),
                     ),
-                    IgnorePointer(
-                      ignoring: chat.sending,
-                      child: _WebModePicker(mode: chat.webMode),
-                    ),
+                    Flexible(child: _ModelPicker(selected: chat.modelKey)),
+                    _WebModePicker(mode: chat.webMode),
                   ],
                 ),
               ),
-              if (chat.sending)
-                IconButton.filledTonal(
-                  tooltip: 'Cancel pending send',
-                  icon: const Icon(Icons.close),
-                  onPressed: () {
-                    _submitVersion++;
-                    ref.read(chatControllerProvider.notifier).cancelPendingSend();
-                  },
-                )
-              else if (chat.streaming)
+              if (chat.streaming)
                 IconButton.filledTonal(
                   tooltip: 'Stop generating',
                   icon: const Icon(Icons.stop_rounded),
                   onPressed: () => ref.read(chatControllerProvider.notifier).stop(),
-                )
-              else
-                ListenableBuilder(
-                  listenable: _controller,
-                  builder: (context, _) => IconButton.filled(
-                    tooltip: 'Send',
-                    icon: const Icon(Icons.arrow_upward_rounded),
-                    onPressed: (_controller.text.trim().isEmpty && chat.attachments.isEmpty && chat.uploading == 0)
-                        ? null
-                        : _submit,
-                  ),
                 ),
+              ListenableBuilder(
+                listenable: _controller,
+                builder: (context, _) => IconButton.filled(
+                  tooltip: chat.streaming ? 'Queue prompt' : 'Send',
+                  icon: const Icon(Icons.arrow_upward_rounded),
+                  onPressed:
+                      _folderBusy ||
+                          _pasteBusy ||
+                          (_controller.text.trim().isEmpty && chat.attachments.isEmpty) ||
+                          chat.uploading > 0 ||
+                          chat.loading
+                      ? null
+                      : _submit,
+                ),
+              ),
             ],
           ),
         ],

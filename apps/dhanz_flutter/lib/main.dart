@@ -10,9 +10,9 @@ import 'core/platform/desktop.dart';
 import 'core/platform/push.dart';
 import 'core/platform/updates.dart';
 import 'core/providers.dart';
+import 'core/uploads/upload_status_bar.dart';
 import 'core/storage/secure_store.dart';
 import 'features/chat/chat_controller.dart';
-import 'features/creative/creative_activity.dart';
 import 'features/reminders/reminder_watcher.dart';
 import 'router.dart';
 
@@ -25,7 +25,9 @@ Future<void> main() async {
     overrides.add(pushBridgeProvider.overrideWithValue(MethodChannelPushBridge(platform)));
   }
   final desktop = await createDesktopShell(minimizeToTray: await store.read(StoreKeys.minimizeToTray) == 'true');
-  if (desktop != null) overrides.add(desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)));
+  if (desktop != null) {
+    overrides.add(desktopShellProvider.overrideWithValue(_PersistedTray(desktop, store)));
+  }
   runApp(ProviderScope(overrides: overrides, child: const DhanzApp()));
 }
 
@@ -78,12 +80,7 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
       unawaited(push.initialNotification().then((data) => data == null ? null : _openNotification(data)));
     }
     // Back from the background: pick up replies that finished while the app was suspended.
-    _lifecycle = AppLifecycleListener(
-      onResume: () {
-        unawaited(ref.read(chatControllerProvider.notifier).refresh());
-        unawaited(ref.read(creativeActivityProvider.notifier).refresh());
-      },
-    );
+    _lifecycle = AppLifecycleListener(onResume: () => unawaited(ref.read(chatControllerProvider.notifier).refresh()));
   }
 
   void _openNotification(Map<String, String> data) {
@@ -97,7 +94,9 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
 
   void _open(String location) {
     ref.read(routerProvider).go(location);
-    if (location.startsWith('/chat/')) unawaited(ref.read(chatControllerProvider.notifier).refresh());
+    if (location.startsWith('/chat/')) {
+      unawaited(ref.read(chatControllerProvider.notifier).refresh());
+    }
   }
 
   @override
@@ -121,12 +120,7 @@ class _DhanzAppState extends ConsumerState<DhanzApp> {
       darkTheme: themePreference.darkTheme,
       themeMode: themePreference.themeMode,
       routerConfig: ref.watch(routerProvider),
-      builder: (context, child) => UpdateBanner(
-        child: CreativeActivityShell(
-          onOpen: () => ref.read(routerProvider).go('/studio'),
-          child: child ?? const SizedBox.shrink(),
-        ),
-      ),
+      builder: (context, child) => UploadStatusBar(child: UpdateBanner(child: child ?? const SizedBox.shrink())),
     );
   }
 }

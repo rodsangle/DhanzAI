@@ -4,9 +4,9 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/files.dart';
 import '../../core/platform/desktop.dart';
 import '../../core/providers.dart';
+import '../../core/uploads/upload_queue.dart';
 import '../../models/models.dart';
 import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
@@ -26,6 +26,15 @@ enum WebMode {
   };
 }
 
+class QueuedPrompt {
+  const QueuedPrompt({required this.id, required this.text, required this.attachments, this.modelKey, this.web});
+  final int id;
+  final String text;
+  final List<KnowledgeDocument> attachments;
+  final String? modelKey;
+  final bool? web;
+}
+
 class ChatState {
   const ChatState({
     this.conversationId,
@@ -39,10 +48,11 @@ class ChatState {
     this.researchStatus,
     this.attachments = const [],
     this.uploading = 0,
-    this.sending = false,
-    this.failedAttachments = const [],
     this.notice,
     this.temporary = false,
+    this.viewRevision = 0,
+    this.queuedPrompts = const [],
+    this.queuePaused = false,
   });
 
   final String? conversationId;
@@ -65,14 +75,17 @@ class ChatState {
 
   /// Uploads in progress.
   final int uploading;
-  final bool sending;
-  final List<String> failedAttachments;
 
   /// One-off information for the user (e.g. "Saved to memory"), shown once then cleared.
   final String? notice;
 
   /// Temporary chat: not remembered, not added to the library, deleted after a day.
   final bool temporary;
+
+  /// Changes when opening a chat so its message draft and scroll state start fresh.
+  final int viewRevision;
+  final List<QueuedPrompt> queuedPrompts;
+  final bool queuePaused;
 
   ChatState copyWith({
     String? conversationId,
@@ -86,10 +99,10 @@ class ChatState {
     String? Function()? researchStatus,
     List<KnowledgeDocument>? attachments,
     int? uploading,
-    bool? sending,
-    List<String>? failedAttachments,
     String? Function()? notice,
     bool? temporary,
+    List<QueuedPrompt>? queuedPrompts,
+    bool? queuePaused,
   }) => ChatState(
     conversationId: conversationId ?? this.conversationId,
     title: title ?? this.title,
@@ -102,10 +115,11 @@ class ChatState {
     researchStatus: researchStatus != null ? researchStatus() : this.researchStatus,
     attachments: attachments ?? this.attachments,
     uploading: uploading ?? this.uploading,
-    sending: sending ?? this.sending,
-    failedAttachments: failedAttachments ?? this.failedAttachments,
     notice: notice != null ? notice() : this.notice,
     temporary: temporary ?? this.temporary,
+    viewRevision: viewRevision,
+    queuedPrompts: queuedPrompts ?? this.queuedPrompts,
+    queuePaused: queuePaused ?? this.queuePaused,
   );
 }
 
@@ -119,11 +133,16 @@ class ChatController extends Notifier<ChatState> {
   StreamSubscription<ChatEvent>? _sub;
   Timer? _poll;
   int _loadToken = 0;
-  int _draftEpoch = 0;
-  int _sendTicket = 0;
-  int _cancelledSelections = 0;
-  Completer<void> _draftChanged = Completer<void>();
-  final Set<Future<void>> _uploads = {};
+  int _nextUploadDraft = 0;
+  String _blankUploadTarget = 'new:0';
+  final _seenUploadErrors = <int>{};
+  String get uploadTarget => state.conversationId == null ? _blankUploadTarget : 'conversation:${state.conversationId}';
+  int _nextQueueId = 0;
+  final _queues = <String?, List<QueuedPrompt>>{};
+  final _pausedQueues = <String?>{};
+  bool _openingReply = false;
+  Completer<void>? _streamDone;
+  int _streamGeneration = 0;
 
   ApiClient get _api => ref.read(apiClientProvider);
 
@@ -131,30 +150,50 @@ class ChatController extends Notifier<ChatState> {
   ChatState build() {
     // A different account (or sign-out) starts from a blank chat.
     ref.watch(authControllerProvider.select((s) => s.value?.id));
-    _resetDraft();
-    ref.listen(selectedProjectProvider, (previous, next) {
-      if (previous == next) return;
-      _resetDraft();
-      state = state.copyWith(attachments: [], failedAttachments: [], uploading: 0, sending: false);
-    });
-    ref.onDispose(() {
-      _resetDraft();
-      _stopLocal();
-    });
+    ref.watch(connectionRevisionProvider);
+    _loadToken++;
+    _blankUploadTarget = 'new:${++_nextUploadDraft}';
+    _seenUploadErrors.clear();
+    ref.listen(uploadQueueProvider, (_, entries) => _syncUploads(entries));
+    _queues.clear();
+    _pausedQueues.clear();
+    ref.onDispose(_stopLocal);
     return const ChatState();
   }
 
   /// Open a conversation (or a blank chat when [id] is null).
   Future<void> open(String? id) async {
     if (id != null && id == state.conversationId) return;
+    _queues[state.conversationId] = state.queuedPrompts;
+    if (state.queuePaused) {
+      _pausedQueues.add(state.conversationId);
+    } else {
+      _pausedQueues.remove(state.conversationId);
+    }
     _stopLocal();
-    _resetDraft();
     final token = ++_loadToken;
     if (id == null) {
-      state = ChatState(modelKey: state.modelKey, webMode: state.webMode);
+      _blankUploadTarget = 'new:${++_nextUploadDraft}';
+      state = ChatState(
+        modelKey: state.modelKey,
+        webMode: state.webMode,
+        viewRevision: state.viewRevision + 1,
+        queuedPrompts: _queues[null] ?? const [],
+        queuePaused: _pausedQueues.contains(null),
+      );
+      _syncUploads(ref.read(uploadQueueProvider));
       return;
     }
-    state = ChatState(conversationId: id, loading: true, modelKey: state.modelKey, webMode: state.webMode);
+    state = ChatState(
+      conversationId: id,
+      loading: true,
+      modelKey: state.modelKey,
+      webMode: state.webMode,
+      viewRevision: state.viewRevision + 1,
+      queuedPrompts: _queues[id] ?? const [],
+      queuePaused: _pausedQueues.contains(id),
+    );
+    _syncUploads(ref.read(uploadQueueProvider));
     try {
       final detail = await _api.conversation(id);
       if (token != _loadToken) return;
@@ -165,6 +204,7 @@ class ChatController extends Notifier<ChatState> {
         temporary: detail.summary.temporary,
       );
       _followIfGenerating();
+      _drainQueue();
     } on ApiException catch (e) {
       if (token != _loadToken) return;
       state = state.copyWith(loading: false, error: () => e.message);
@@ -186,16 +226,28 @@ class ChatController extends Notifier<ChatState> {
   void _followIfGenerating() {
     _poll?.cancel();
     _poll = null;
-    if (!_generatingOnServer) return;
+    if (_openingReply) return;
+    if (!_generatingOnServer) {
+      if (_active == null) {
+        state = state.copyWith(streaming: false);
+        _drainQueue();
+      }
+      return;
+    }
     state = state.copyWith(streaming: true);
     final id = state.conversationId;
+    final token = _loadToken;
     _poll = Timer.periodic(pollInterval, (_) async {
-      if (id != state.conversationId || _active != null) return;
+      if (id != state.conversationId || _active != null || token != _loadToken) {
+        return;
+      }
       await _reload();
+      if (token != _loadToken) return;
       if (!_generatingOnServer && id == state.conversationId) {
         _poll?.cancel();
         _poll = null;
         state = state.copyWith(streaming: false, researchStatus: () => null);
+        _drainQueue();
       }
     });
   }
@@ -211,125 +263,111 @@ class ChatController extends Notifier<ChatState> {
 
   void clearNotice() => state = state.copyWith(notice: () => null);
 
-  void _resetDraft() {
-    _draftEpoch++;
-    _sendTicket++;
-    if (!_draftChanged.isCompleted) _draftChanged.complete();
-    _draftChanged = Completer<void>();
-    _uploads.clear();
-  }
-
-  bool _sameDraft(int epoch, String? project, String? owner) =>
-      ref.mounted &&
-      epoch == _draftEpoch &&
-      ref.read(selectedProjectProvider) == project &&
-      ref.read(authControllerProvider).value?.id == owner;
-
-  /// Registers file reading, upload and server extraction before any asynchronous work starts.
-  Future<void> attachFiles(Future<List<PickedFile>> Function() readFiles) async {
-    if (state.sending || state.streaming) return;
-    final epoch = _draftEpoch;
-    final project = ref.read(selectedProjectProvider);
-    final owner = ref.read(authControllerProvider).value?.id;
-    final finished = Completer<void>();
-    _uploads.add(finished.future);
-    state = state.copyWith(uploading: state.uploading + 1);
-    try {
-      final files = await readFiles();
-      if (!_sameDraft(epoch, project, owner)) return;
-      if (files.isEmpty) _cancelledSelections++;
-      for (final file in files) {
-        if (!_sameDraft(epoch, project, owner)) return;
-        try {
-          final doc = await _api.uploadFile(file.name, file.bytes, projectId: project);
-          if (!_sameDraft(epoch, project, owner)) return;
-          state = state.copyWith(
-            attachments: [...state.attachments, doc],
-            failedAttachments: [
-              for (final name in state.failedAttachments)
-                if (name != file.name) name,
-            ],
-          );
-        } catch (e) {
-          if (!_sameDraft(epoch, project, owner)) return;
-          state = state.copyWith(
-            failedAttachments: {...state.failedAttachments, file.name}.toList(),
-            error: () => '${file.name}: ${e is ApiException ? e.message : 'Could not upload or read this file.'}',
-          );
-        }
+  void _syncUploads(List<UploadEntry> entries) {
+    final jobs = entries.where((job) => job.target == uploadTarget).toList();
+    String? error;
+    for (final job in jobs) {
+      if (job.status == UploadStatus.failed && _seenUploadErrors.add(job.id)) {
+        error = '${job.name}: ${job.error}. Check Uploads for details.';
       }
-    } catch (_) {
-      if (_sameDraft(epoch, project, owner)) {
-        state = state.copyWith(
-          failedAttachments: {...state.failedAttachments, 'Selected files'}.toList(),
-          error: () => 'Could not read the selected files. Your message was not sent.',
-        );
-      }
-    } finally {
-      _uploads.remove(finished.future);
-      if (_sameDraft(epoch, project, owner)) state = state.copyWith(uploading: state.uploading - 1);
-      finished.complete();
     }
+    state = state.copyWith(
+      uploading: jobs.where((job) => job.busy).length,
+      attachments: [
+        for (final job in jobs)
+          if (job.attachable && job.document != null) job.document!,
+      ],
+      error: error == null ? null : () => error,
+    );
   }
 
-  Future<void> attachFile(String filename, Uint8List bytes) =>
-      attachFiles(() async => [(name: filename, bytes: bytes)]);
-
-  void removeFailedAttachment(String name) => state = state.copyWith(
-    failedAttachments: [
-      for (final item in state.failedAttachments)
-        if (item != name) item,
-    ],
-  );
-
-  void cancelPendingSend() {
-    _sendTicket++;
-    state = state.copyWith(sending: false);
+  /// The app queue owns the request; changing routes/chats cannot interrupt it.
+  Future<void> attachFile(String filename, Uint8List bytes) async {
+    final queue = ref.read(uploadQueueProvider.notifier);
+    final ids = queue.files(
+      [(name: filename, bytes: bytes)],
+      ticket: queue.ticket(),
+      projectId: ref.read(selectedProjectProvider),
+      target: uploadTarget,
+    );
+    if (ids.isNotEmpty) await queue.waitFor(ids.single);
   }
 
-  void removeAttachment(String id) => state = state.copyWith(
-    attachments: [
-      for (final a in state.attachments)
-        if (a.id != id) a,
-    ],
-  );
+  void removeAttachment(String id) {
+    ref.read(uploadQueueProvider.notifier).consume(uploadTarget, [id]);
+  }
 
   void clearError() => state = state.copyWith(error: () => null);
 
   /// Sends [text]. Returns the conversation id (created on first send).
-  Future<String?> send(String text, {void Function()? onSubmitted}) async {
-    if (state.streaming || state.sending || text.trim().isEmpty) return null;
-    final epoch = _draftEpoch;
-    final ticket = ++_sendTicket;
-    final project = ref.read(selectedProjectProvider);
-    final owner = ref.read(authControllerProvider).value?.id;
-    final cancelledSelections = _cancelledSelections;
-    final changed = _draftChanged.future;
-    final modelKey = state.modelKey;
-    final web = state.webMode.asRequest;
+  Future<String?> send(String text, {bool? webOverride}) async {
+    if (text.trim().isEmpty || state.uploading > 0) return state.conversationId;
+    final prompt = QueuedPrompt(
+      id: _nextQueueId++,
+      text: text,
+      attachments: List.of(state.attachments),
+      modelKey: state.modelKey,
+      web: webOverride ?? state.webMode.asRequest,
+    );
+    ref.read(uploadQueueProvider.notifier).consume(uploadTarget, prompt.attachments.map((d) => d.id));
+    state = state.copyWith(attachments: const []);
+    if (state.streaming || _openingReply || _active != null || state.queuedPrompts.isNotEmpty) {
+      state = state.copyWith(queuedPrompts: [...state.queuedPrompts, prompt]);
+      _drainQueue();
+      return state.conversationId;
+    }
+    state = state.copyWith(queuePaused: false);
+    return _sendPrompt(prompt);
+  }
+
+  void removeQueuedPrompt(int id) =>
+      state = state.copyWith(queuedPrompts: state.queuedPrompts.where((prompt) => prompt.id != id).toList());
+
+  void resumeQueue() {
+    state = state.copyWith(queuePaused: false);
+    _drainQueue();
+  }
+
+  void _drainQueue() {
+    if (state.streaming ||
+        state.loading ||
+        _openingReply ||
+        _active != null ||
+        state.queuePaused ||
+        state.queuedPrompts.isEmpty) {
+      return;
+    }
+    final prompt = state.queuedPrompts.first;
+    state = state.copyWith(queuedPrompts: state.queuedPrompts.sublist(1));
+    unawaited(_sendPrompt(prompt));
+  }
+
+  void _scheduleQueueDrain() {
+    final token = _loadToken;
+    Timer.run(() {
+      if (token == _loadToken) _drainQueue();
+    });
+  }
+
+  Future<String?> _sendPrompt(QueuedPrompt prompt) async {
     var id = state.conversationId;
-    var attachments = state.attachments;
-    state = state.copyWith(sending: true, error: () => null);
+    final token = ++_loadToken;
+    final text = prompt.text;
+    final attachments = prompt.attachments;
+    _openingReply = true;
+    state = state.copyWith(streaming: true);
     try {
-      if (_uploads.isNotEmpty) {
-        await Future.any([Future.wait(_uploads.toList()).then<void>((_) {}), changed]);
-      }
-      if (!_sameDraft(epoch, project, owner) || ticket != _sendTicket) return null;
-      if (state.failedAttachments.isNotEmpty || cancelledSelections != _cancelledSelections) {
-        state = state.copyWith(
-          error: () => state.failedAttachments.isNotEmpty
-              ? 'Your message was not sent. Retry or remove failed attachments first.'
-              : 'File selection was cancelled. Your message was not sent.',
-        );
-        return null;
-      }
-      attachments = List.of(state.attachments);
       if (id == null) {
-        final conv = await _api.createConversation(projectId: project, temporary: state.temporary);
-        if (!_sameDraft(epoch, project, owner) || ticket != _sendTicket) return null;
+        final conv = await _api.createConversation(
+          projectId: ref.read(selectedProjectProvider),
+          temporary: state.temporary,
+        );
         id = conv.id;
-        _loadToken++;
+        if (token != _loadToken) return id;
+        final oldUploadTarget = uploadTarget;
         state = state.copyWith(conversationId: id, title: conv.title);
+        ref.read(uploadQueueProvider.notifier).retarget(oldUploadTarget, uploadTarget);
+        _syncUploads(ref.read(uploadQueueProvider));
       }
       final pendingUser = ChatMessage(
         id: 'pending-user',
@@ -338,38 +376,34 @@ class ChatController extends Notifier<ChatState> {
         status: MessageStatus.complete,
         attachments: [for (final a in attachments) Attachment(id: a.id, filename: a.title, fileType: a.fileType)],
       );
-      state = state.copyWith(
-        messages: [...state.messages, pendingUser],
-        error: () => null,
-        attachments: const [],
-        sending: false,
-      );
-      onSubmitted?.call();
+      state = state.copyWith(messages: [...state.messages, pendingUser], error: () => null);
       await _stream(
         () => _api.streamChat(
           id!,
           content: text,
-          modelKey: modelKey,
-          web: web,
+          modelKey: prompt.modelKey,
+          web: prompt.web,
           attachmentIds: [for (final a in attachments) a.id],
         ),
       );
     } on ApiException catch (e) {
-      if (!_sameDraft(epoch, project, owner) || ticket != _sendTicket) return null;
+      if (token != _loadToken) return id;
+      _openingReply = false;
       state = state.copyWith(
         streaming: false,
         error: () => e.message,
-        attachments: attachments, // keep the files so the user can retry
+        queuedPrompts: [prompt, ...state.queuedPrompts],
+        queuePaused: true,
         messages: [
           for (final m in state.messages)
             if (!m.id.startsWith('pending')) m,
         ],
       );
-      return null;
-    } finally {
-      if (ref.mounted && epoch == _draftEpoch && ticket == _sendTicket) state = state.copyWith(sending: false);
     }
-    if (ref.mounted && epoch == _draftEpoch) unawaited(ref.read(conversationsProvider.notifier).refresh());
+    if (token == _loadToken) {
+      unawaited(ref.read(conversationsProvider.notifier).refresh());
+      _scheduleQueueDrain();
+    }
     return id;
   }
 
@@ -425,6 +459,7 @@ class ChatController extends Notifier<ChatState> {
     _stopLocal();
     state = state.copyWith(
       streaming: false,
+      queuePaused: state.queuedPrompts.isNotEmpty,
       researchStatus: () => null,
       messages: [
         for (final m in state.messages)
@@ -446,6 +481,11 @@ class ChatController extends Notifier<ChatState> {
 
   /// Stops listening locally (the reply itself carries on generating on the server).
   void _stopLocal() {
+    _loadToken++;
+    _streamGeneration++;
+    _openingReply = false;
+    if (_streamDone?.isCompleted == false) _streamDone!.complete();
+    _streamDone = null;
     _poll?.cancel();
     _poll = null;
     unawaited(_sub?.cancel());
@@ -455,10 +495,12 @@ class ChatController extends Notifier<ChatState> {
   }
 
   Future<void> _reload() async {
+    final token = _loadToken;
     final id = state.conversationId;
     if (id == null) return;
     try {
       final detail = await _api.conversation(id);
+      if (id != state.conversationId || token != _loadToken) return;
       state = state.copyWith(title: detail.summary.title, messages: detail.messages);
     } on ApiException {
       // keep what we have
@@ -466,13 +508,33 @@ class ChatController extends Notifier<ChatState> {
   }
 
   Future<void> _stream(Future<ChatStream> Function() open) async {
+    final generation = _streamGeneration;
+    _openingReply = true;
     state = state.copyWith(streaming: true);
-    final stream = await open();
+    late final ChatStream stream;
+    try {
+      stream = await open();
+    } catch (_) {
+      if (generation == _streamGeneration) {
+        _openingReply = false;
+        state = state.copyWith(queuePaused: state.queuedPrompts.isNotEmpty);
+      }
+      rethrow;
+    }
+    if (generation != _streamGeneration) {
+      stream.cancel();
+      return;
+    }
+    _openingReply = false;
     _active = stream;
     final done = Completer<void>();
+    _streamDone = done;
     _sub = stream.events.listen(
-      _apply,
+      (event) {
+        if (generation == _streamGeneration) _apply(event);
+      },
       onError: (Object e) {
+        if (generation != _streamGeneration) return;
         // The reply keeps generating on the server; follow it by polling instead.
         _active?.cancel();
         _active = null;
@@ -482,6 +544,7 @@ class ChatController extends Notifier<ChatState> {
         if (!done.isCompleted) done.complete();
       },
       onDone: () {
+        if (generation != _streamGeneration) return;
         _active?.cancel();
         _active = null;
         if (state.streaming) {
@@ -489,6 +552,7 @@ class ChatController extends Notifier<ChatState> {
           _followIfGenerating(); // the stream ended without a final event
         }
         if (!done.isCompleted) done.complete();
+        _scheduleQueueDrain();
       },
       cancelOnError: true,
     );
@@ -546,7 +610,9 @@ class ChatController extends Notifier<ChatState> {
       case 'model':
         _updateLast((m) => m.copyWith(provider: d['provider'] as String?, model: d['model'] as String?));
       case 'delta':
-        if (state.researchStatus != null) state = state.copyWith(researchStatus: () => null);
+        if (state.researchStatus != null) {
+          state = state.copyWith(researchStatus: () => null);
+        }
         _updateLast((m) => m.copyWith(content: m.content + (d['text'] as String)));
       case 'done' || 'error' || 'stopped':
         state = state.copyWith(researchStatus: () => null);
@@ -557,6 +623,7 @@ class ChatController extends Notifier<ChatState> {
         }
         state = state.copyWith(
           streaming: false,
+          queuePaused: event.type != 'done' && state.queuedPrompts.isNotEmpty ? true : state.queuePaused,
           error: () => event.type == 'error' ? (d['detail'] as String? ?? 'Something went wrong.') : null,
         );
         final id = state.conversationId;

@@ -9,6 +9,7 @@ import '../chat/chat_controller.dart';
 import '../chat/markdown_view.dart';
 import '../conversations/conversations_controller.dart';
 import 'voice_controller.dart';
+import 'wake_listener.dart';
 
 /// Talk to Dhanz: tap the mic, speak, and hear the answer. Hands-free mode keeps listening.
 ///
@@ -21,18 +22,26 @@ class VoiceScreen extends ConsumerStatefulWidget {
   ConsumerState<VoiceScreen> createState() => _VoiceScreenState();
 }
 
-class _VoiceScreenState extends ConsumerState<VoiceScreen> {
+class _VoiceScreenState extends ConsumerState<VoiceScreen> with WidgetsBindingObserver {
+  bool _wakeActive = false;
   // Read eagerly: `ref` may not be used inside dispose().
   late final VoiceController _voice;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _voice = ref.read(voiceControllerProvider.notifier);
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) unawaited(_voice.stop());
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Leaving the screen always releases the microphone and stops speaking. Deferred one microtask
     // because providers must not change while the widget tree is being finalized.
     unawaited(Future.microtask(_voice.stop));
@@ -116,9 +125,9 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen> {
                   Card(
                     child: ListTile(
                       leading: const Icon(Icons.info_outline),
-                      title: const Text('Speech recognition is not configured on this server'),
+                      title: const Text('Recorded speech transcription is not configured'),
                       subtitle: const Text(
-                        'Ask your administrator to set STT_PROVIDER. You can still type in the chat.',
+                        'Use browser “Hey Dhanz” below if supported, or type in chat. The microphone button needs server transcription.',
                       ),
                     ),
                   ),
@@ -140,7 +149,7 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen> {
                       dimension: 132,
                       child: FilledButton(
                         style: FilledButton.styleFrom(shape: const CircleBorder(), padding: EdgeInsets.zero),
-                        onPressed: sttAvailable || voice.busy ? controller.toggle : null,
+                        onPressed: !_wakeActive && (sttAvailable || voice.busy) ? controller.toggle : null,
                         child: switch (voice.phase) {
                           VoicePhase.idle => const Icon(Icons.mic, size: 56, semanticLabel: 'Start talking'),
                           VoicePhase.listening => const Icon(Icons.stop, size: 56, semanticLabel: 'Done talking'),
@@ -169,17 +178,22 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen> {
                   ),
                 ],
                 const SizedBox(height: 16),
+                WakeListener(
+                  onEnabled: (value) {
+                    if (mounted) setState(() => _wakeActive = value);
+                  },
+                ),
                 SwitchListTile(
                   title: const Text('Hands-free conversation'),
                   subtitle: const Text('Listen again after each answer. Works while this screen is open.'),
                   value: voice.handsFree,
-                  onChanged: controller.setHandsFree,
+                  onChanged: _wakeActive ? null : controller.setHandsFree,
                 ),
                 SwitchListTile(
                   title: const Text('Require “Hey Dhanz”'),
                   subtitle: const Text('Only respond to requests that start with the wake phrase.'),
                   value: voice.wakePhrase,
-                  onChanged: controller.setWakePhrase,
+                  onChanged: _wakeActive ? null : controller.setWakePhrase,
                 ),
                 if (voice.transcript != null) ...[
                   const Divider(height: 32),

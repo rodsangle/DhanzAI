@@ -11,7 +11,10 @@ import '../storage/secure_store.dart';
 import 'sse.dart';
 
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
+  ApiException(this.statusCode, String message)
+    : message = statusCode == 0 && message.contains('.ts.net')
+          ? '$message Connect Tailscale on this device and the server laptop, and keep the laptop awake with DHANZ AI running.'
+          : message;
 
   final int statusCode;
   final String message;
@@ -53,6 +56,190 @@ class ApiClient {
     }
     return headers;
   }
+
+  Future<Map<String, dynamic>> responseFeedback(String id) async =>
+      await _json('GET', '/assistant-studio/feedback/$id') as Map<String, dynamic>;
+  Future<void> rateResponse(String id, String? rating) async {
+    await _json('PUT', '/assistant-studio/feedback/$id', body: {'rating': rating});
+  }
+
+  Future<Map<String, dynamic>> uploadReferenceVideo(
+    String name,
+    Uint8List bytes, {
+    bool Function()? isCurrentSession,
+  }) async {
+    final response = await _sendMultipart(
+      '/reference-videos/upload',
+      'video',
+      name,
+      bytes,
+      isCurrentSession: isCurrentSession,
+    );
+    if (isCurrentSession != null && !isCurrentSession()) {
+      throw ApiException(409, 'The account or server changed. Reference upload was not retried.');
+    }
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<String> analyzeReferenceVideo(String id, {bool retry = false, bool Function()? isCurrentSession}) async {
+    if (isCurrentSession != null && !isCurrentSession()) throw ApiException(409, 'The account or server changed.');
+    final result = await _json('POST', '/reference-videos/$id/analyze', body: {'retry': retry}) as Map<String, dynamic>;
+    if (isCurrentSession != null && !isCurrentSession()) throw ApiException(409, 'The account or server changed.');
+    return result['brief'] as String;
+  }
+
+  Future<List<Map<String, dynamic>>> mediaJobs() async {
+    final body = await _json('GET', '/media-studio/jobs') as Map<String, dynamic>;
+    return (body['jobs'] as List).cast<Map<String, dynamic>>();
+  }
+
+  Future<void> deleteMediaJob(String id) async {
+    await _json('DELETE', '/media-studio/jobs/$id');
+  }
+
+  Future<Uint8List> downloadMediaJob(String id) async {
+    final response = await _send('GET', '/media-studio/jobs/$id/download');
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    }
+    return response.bodyBytes;
+  }
+
+  Future<Map<String, dynamic>> renderMedia(
+    Map<String, dynamic> options,
+    String key, {
+    ({String name, Uint8List bytes})? video,
+    ({String name, Uint8List bytes})? audio,
+  }) async {
+    final initialUrl = baseUrl;
+    final initialToken = await store.read(StoreKeys.accessToken);
+    String? subject(String? token) {
+      try {
+        return (jsonDecode(utf8.decode(base64Url.decode(base64Url.normalize(token!.split('.')[1])))) as Map)['sub']
+            as String?;
+      } on Object {
+        return null;
+      }
+    }
+
+    Future<bool> current() async {
+      final token = await store.read(StoreKeys.accessToken);
+      return initialUrl == baseUrl &&
+          (initialToken == token || (subject(initialToken) != null && subject(initialToken) == subject(token)));
+    }
+
+    Future<http.Response> send() async {
+      if (!await current()) throw ApiException(409, 'The account or server changed. Export was not retried.');
+      final request = http.MultipartRequest('POST', _uri('/media-studio/jobs'))
+        ..fields.addAll({'options': jsonEncode(options), 'request_key': key});
+      final token = await store.read(StoreKeys.accessToken);
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
+      if (video != null) request.files.add(http.MultipartFile.fromBytes('video', video.bytes, filename: video.name));
+      if (audio != null) request.files.add(http.MultipartFile.fromBytes('audio', audio.bytes, filename: audio.name));
+      return http.Response.fromStream(await _client.send(request));
+    }
+
+    var response = await send();
+    if (response.statusCode == 401 &&
+        await current() &&
+        await _refresh(isCurrentSession: () => initialUrl == baseUrl) &&
+        await current()) {
+      response = await send();
+    }
+    if (!await current()) {
+      throw ApiException(409, 'The account or server changed. Check exports after signing in again.');
+    }
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  Future<bool> autonomyEnabled() async {
+    try {
+      final data = await _json('GET', '/assistant-studio/autonomy') as Map<String, dynamic>;
+      return data['enabled'] == true;
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) return false;
+      rethrow;
+    }
+  }
+
+  Future<void> setAutonomy(bool enabled) async {
+    await _json('PUT', '/assistant-studio/autonomy', body: {'enabled': enabled});
+  }
+
+  Future<Map<String, dynamic>> builderModels() async =>
+      await _json('GET', '/assistant-studio/models') as Map<String, dynamic>;
+  Future<List<Map<String, dynamic>>> builderProjects() async {
+    final data = await _json('GET', '/assistant-studio/projects') as Map<String, dynamic>;
+    return (data['projects'] as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> createBuilderProject(Map<String, dynamic> body) async =>
+      await _json('POST', '/assistant-studio/projects', body: body) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> reviseBuilderProject(String id, String changes, String requestKey) async => await _json(
+    'POST',
+    '/assistant-studio/projects/$id/revise',
+    body: {'changes': changes, 'request_key': requestKey},
+  ) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> builderProject(String id) async =>
+      await _json('GET', '/assistant-studio/projects/$id') as Map<String, dynamic>;
+  Future<Uint8List> downloadBuilderProject(String id) async {
+    final response = await _send('GET', '/assistant-studio/projects/$id/download');
+    if (response.statusCode >= 400) {
+      throw ApiException(response.statusCode, _errorMessage(response.statusCode, response.body));
+    }
+    return response.bodyBytes;
+  }
+
+  Future<List<Map<String, dynamic>>> codingDrafts() async {
+    final data = await _json('GET', '/coding/drafts') as Map<String, dynamic>;
+    return (data['drafts'] as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<List<Map<String, dynamic>>> codingRepositories() async {
+    final data = await _json('GET', '/coding/repositories') as Map<String, dynamic>;
+    return (data['repositories'] as List<dynamic>).cast<Map<String, dynamic>>();
+  }
+
+  Future<Map<String, dynamic>> codingSource(String repository, String path, String branch, {bool file = false}) async =>
+      await _json(
+        'GET',
+        '/coding/source',
+        query: {'repository': repository, 'path': path, 'ref': branch, 'operation': file ? 'file' : 'directory'},
+      ) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> codingCreate(Map<String, dynamic> data) async =>
+      await _json('POST', '/coding/drafts', body: data) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> codingDetail(String id) async =>
+      await _json('GET', '/coding/drafts/$id') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> codingAction(String id, String action, Map<String, dynamic> body) async =>
+      await _json('POST', '/coding/drafts/$id/$action', body: body) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> operations() async => await _json('GET', '/operations') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> integrations() async => await _json('GET', '/integrations') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> integrationConnect(String provider, List<String> services) async =>
+      await _json('POST', '/integrations/$provider/connect', body: {'services': services}) as Map<String, dynamic>;
+  Future<Map<String, dynamic>> integrationOperation(String provider, Map<String, dynamic> body) async =>
+      await _json('POST', '/integrations/$provider/operations', body: body) as Map<String, dynamic>;
+  Future<void> integrationDisconnect(String provider) async {
+    await _json('DELETE', '/integrations/$provider');
+  }
+
+  Future<Map<String, dynamic>> operationAction(String path, Map<String, dynamic> body) async =>
+      await _json('POST', '/operations/$path', body: body) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> webUpdateCheck() async =>
+      await _json('GET', '/operations/web-updates') as Map<String, dynamic>;
+  Future<Map<String, dynamic>> webUpdateStart(String serverId, String key) async =>
+      await _json('POST', '/operations/web-updates', body: {'server_id': serverId, 'request_key': key})
+          as Map<String, dynamic>;
+  Future<Map<String, dynamic>> webUpdateStatus(String id) async =>
+      await _json('GET', '/operations/web-updates/jobs/$id') as Map<String, dynamic>;
 
   // ---- auth --------------------------------------------------------------
 
@@ -128,16 +315,22 @@ class ApiClient {
   }
 
   /// Single-flight refresh so parallel 401s trigger only one rotation.
-  Future<bool> _refresh() {
+  Future<bool> _refresh({bool Function()? isCurrentSession}) {
+    if (isCurrentSession != null && !isCurrentSession()) {
+      return Future.value(false);
+    }
     return _refreshing ??= () async {
       try {
         final refresh = await store.read(StoreKeys.refreshToken);
-        if (refresh == null) return false;
+        if (refresh == null || (isCurrentSession != null && !isCurrentSession())) {
+          return false;
+        }
         final res = await _client.post(
           _uri('/auth/refresh'),
           headers: await _headers(auth: false),
           body: jsonEncode({'refresh_token': refresh}),
         );
+        if (isCurrentSession != null && !isCurrentSession()) return false;
         if (res.statusCode != 200) {
           await clearTokens();
           onSessionExpired?.call();
@@ -183,6 +376,7 @@ class ApiClient {
     Map<String, String> fields = const {},
     String? contentType,
     bool retry = true,
+    bool Function()? isCurrentSession,
   }) async {
     final req = http.MultipartRequest('POST', _uri(path))
       ..fields.addAll(fields)
@@ -195,6 +389,9 @@ class ApiClient {
         ),
       );
     final token = await store.read(StoreKeys.accessToken);
+    if (isCurrentSession != null && !isCurrentSession()) {
+      throw ApiException(409, 'Upload stopped because the account or server changed.');
+    }
     if (token != null) req.headers['Authorization'] = 'Bearer $token';
     final http.Response res;
     try {
@@ -202,8 +399,22 @@ class ApiClient {
     } on http.ClientException catch (e) {
       throw ApiException(0, 'Cannot reach the DHANZ AI server at $baseUrl (${e.message}).');
     }
-    if (res.statusCode == 401 && retry && await _refresh()) {
-      return _sendMultipart(path, field, filename, bytes, fields: fields, contentType: contentType, retry: false);
+    if (res.statusCode == 401 &&
+        retry &&
+        (isCurrentSession == null || isCurrentSession()) &&
+        await _refresh(isCurrentSession: isCurrentSession) &&
+        (isCurrentSession == null || isCurrentSession())) {
+      // Only explicit rejection may refresh/retry once. Network errors are never replayed.
+      return _sendMultipart(
+        path,
+        field,
+        filename,
+        bytes,
+        fields: fields,
+        contentType: contentType,
+        retry: false,
+        isCurrentSession: isCurrentSession,
+      );
     }
     return res;
   }
@@ -216,7 +427,9 @@ class ApiClient {
     bool auth = true,
   }) async {
     final res = await _send(method, path, body: body, query: query, auth: auth);
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     if (res.body.isEmpty) return null;
     return jsonDecode(utf8.decode(res.bodyBytes));
   }
@@ -238,17 +451,52 @@ class ApiClient {
 
   // ---- users & models ----------------------------------------------------
 
+  Future<Map<String, dynamic>> githubConnection() async =>
+      await _json('GET', '/github/connection') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> connectGithub(String token, List<String> repositories) async {
+    final endpoint = Uri.parse(baseUrl);
+    if (endpoint.scheme != 'https' &&
+        !(endpoint.scheme == 'http' && ['localhost', '127.0.0.1', '::1', '[::1]'].contains(endpoint.host))) {
+      throw ApiException(0, 'GitHub tokens require an HTTPS backend or a local loopback server.');
+    }
+    return await _json('PUT', '/github/connection', body: {'token': token, 'repositories': repositories})
+        as Map<String, dynamic>;
+  }
+
+  Future<void> disconnectGithub() async => _json('DELETE', '/github/connection');
+
+  Future<Map<String, dynamic>> automationActions() async =>
+      await _json('GET', '/automation/actions') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> proposeAction(Map<String, dynamic> action) async =>
+      await _json('POST', '/automation/actions', body: action) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> handleAction(String id, String operation, {Map<String, dynamic>? body}) async =>
+      await _json('POST', '/automation/actions/$id/$operation', body: body) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> readGithub(Map<String, String> query) async =>
+      await _json('GET', '/github/read', query: query) as Map<String, dynamic>;
+
   Future<Map<String, dynamic>> creativeCapabilities() async =>
       await _json('GET', '/creative/capabilities') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> assistantCapabilities() async =>
+      await _json('GET', '/capabilities') as Map<String, dynamic>;
+
+  Future<List<Map<String, dynamic>>> assistantSkills() async =>
+      (await _json('GET', '/skills') as List).cast<Map<String, dynamic>>();
+
+  Future<void> saveAssistantSkill(Map<String, dynamic> skill) async =>
+      _json('PUT', '/skills/${Uri.encodeComponent(skill['name'] as String)}', body: skill);
+
+  Future<void> deleteAssistantSkill(String name) async => _json('DELETE', '/skills/${Uri.encodeComponent(name)}');
 
   Future<Map<String, dynamic>> creativeCredits() async =>
       await _json('GET', '/creative/credits') as Map<String, dynamic>;
 
   Future<List<Map<String, dynamic>>> creations({int offset = 0}) async =>
       (await _json('GET', '/creative/jobs', query: {'offset': '$offset'}) as List).cast<Map<String, dynamic>>();
-
-  Future<Map<String, dynamic>> creation(String id) async =>
-      await _json('GET', '/creative/jobs/$id') as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> creativePolicy() async =>
       await _json('GET', '/creative/admin/policy') as Map<String, dynamic>;
@@ -265,6 +513,14 @@ class ApiClient {
       await _json('POST', '/creative/jobs', body: body) as Map<String, dynamic>;
 
   Future<void> cancelCreation(String id) async => _json('POST', '/creative/jobs/$id/cancel');
+
+  Future<Map<String, dynamic>> creation(String id) async =>
+      await _json('GET', '/creative/jobs/$id') as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>?> creationForRequest(String key) async {
+    final jobs = await _json('GET', '/creative/jobs', query: {'request_key': key}) as List;
+    return jobs.isEmpty ? null : jobs.first as Map<String, dynamic>;
+  }
 
   Future<void> deleteCreation(String id) async => _json('DELETE', '/creative/jobs/$id');
 
@@ -352,7 +608,9 @@ class ApiClient {
 
   Future<String> exportMyData() async {
     final res = await _send('GET', '/users/me/export');
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return const JsonEncoder.withIndent('  ').convert(jsonDecode(utf8.decode(res.bodyBytes)));
   }
 
@@ -476,33 +734,59 @@ class ApiClient {
   /// Raw export (markdown, txt or pdf) for saving to a file.
   Future<Uint8List> exportConversationBytes(String id, {String format = 'markdown'}) async {
     final res = await _send('GET', '/conversations/$id/export', query: {'format': format});
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return res.bodyBytes;
   }
 
   // ---- files -------------------------------------------------------------
 
   /// Uploads a document or image; it is scanned, its text extracted and indexed by the server.
-  Future<KnowledgeDocument> uploadFile(String filename, Uint8List bytes, {String? projectId}) async {
-    final res = await _sendMultipart('/files', 'file', filename, bytes, fields: {'project_id': ?projectId});
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+  Future<KnowledgeDocument> uploadFile(
+    String filename,
+    Uint8List bytes, {
+    String? projectId,
+    bool Function()? isCurrentSession,
+  }) async {
+    final res = await _sendMultipart(
+      '/files',
+      'file',
+      filename,
+      bytes,
+      fields: {'project_id': ?projectId},
+      isCurrentSession: isCurrentSession,
+    );
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return KnowledgeDocument.fromJson(jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>);
-  }
-
-  Future<FilePreview> filePreview(String documentId) async =>
-      FilePreview.fromJson(await _json('GET', '/files/$documentId/preview') as Map<String, dynamic>);
-
-  Future<Uint8List> filePreviewPage(String documentId, int page) async {
-    final res = await _send('GET', '/files/$documentId/preview/pages/$page');
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
-    return res.bodyBytes;
   }
 
   Future<Uint8List> downloadFile(String documentId) async {
     final res = await _send('GET', '/files/$documentId/download');
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return res.bodyBytes;
   }
+
+  Future<Map<String, dynamic>> workbookPage(String id, {String? sheet, String area = 'A1:AN50'}) async =>
+      await _json('GET', '/spreadsheets/$id', query: {'area': area, 'sheet': ?sheet}) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> saveWorkbook(
+    String id,
+    String key,
+    String filename,
+    List<Map<String, dynamic>> actions,
+  ) async => await _json(
+    'POST',
+    '/spreadsheets/$id/edits',
+    body: {'request_key': key, 'filename': filename, 'actions': actions},
+  ) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> previewFile(String documentId) async =>
+      await _json('GET', '/files/$documentId/preview') as Map<String, dynamic>;
 
   Future<KnowledgeDocument> moveDocument(String documentId, String? projectId) async => KnowledgeDocument.fromJson(
     await _json('PATCH', '/knowledge/documents/$documentId', body: {'project_id': projectId}) as Map<String, dynamic>,
@@ -554,10 +838,12 @@ class ApiClient {
       'audio',
       filename,
       audio,
-      contentType: 'audio/m4a',
+      contentType: filename.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/m4a',
       fields: {'language': ?language},
     );
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return (jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>)['text'] as String;
   }
 
@@ -585,7 +871,9 @@ class ApiClient {
   /// The reminder as an .ics file for calendar apps.
   Future<Uint8List> reminderCalendarFile(String id) async {
     final res = await _send('GET', '/reminders/$id/calendar.ics');
-    if (res.statusCode >= 400) throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    if (res.statusCode >= 400) {
+      throw ApiException(res.statusCode, _errorMessage(res.statusCode, res.body));
+    }
     return res.bodyBytes;
   }
 

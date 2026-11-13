@@ -14,6 +14,7 @@ import '../../core/files.dart';
 import '../chat/chat_controller.dart';
 import '../projects/projects_controller.dart';
 import 'conversations_controller.dart';
+import 'tool_navigation_rail.dart';
 
 /// Conversation history: search, open, rename, pin, export and delete.
 class ConversationPanel extends ConsumerStatefulWidget {
@@ -36,10 +37,6 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
 
   void _go(String location) {
     final router = GoRouter.of(context);
-    if (location == '/chat') {
-      // The blank /chat screen stays mounted under /chat/:id and does not reset itself.
-      ref.read(chatControllerProvider.notifier).open(null);
-    }
     if (widget.inDrawer) Navigator.of(context).pop();
     router.go(location);
   }
@@ -137,140 +134,142 @@ class _ConversationPanelState extends ConsumerState<ConversationPanel> {
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       child: SafeArea(
-        child: Column(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Row(
+            ToolNavigationRail(onNavigate: _go),
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const DhanzLogo(size: 34),
-                  const SizedBox(width: 10),
-                  Text(
-                    'DHANZ AI',
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 1.5),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Row(
+                      children: [
+                        const DhanzLogo(size: 34),
+                        const SizedBox(width: 10),
+                        Text(
+                          'DHANZ AI',
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 1.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        ref.read(chatControllerProvider.notifier).open(null);
+                        _go('/chat');
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('New chat'),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: _ProjectSwitcher(onManage: () => _go('/projects')),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        hintText: 'Search conversations',
+                        prefixIcon: Icon(Icons.search),
+                        isDense: true,
+                      ),
+                      onChanged: (q) {
+                        _debounce?.cancel();
+                        _debounce = Timer(
+                          const Duration(milliseconds: 350),
+                          () => ref.read(conversationSearchProvider.notifier).set(q.trim()),
+                        );
+                      },
+                    ),
+                  ),
+                  Expanded(
+                    child: conversations.when(
+                      loading: () => const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Center(
+                        child: TextButton.icon(
+                          onPressed: () => ref.invalidate(conversationsProvider),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Could not load. Retry'),
+                        ),
+                      ),
+                      data: (items) => items.isEmpty
+                          ? Center(
+                              child: Text(
+                                'No conversations yet',
+                                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              itemCount: items.length,
+                              itemBuilder: (context, i) {
+                                final c = items[i];
+                                return ListTile(
+                                  dense: true,
+                                  selected: c.id == currentId,
+                                  selectedTileColor: theme.colorScheme.primaryContainer,
+                                  selectedColor: theme.colorScheme.onPrimaryContainer,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  leading: Icon(
+                                    c.pinned
+                                        ? Icons.push_pin
+                                        : c.temporary
+                                        ? Icons.timer_outlined
+                                        : Icons.chat_bubble_outline,
+                                    size: 18,
+                                  ),
+                                  title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                  onTap: () => _go('/chat/${c.id}'),
+                                  trailing: PopupMenuButton<String>(
+                                    tooltip: 'Conversation options',
+                                    icon: const Icon(Icons.more_horiz, size: 20),
+                                    onSelected: (action) => switch (action) {
+                                      'rename' => _rename(c),
+                                      'pin' => _run(
+                                        () => ref.read(conversationsProvider.notifier).setPinned(c.id, !c.pinned),
+                                      ),
+                                      'export-pdf' => _export(c, 'pdf'),
+                                      'export-md' => _export(c, 'markdown'),
+                                      'export-txt' => _export(c, 'txt'),
+                                      'move' => _moveToProject(c),
+                                      'delete' => _delete(c),
+                                      _ => null,
+                                    },
+                                    itemBuilder: (context) => [
+                                      const PopupMenuItem(value: 'rename', child: Text('Rename')),
+                                      PopupMenuItem(value: 'pin', child: Text(c.pinned ? 'Unpin' : 'Pin')),
+                                      const PopupMenuItem(value: 'move', child: Text('Move to project…')),
+                                      const PopupMenuItem(value: 'export-pdf', child: Text('Save as PDF')),
+                                      const PopupMenuItem(value: 'export-md', child: Text('Save as Markdown')),
+                                      const PopupMenuItem(value: 'export-txt', child: Text('Save as text')),
+                                      const PopupMenuItem(value: 'delete', child: Text('Delete')),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      child: Text((user?.displayName.isNotEmpty ?? false) ? user!.displayName[0].toUpperCase() : '?'),
+                    ),
+                    title: Text(user?.displayName ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(user?.email ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: const Icon(Icons.settings_outlined),
+                    onTap: () => _go('/settings'),
                   ),
                 ],
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: FilledButton.icon(
-                onPressed: () => _go('/chat'),
-                icon: const Icon(Icons.add),
-                label: const Text('New chat'),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-              child: _ProjectSwitcher(onManage: () => _go('/projects')),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              child: TextField(
-                decoration: const InputDecoration(
-                  hintText: 'Search conversations',
-                  prefixIcon: Icon(Icons.search),
-                  isDense: true,
-                ),
-                onChanged: (q) {
-                  _debounce?.cancel();
-                  _debounce = Timer(
-                    const Duration(milliseconds: 350),
-                    () => ref.read(conversationSearchProvider.notifier).set(q.trim()),
-                  );
-                },
-              ),
-            ),
-            Expanded(
-              child: conversations.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                  child: TextButton.icon(
-                    onPressed: () => ref.invalidate(conversationsProvider),
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('Could not load. Retry'),
-                  ),
-                ),
-                data: (items) => items.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No conversations yet',
-                          style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        itemCount: items.length,
-                        itemBuilder: (context, i) {
-                          final c = items[i];
-                          return ListTile(
-                            dense: true,
-                            selected: c.id == currentId,
-                            selectedTileColor: theme.colorScheme.primaryContainer,
-                            selectedColor: theme.colorScheme.onPrimaryContainer,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            leading: Icon(
-                              c.pinned
-                                  ? Icons.push_pin
-                                  : c.temporary
-                                  ? Icons.timer_outlined
-                                  : Icons.chat_bubble_outline,
-                              size: 18,
-                            ),
-                            title: Text(c.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                            onTap: () => _go('/chat/${c.id}'),
-                            trailing: PopupMenuButton<String>(
-                              tooltip: 'Conversation options',
-                              icon: const Icon(Icons.more_horiz, size: 20),
-                              onSelected: (action) => switch (action) {
-                                'rename' => _rename(c),
-                                'pin' => _run(
-                                  () => ref.read(conversationsProvider.notifier).setPinned(c.id, !c.pinned),
-                                ),
-                                'export-pdf' => _export(c, 'pdf'),
-                                'export-md' => _export(c, 'markdown'),
-                                'export-txt' => _export(c, 'txt'),
-                                'move' => _moveToProject(c),
-                                'delete' => _delete(c),
-                                _ => null,
-                              },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(value: 'rename', child: Text('Rename')),
-                                PopupMenuItem(value: 'pin', child: Text(c.pinned ? 'Unpin' : 'Pin')),
-                                const PopupMenuItem(value: 'move', child: Text('Move to project…')),
-                                const PopupMenuItem(value: 'export-pdf', child: Text('Save as PDF')),
-                                const PopupMenuItem(value: 'export-md', child: Text('Save as Markdown')),
-                                const PopupMenuItem(value: 'export-txt', child: Text('Save as text')),
-                                const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.auto_awesome_outlined),
-              title: const Text('DHANZ Creative Studio'),
-              onTap: () => _go('/studio'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.local_library_outlined),
-              title: const Text('Knowledge library'),
-              onTap: () => _go('/library'),
-            ),
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
-                child: Text((user?.displayName.isNotEmpty ?? false) ? user!.displayName[0].toUpperCase() : '?'),
-              ),
-              title: Text(user?.displayName ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(user?.email ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: const Icon(Icons.settings_outlined),
-              onTap: () => _go('/settings'),
             ),
           ],
         ),

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -11,11 +12,35 @@ Future<void> installWindowsUpdate(
   String sha256Hex, {
   required http.Client client,
   void Function(double progress)? onProgress,
+  String? downloadedPath,
 }) async {
-  final file = await downloadVerified(url, sha256Hex, client: client, onProgress: onProgress);
+  final file = downloadedPath == null
+      ? await downloadVerified(url, sha256Hex, client: client, onProgress: onProgress)
+      : File(downloadedPath);
+  if ((await sha256.bind(file.openRead()).first).toString() != sha256Hex.toLowerCase()) {
+    throw const FileSystemException('The update checksum changed. Download it again.');
+  }
   await Process.start(file.path, const ['/SILENT', '/CLOSEAPPLICATIONS'], mode: ProcessStartMode.detached);
   exit(0);
 }
+
+Future<String> prepareWindowsUpdate(
+  Uri url,
+  String checksum, {
+  required http.Client client,
+  void Function(double)? onProgress,
+}) async => (await downloadVerified(url, checksum, client: client, onProgress: onProgress)).path;
+
+Future<String> prepareAndroidUpdate(
+  Uri url,
+  String checksum, {
+  required http.Client client,
+  void Function(double)? onProgress,
+}) async => (await downloadVerified(url, checksum, client: client, onProgress: onProgress, extension: 'apk')).path;
+
+/// Returns false when Android needs the user to grant installation permission.
+Future<bool> installAndroidUpdate(String path) async =>
+    await const MethodChannel('ai.dhanz/updates').invokeMethod<bool>('installApk', {'path': path}) ?? false;
 
 /// Downloads [url] to a temporary file and returns it only if its SHA-256 matches [sha256Hex].
 Future<File> downloadVerified(
@@ -24,16 +49,24 @@ Future<File> downloadVerified(
   required http.Client client,
   void Function(double progress)? onProgress,
   Directory? directory,
+  String extension = 'exe',
 }) async {
+  if (!const {'exe', 'apk'}.contains(extension)) throw const FormatException('Unsupported update type');
   if (url.scheme != 'https') throw const HttpException('Updates are only downloaded over HTTPS.');
-  final res = await client.send(http.Request('GET', url));
-  if (res.statusCode != 200) throw HttpException('Download failed (${res.statusCode}).', uri: url);
+  if (!RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(sha256Hex)) throw const FormatException('Invalid checksum');
   final dir = directory ?? await getTemporaryDirectory();
-  final file = File('${dir.path}${Platform.pathSeparator}DhanzAI-update-setup.exe');
+  final cache = Directory('${dir.path}${Platform.pathSeparator}dhanz-ai-updates');
+  await cache.create(recursive: true);
+  final file = File('${cache.path}${Platform.pathSeparator}$sha256Hex-setup.$extension');
+  if (await file.exists() && (await sha256.bind(file.openRead()).first).toString() == sha256Hex.toLowerCase()) {
+    return file;
+  }
+  final res = await client.send(http.Request('GET', url)).timeout(const Duration(seconds: 30));
+  if (res.statusCode != 200) throw HttpException('Download failed (${res.statusCode}).', uri: url);
   final sink = file.openWrite();
   var received = 0;
   try {
-    await for (final chunk in res.stream) {
+    await for (final chunk in res.stream.timeout(const Duration(seconds: 60))) {
       sink.add(chunk);
       received += chunk.length;
       final total = res.contentLength;

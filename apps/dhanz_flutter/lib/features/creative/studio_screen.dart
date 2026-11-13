@@ -16,8 +16,10 @@ import '../../core/providers.dart';
 import '../../widgets/text_prompt_dialog.dart';
 import '../auth/auth_controller.dart';
 import '../chat/chat_controller.dart';
-import 'creative_activity.dart';
+import '../voice/prompt_microphone.dart';
+import '../voice/read_aloud_button.dart';
 import 'studio_admin_screen.dart';
+import 'creative_defaults.dart';
 
 typedef StudioData = ({
   List<Map<String, dynamic>> models,
@@ -147,8 +149,11 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
   final _prompt = TextEditingController();
   String? _model, _ratio, _quality, _format, _operation, _resolution;
   int? _duration;
+  String? _durationModel;
   String? _referenceId, _referenceName, _error, _pendingKey, _pendingFingerprint;
   bool _rights = false, _busy = false;
+  Map<String, dynamic>? _videoReference;
+  bool _analysisAttempted = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -168,6 +173,22 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       final files = await pickFiles();
       if (files.isEmpty) return;
       final file = files.first;
+      if (widget.kind == 'video' && RegExp(r'\.(mp4|mov|webm|mkv)$', caseSensitive: false).hasMatch(file.name)) {
+        final api = ref.read(apiClientProvider);
+        final account = ref.read(authControllerProvider).value?.id;
+        final server = api.baseUrl;
+        bool current() => mounted && ref.read(authControllerProvider).value?.id == account && api.baseUrl == server;
+        final reference = await api.uploadReferenceVideo(file.name, file.bytes, isCurrentSession: current);
+        if (!mounted) return;
+        setState(() {
+          _videoReference = reference;
+          _analysisAttempted = false;
+          _referenceId = reference['reference_id'] as String;
+          _referenceName = 'Video opening frame: ${file.name}';
+          if (_prompt.text.trim().isEmpty) _prompt.text = 'Create a short video inspired by this reference, with smooth natural motion and consistent subjects, lighting and visual style.';
+        });
+        return;
+      }
       if (file.bytes.length > 8 * 1024 * 1024 ||
           !RegExp(r'\.(png|jpe?g|webp)$', caseSensitive: false).hasMatch(file.name)) {
         throw ApiException(422, 'Choose a PNG, JPEG or WebP image up to 8 MB.');
@@ -176,6 +197,7 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       if (!mounted) return;
       if (doc.fileType != 'image') throw ApiException(422, 'Choose an image file.');
       setState(() {
+        _videoReference = null;
         _referenceId = doc.id;
         _referenceName = doc.title;
       });
@@ -186,8 +208,47 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
     }
   }
 
+  Future<void> _analyzeVideo() async {
+    final reference = _videoReference;
+    if (reference == null || _busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final api = ref.read(apiClientProvider);
+      final account = ref.read(authControllerProvider).value?.id;
+      final server = api.baseUrl;
+      bool current() => mounted && ref.read(authControllerProvider).value?.id == account && api.baseUrl == server;
+      final brief = await api.analyzeReferenceVideo(
+        reference['id'] as String,
+        retry: _analysisAttempted,
+        isCurrentSession: current,
+      );
+      if (mounted) setState(() => _prompt.text = brief);
+    } on Object catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _analysisAttempted = true;
+        });
+      }
+    }
+  }
+
   Future<void> _generate(Map<String, dynamic> model) async {
     if (_busy) return;
+    if (model['duration_min'] != null &&
+        (_duration == null ||
+            _duration! < (model['duration_min'] as int) ||
+            _duration! > (model['duration_max'] as int))) {
+      setState(
+        () => _error = 'Enter a whole-second length from ${model['duration_min']} to ${model['duration_max']} seconds.',
+      );
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -211,11 +272,8 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       _pendingFingerprint = fingerprint;
     }
     body['request_key'] = _pendingKey;
-    final activity = ref.read(creativeActivityProvider.notifier);
-    final owner = ref.read(authControllerProvider).value?.id;
     try {
-      final job = await ref.read(apiClientProvider).generateMedia(body);
-      activity.track(job, owner);
+      await ref.read(apiClientProvider).generateMedia(body);
       _pendingKey = null;
       if (!mounted) return;
       ref.invalidate(studioProvider);
@@ -227,7 +285,13 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
     }
   }
 
-  Widget _choice(String label, List<dynamic> options, String? value, ValueChanged<String> change) => SizedBox(
+  Widget _choice(
+    String label,
+    List<dynamic> options,
+    String? value,
+    ValueChanged<String> change, {
+    Map<String, String> labels = const {},
+  }) => SizedBox(
     width: 220,
     child: DropdownButtonFormField<String>(
       key: ValueKey('$label-$value'),
@@ -235,7 +299,15 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
       isExpanded: true,
       decoration: InputDecoration(labelText: label),
       items: [
-        for (final option in options) DropdownMenuItem(value: '$option', child: Text('$option'.replaceAll('_', ' '))),
+        for (final option in options)
+          DropdownMenuItem(
+            value: '$option',
+            child: Text(
+              labels['$option'] ?? '$option'.replaceAll('_', ' '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
       ],
       onChanged: _busy
           ? null
@@ -248,7 +320,7 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final models = widget.data.models.where((model) => model['kind'] == widget.kind).toList();
+    final models = creativeModelsByQuality(widget.data.models.where((model) => model['kind'] == widget.kind));
     if (models.isEmpty) {
       return Center(
         child: Padding(
@@ -271,12 +343,20 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
     final operations = model['operations'] as List;
     if (!operations.contains(_operation)) _operation = '${operations.first}';
     final durations = model['durations'] as List;
-    if (durations.isNotEmpty && !durations.contains(_duration)) _duration = durations.first as int;
+    final customDuration = model['duration_min'] != null && model['duration_max'] != null;
+    if (customDuration) {
+      if (_durationModel != _model) _duration ??= 10;
+    } else if (durations.isNotEmpty && !durations.contains(_duration)) {
+      _duration = durations.first as int;
+    }
+    _durationModel = _model;
     final resolutions = model['resolutions'] as List;
-    if (resolutions.isNotEmpty && !resolutions.contains(_resolution)) _resolution = '${resolutions.first}';
-    final cost = widget.kind == 'image'
-        ? widget.data.credits['image_cost'] as int
-        : (widget.data.credits['video_cost_per_second'] as int) * (_duration ?? 5);
+    if (resolutions.isNotEmpty && !resolutions.contains(_resolution)) _resolution = preferredCreativeResolution(model);
+    final cost =
+        model['credit_cost'] as int? ??
+        (widget.kind == 'image'
+            ? widget.data.credits['image_cost'] as int
+            : (widget.data.credits['video_cost_per_second'] as int) * (_duration ?? 5));
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Center(
@@ -291,8 +371,8 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
               ),
               const SizedBox(height: 8),
               const Text(
-                'Private to your account. Prompts and references are sent to the selected generation provider '
-                'and OpenAI safety screening. Review AI-generated media before sharing.',
+                'Private to your account. Prompts and references are sent to the configured generation '
+                'and safety-screening providers. Review AI-generated media before sharing.',
               ),
               const SizedBox(height: 24),
               TextField(
@@ -305,6 +385,30 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                   labelText: '${widget.kind == 'image' ? 'Image' : 'Video'} prompt',
                   hintText: 'Describe your subject, setting, lighting, style and composition…',
                   border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  children: [
+                    PromptMicrophone(
+                      enabled: !_busy,
+                      onTranscript: (text) => setState(() {
+                        final combined = '${_prompt.text.trim()}${_prompt.text.trim().isEmpty ? '' : ' '}$text';
+                        _prompt.text = combined.length > 4000 ? combined.substring(0, 4000) : combined;
+                        _prompt.selection = TextSelection.collapsed(offset: _prompt.text.length);
+                        _error = null;
+                      }),
+                      onError: (message) => setState(() => _error = message),
+                    ),
+                    ListenableBuilder(
+                      listenable: _prompt,
+                      builder: (context, _) => ReadAloudButton(text: _prompt.text, label: 'Read prompt aloud'),
+                    ),
+                  ],
                 ),
               ),
               Align(
@@ -328,17 +432,57 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                 spacing: 16,
                 runSpacing: 16,
                 children: [
-                  _choice('AI model', [for (final m in models) m['model']], _model, (v) => _model = v),
-                  _choice('Aspect ratio', ratios, _ratio, (v) => _ratio = v),
+                  _choice(
+                    'AI model',
+                    [for (final m in models) m['model']],
+                    _model,
+                    (v) => _model = v,
+                    labels: {for (final m in models) '${m['model']}': '${m['label'] ?? m['model']}'},
+                  ),
+                  _choice(
+                    'Aspect ratio',
+                    ratios,
+                    _ratio,
+                    (v) => _ratio = v,
+                    labels: widget.kind == 'video'
+                        ? const {'16:9': 'Horizontal · 16:9', '9:16': 'Vertical · 9:16'}
+                        : const {},
+                  ),
                   if (qualities.isNotEmpty) _choice('Quality', qualities, _quality, (v) => _quality = v),
                   _choice('File format', formats, _format, (v) => _format = v),
                   if (operations.length > 1) _choice('Operation', operations, _operation, (v) => _operation = v),
-                  if (durations.isNotEmpty)
-                    _choice('Duration (seconds)', durations, '$_duration', (v) => _duration = int.parse(v)),
+                  if (customDuration)
+                    SizedBox(
+                      width: 250,
+                      child: TextFormField(
+                        key: ValueKey('custom-duration-$_model'),
+                        initialValue: '$_duration',
+                        enabled: !_busy,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Custom length (seconds)',
+                          helperText: '${model['duration_min']}–${model['duration_max']} seconds',
+                          border: const OutlineInputBorder(),
+                        ),
+                        onChanged: (value) => setState(() => _duration = int.tryParse(value)),
+                      ),
+                    ),
+                  if (!customDuration && durations.isNotEmpty)
+                    _choice(
+                      'Duration (seconds)',
+                      durations,
+                      '$_duration',
+                      (v) => _duration = int.parse(v),
+                      labels: {
+                        for (final seconds in durations)
+                          '$seconds': (seconds as int) >= 60 ? '${seconds ~/ 60} minutes' : '$seconds seconds',
+                      },
+                    ),
                   if (resolutions.isNotEmpty) _choice('Resolution', resolutions, _resolution, (v) => _resolution = v),
                 ],
               ),
               const SizedBox(height: 20),
+              if (model['description'] is String) ...[Text('${model['description']}'), const SizedBox(height: 12)],
               if (model['reference'] == true)
                 Wrap(
                   spacing: 12,
@@ -347,7 +491,9 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                     OutlinedButton.icon(
                       onPressed: _busy ? null : _reference,
                       icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: const Text('Upload reference image'),
+                      label: Text(
+                        widget.kind == 'video' ? 'Upload reference image or video' : 'Upload reference image',
+                      ),
                     ),
                     if (_referenceName != null)
                       InputChip(
@@ -357,11 +503,50 @@ class _GenerationFormState extends ConsumerState<_GenerationForm> with Automatic
                             : () => setState(() {
                                 _referenceId = null;
                                 _referenceName = null;
+                                _videoReference = null;
                               }),
                       ),
                   ],
                 ),
-              const Text('References are also saved in your private Knowledge library, where you can delete them.'),
+              if (_videoReference != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Reference: ${(_videoReference!['duration'] as num).toStringAsFixed(1)} seconds. Four sampled frames:',
+                ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (var i = 0; i < (_videoReference!['frames'] as List).length; i++)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.memory(
+                            base64Decode((_videoReference!['frames'][i] as String).split(',').last),
+                            width: 130,
+                            height: 90,
+                            fit: BoxFit.contain,
+                          ),
+                          Text('${_videoReference!['timestamps'][i]}s'),
+                        ],
+                      ),
+                  ],
+                ),
+                const Text(
+                  'The model uses the opening frame plus your motion brief. Exact movement, cuts and source audio are not copied. Frame extraction is local. Sample frames expire after seven days.',
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _analyzeVideo,
+                  icon: const Icon(Icons.auto_awesome),
+                  label: Text(_analysisAttempted ? 'Analyze again / retry explicitly' : 'Analyze scenes & motion'),
+                ),
+                const Text(
+                  'Optional analysis uses your configured OpenAI vision model and may use API credits. It replaces the prompt below with an editable brief; review it before Generate.',
+                ),
+              ],
+              const Text(
+                'The reference image or extracted opening frame is saved in your private Knowledge library, where you can delete it.',
+              ),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 value: _rights,
@@ -487,7 +672,7 @@ class _GalleryState extends ConsumerState<_Gallery> {
                         label: const Text('Preview / download'),
                         onPressed: () =>
                             Navigator.of(context)
-                                .push(MaterialPageRoute<void>(builder: (_) => _CreationPreview(job: job))),
+                                .push(MaterialPageRoute<void>(builder: (_) => CreationPreview(job: job))),
                       ),
                     if (active)
                       TextButton(
@@ -580,15 +765,15 @@ class _GalleryState extends ConsumerState<_Gallery> {
   }
 }
 
-class _CreationPreview extends ConsumerStatefulWidget {
-  const _CreationPreview({required this.job});
+class CreationPreview extends ConsumerStatefulWidget {
+  const CreationPreview({required this.job, super.key});
   final Map<String, dynamic> job;
 
   @override
-  ConsumerState<_CreationPreview> createState() => _CreationPreviewState();
+  ConsumerState<CreationPreview> createState() => _CreationPreviewState();
 }
 
-class _CreationPreviewState extends ConsumerState<_CreationPreview> {
+class _CreationPreviewState extends ConsumerState<CreationPreview> {
   Uint8List? _image;
   Player? _player;
   VideoController? _video;

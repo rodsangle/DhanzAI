@@ -16,6 +16,7 @@ class User {
     this.retentionDays,
     this.emailVerified = true,
     this.mfaEnabled = false,
+    this.mfaSupported = false,
     this.hasPassword = true,
   });
 
@@ -31,6 +32,7 @@ class User {
     retentionDays: j['retention_days'] as int?,
     emailVerified: j['email_verified'] as bool? ?? true,
     mfaEnabled: j['mfa_enabled'] as bool? ?? false,
+    mfaSupported: j.containsKey('mfa_enabled'),
     hasPassword: j['has_password'] as bool? ?? true,
   );
 
@@ -55,6 +57,9 @@ class User {
 
   /// Signing in also needs a code from an authenticator app.
   final bool mfaEnabled;
+
+  /// The server offers two-step verification (it reports `mfa_enabled`; older servers do not).
+  final bool mfaSupported;
 
   /// False for accounts that only sign in with Google or Apple.
   final bool hasPassword;
@@ -436,7 +441,7 @@ class ToolActivity {
   final String summary;
   final bool error;
 
-  /// Something the app can offer: {"type": "reminder"|"email"|"file", ...}.
+  /// Something the app can offer: {"type": "reminder", "id", ...} or {"type": "email", "mailto", ...}.
   final Map<String, dynamic>? action;
 }
 
@@ -590,100 +595,6 @@ class UpdateInfo {
   final String? url;
   final String? sha256;
   final String? notes;
-}
-
-class FilePreview {
-  const FilePreview({
-    required this.filename,
-    required this.fileType,
-    required this.kind,
-    required this.truncated,
-    required this.sheets,
-    required this.blocks,
-    required this.slides,
-    required this.pageCount,
-    this.note,
-  });
-
-  factory FilePreview.fromJson(Map<String, dynamic> json) => FilePreview(
-    filename: json['filename'] as String? ?? 'File',
-    fileType: json['file_type'] as String? ?? '',
-    kind: json['kind'] as String? ?? 'unsupported',
-    note: json['note'] as String?,
-    truncated: json['truncated'] as bool? ?? false,
-    pageCount: json['page_count'] as int? ?? 0,
-    sheets: [
-      for (final sheet in json['sheets'] as List<dynamic>? ?? const [])
-        PreviewSheet.fromJson(sheet as Map<String, dynamic>),
-    ],
-    blocks: [
-      for (final block in json['blocks'] as List<dynamic>? ?? const [])
-        PreviewBlock.fromJson(block as Map<String, dynamic>),
-    ],
-    slides: [
-      for (final slide in json['slides'] as List<dynamic>? ?? const [])
-        PreviewSlide.fromJson(slide as Map<String, dynamic>),
-    ],
-  );
-
-  final String filename;
-  final String fileType;
-  final String kind;
-  final String? note;
-  final bool truncated;
-  final List<PreviewSheet> sheets;
-  final List<PreviewBlock> blocks;
-  final List<PreviewSlide> slides;
-  final int pageCount;
-}
-
-class PreviewSheet {
-  const PreviewSheet({required this.name, required this.rows});
-
-  factory PreviewSheet.fromJson(Map<String, dynamic> json) => PreviewSheet(
-    name: json['name'] as String? ?? 'Sheet',
-    rows: [
-      for (final row in json['rows'] as List<dynamic>? ?? const []) [for (final cell in row as List<dynamic>) cell],
-    ],
-  );
-
-  final String name;
-  final List<List<dynamic>> rows;
-}
-
-class PreviewBlock {
-  const PreviewBlock({required this.type, required this.text, this.level = 1, this.rows = const []});
-
-  factory PreviewBlock.fromJson(Map<String, dynamic> json) => PreviewBlock(
-    type: json['type'] as String? ?? 'paragraph',
-    text: json['text'] as String? ?? '',
-    level: json['level'] as int? ?? 1,
-    rows: [
-      for (final row in json['rows'] as List<dynamic>? ?? const [])
-        [for (final cell in row as List<dynamic>) '${cell ?? ''}'],
-    ],
-  );
-
-  final String type;
-  final String text;
-  final int level;
-  final List<List<String>> rows;
-}
-
-class PreviewSlide {
-  const PreviewSlide({required this.number, required this.title, required this.bullets, required this.notes});
-
-  factory PreviewSlide.fromJson(Map<String, dynamic> json) => PreviewSlide(
-    number: json['number'] as int? ?? 1,
-    title: json['title'] as String? ?? '',
-    bullets: [for (final bullet in json['bullets'] as List<dynamic>? ?? const []) '$bullet'],
-    notes: json['notes'] as String? ?? '',
-  );
-
-  final int number;
-  final String title;
-  final List<String> bullets;
-  final String notes;
 }
 
 class KnowledgeDocument {

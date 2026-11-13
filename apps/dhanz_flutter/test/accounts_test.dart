@@ -151,6 +151,14 @@ void main() {
     expect(find.text('New recovery codes'), findsOneWidget);
   });
 
+  testWidgets('servers without two-step verification do not offer it', (tester) async {
+    backend.legacyServer = true;
+    await signUp();
+    await pumpApp(tester, '/security');
+    expect(find.text('Two-step verification'), findsNothing);
+    expect(find.text('Change password'), findsOneWidget);
+  });
+
   testWidgets('Google-only account: linked account shown, deletion confirmed by email', (tester) async {
     backend.authOptions = {...backend.authOptions, 'google_client_id': 'web-client'};
     await api().oauthSignIn('google', FakeBackend.googleToken);

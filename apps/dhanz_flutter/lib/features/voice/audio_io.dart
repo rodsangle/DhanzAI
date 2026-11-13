@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -33,7 +31,7 @@ abstract class VoiceSpeaker {
   Future<void> stop();
 }
 
-/// Records AAC (.m4a) with the `record` plugin: Android, iOS, macOS and Windows.
+/// Native PCM WAV avoids platform AAC codec/sample-rate differences.
 class PluginRecorder implements VoiceRecorder {
   final _recorder = AudioRecorder();
 
@@ -45,9 +43,9 @@ class PluginRecorder implements VoiceRecorder {
     // On the web the plugin records to a blob URL and ignores the path.
     final path = kIsWeb
         ? ''
-        : '${(await getTemporaryDirectory()).path}/dhanz_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        : '${(await getTemporaryDirectory()).path}/dhanz_${DateTime.now().millisecondsSinceEpoch}.wav';
     await _recorder.start(
-      const RecordConfig(encoder: AudioEncoder.aacLc, sampleRate: 16000, numChannels: 1, bitRate: 64000),
+      RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000, numChannels: 1, bitRate: 64000),
       path: path,
     );
   }
@@ -67,7 +65,7 @@ class PluginRecorder implements VoiceRecorder {
         // best effort
       }
     }
-    return (bytes: bytes, filename: 'speech.m4a');
+    return (bytes: bytes, filename: 'speech.wav');
   }
 
   @override
@@ -80,10 +78,11 @@ class PluginRecorder implements VoiceRecorder {
 /// Device text-to-speech via `flutter_tts` (SAPI on Windows, AVSpeech on iOS/macOS, Android TTS).
 class PluginSpeaker implements VoiceSpeaker {
   PluginSpeaker() {
-    unawaited(_tts.awaitSpeakCompletion(true));
+    _ready = _tts.awaitSpeakCompletion(true);
   }
 
   final _tts = FlutterTts();
+  late final Future<dynamic> _ready;
 
   @override
   Future<List<String>> voices() async {
@@ -106,6 +105,7 @@ class PluginSpeaker implements VoiceSpeaker {
 
   @override
   Future<void> speak(String text) async {
+    await _ready;
     await _tts.speak(text);
   }
 

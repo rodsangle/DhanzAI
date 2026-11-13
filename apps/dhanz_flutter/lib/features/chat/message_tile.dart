@@ -5,9 +5,11 @@ import '../../models/models.dart';
 import '../../widgets/dhanz_logo.dart';
 import 'attachment_chip.dart';
 import 'markdown_view.dart';
-import 'reply_reader.dart';
+import 'response_rating.dart';
+import 'reply_share_button.dart';
 import 'sources_view.dart';
 import 'tool_activity_view.dart';
+import '../voice/read_aloud_button.dart';
 
 class MessageTile extends StatelessWidget {
   const MessageTile({
@@ -59,7 +61,12 @@ class MessageTile extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     for (final a in message.attachments)
-                      AttachmentChip(documentId: a.id, filename: a.filename, fileType: a.fileType),
+                      AttachmentChip(
+                        documentId: a.id,
+                        previewEnabled: true,
+                        filename: a.filename,
+                        fileType: a.fileType,
+                      ),
                   ],
                 ),
               ),
@@ -131,6 +138,19 @@ class MessageTile extends StatelessWidget {
                   ),
                 ),
               if (message.toolActivity.isNotEmpty) ToolActivityView(activity: message.toolActivity),
+              for (final attachment in message.attachments)
+                if (!message.toolActivity.any(
+                  (a) => a.action?['type'] == 'download_file' && a.action?['id'] == attachment.id,
+                ))
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: AttachmentChip(
+                      documentId: attachment.id,
+                      filename: attachment.filename,
+                      fileType: attachment.fileType,
+                      previewEnabled: true,
+                    ),
+                  ),
               if (message.citations.isNotEmpty) SourcesView(citations: message.citations),
               if (message.status == MessageStatus.error)
                 Container(
@@ -154,18 +174,22 @@ class MessageTile extends StatelessWidget {
                   child: Text('Stopped', style: muted),
                 ),
               if (!streaming)
-                Row(
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  runSpacing: 4,
                   children: [
                     if (message.content.isNotEmpty)
                       _ActionIcon(icon: Icons.copy_rounded, tooltip: 'Copy', onPressed: () => _copy(context)),
-                    if (message.content.trim().isNotEmpty)
-                      ReadAloudButton(key: ValueKey(message.id), text: message.content),
+                    if (message.content.isNotEmpty) ReplyShareButton(text: message.content),
+                    if (message.content.isNotEmpty) ReadAloudButton(key: ValueKey(message.id), text: message.content),
+                    if (!message.id.startsWith('pending')) ResponseRating(messageId: message.id),
                     if (isLast && !busy)
                       _ActionIcon(icon: Icons.refresh_rounded, tooltip: 'Regenerate', onPressed: onRegenerate),
                     if (message.model != null) ...[
                       const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(message.model!, style: muted, overflow: TextOverflow.ellipsis),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 200),
+                        child: Text(message.model!, style: muted, maxLines: 1, overflow: TextOverflow.ellipsis),
                       ),
                     ],
                   ],

@@ -2,10 +2,29 @@
 
 ## Unreleased
 
+### Newest AI models on the server
+
+- `scripts/server/upgrade_models.py` switches the server to the newest chat and image models its
+  own keys can use, after a live test request to each one (report-only unless `--apply`).
+- ROG: `apps/rog_video_worker/setup_next_models.py` installs and tests Wan 2.2 TI2V-5B (video)
+  and Z-Image-Turbo (photos) in a separate environment; the Wan 2.1 worker is unchanged.
+- GPT-5 and later models are treated as able to read images; `luna` models count as low-cost.
+
+### One Flutter app (web 0.10.12+53)
+
+- `apps/dhanz_flutter` is now the app the live site runs (previously copied in
+  `client_releases/0.10.0-updates`), with the Android, iOS, Windows and macOS projects.
+- The live app gains the three themes and Follow system, and the public-account screens:
+  email confirmation, two-step verification (shown only when the server supports it),
+  Google/Apple sign-in where configured, linked accounts, account deletion for password-less
+  accounts, and the admin "turn off two-step verification" action.
+- Files created by the backend's document tools appear in chat like other generated files.
+- The web-update workflow publishes only when started by hand from the Actions tab.
+
 ### Repository consolidation
 
 - The production line (web releases 0.9.3–0.10.11, server updaters, assistant skills, Windows
-  companion) is now on `main`. The live web app is built from `client_releases/0.10.0-updates`.
+  companion) is now on `main`.
 - Removed the superseded 0.9.3–0.9.9 client copies and their build workflows; their builds remain
   available as GitHub releases.
 - CI now fails when Flutter analysis, tests or the web build fail (they were hidden by a pipe).

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-
 import 'package:flutter/services.dart';
-import 'package:flutter_highlight/flutter_highlight.dart';
+import 'package:highlight/highlight.dart' as syntax;
 import 'package:flutter_highlight/themes/atom-one-dark.dart';
 import 'package:flutter_highlight/themes/atom-one-light.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -21,31 +20,33 @@ class MarkdownView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final base = MarkdownStyleSheet.fromTheme(theme);
-    return MarkdownBody(
-      data: data,
-      selectable: true,
-      extensionSet: md.ExtensionSet.gitHubWeb,
-      builders: {'pre': _CodeBlockBuilder()},
-      onTapLink: (text, href, title) async {
-        final uri = href == null ? null : Uri.tryParse(href);
-        if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
-          await launchUrl(uri, mode: LaunchMode.externalApplication);
-        }
-      },
-      styleSheet: base.copyWith(
-        // Code blocks draw their own container (see CodeBlock).
-        codeblockDecoration: const BoxDecoration(),
-        codeblockPadding: EdgeInsets.zero,
-        p: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
-        code: theme.textTheme.bodyMedium?.copyWith(
-          fontFamily: 'monospace',
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+    return SelectionArea(
+      child: MarkdownBody(
+        data: data,
+        selectable: false,
+        extensionSet: md.ExtensionSet.gitHubWeb,
+        builders: {'pre': _CodeBlockBuilder()},
+        onTapLink: (text, href, title) async {
+          final uri = href == null ? null : Uri.tryParse(href);
+          if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        },
+        styleSheet: base.copyWith(
+          // Code blocks draw their own container (see CodeBlock).
+          codeblockDecoration: const BoxDecoration(),
+          codeblockPadding: EdgeInsets.zero,
+          p: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
+          code: theme.textTheme.bodyMedium?.copyWith(
+            fontFamily: 'monospace',
+            backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          ),
+          blockquoteDecoration: BoxDecoration(
+            border: Border(left: BorderSide(color: theme.colorScheme.secondary, width: 3)),
+          ),
+          a: TextStyle(color: theme.colorScheme.secondary, decoration: TextDecoration.underline),
+          tableBorder: TableBorder.all(color: theme.colorScheme.outlineVariant),
         ),
-        blockquoteDecoration: BoxDecoration(
-          border: Border(left: BorderSide(color: theme.colorScheme.secondary, width: 3)),
-        ),
-        a: TextStyle(color: theme.colorScheme.secondary, decoration: TextDecoration.underline),
-        tableBorder: TableBorder.all(color: theme.colorScheme.outlineVariant),
       ),
     );
   }
@@ -126,18 +127,38 @@ class CodeBlock extends StatelessWidget {
           ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            child: HighlightView(
-              code,
-              language: _supported(language),
-              theme: hlTheme,
+            child: Padding(
               padding: const EdgeInsets.all(12),
-              textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13.5, height: 1.45),
+              child: Builder(
+                builder: (context) => RichText(
+                  selectionRegistrar: SelectionContainer.maybeOf(context),
+                  selectionColor: theme.colorScheme.primary.withValues(alpha: 0.3),
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 13.5,
+                      height: 1.45,
+                      color: hlTheme['root']?.color ?? theme.colorScheme.onSurface,
+                    ),
+                    children: _highlight(syntax.highlight.parse(code, language: _supported(language)).nodes, hlTheme),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
+  static List<TextSpan> _highlight(List<syntax.Node>? nodes, Map<String, TextStyle> theme) => [
+    for (final node in nodes ?? <syntax.Node>[])
+      TextSpan(
+        text: node.value,
+        style: theme[node.className],
+        children: node.children == null ? null : _highlight(node.children, theme),
+      ),
+  ];
 
   static String _supported(String? lang) {
     const aliases = {

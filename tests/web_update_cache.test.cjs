@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {refreshInstalledApp, compare} = require('../client_releases/0.10.0-updates/web/force_update.js');
+const {refreshInstalledApp, compare} = require('../apps/dhanz_flutter/web/force_update.js');
 
 function browser(version = '0.10.0', build = 28) {
   const fetched = [], removed = [], unregistered = [], navigated = [], consumed = [];

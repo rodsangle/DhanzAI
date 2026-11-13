@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,7 +10,11 @@ import '../../core/api/api_client.dart';
 import '../../core/files.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
-import '../files/file_preview_dialog.dart';
+import 'attachment_chip.dart';
+import 'chat_preview.dart';
+import 'website_action.dart';
+import 'media_generation_card.dart';
+import '../automation/automation_screen.dart';
 
 const _toolIcons = {
   'calculate': Icons.calculate_outlined,
@@ -21,9 +26,6 @@ const _toolIcons = {
   'list_reminders': Icons.alarm,
   'cancel_reminder': Icons.alarm_off,
   'draft_email': Icons.mail_outline,
-  'create_word_document': Icons.description_outlined,
-  'create_spreadsheet': Icons.table_chart_outlined,
-  'create_presentation': Icons.slideshow_outlined,
 };
 
 /// What Dhanz's tools did for a reply: small result chips, plus cards for reminders and email drafts.
@@ -40,18 +42,9 @@ class ToolActivityView extends ConsumerWidget {
     try {
       final bytes = await ref.read(apiClientProvider).reminderCalendarFile(id);
       final saved = await saveBytes('dhanz-reminder.ics', bytes, mimeType: 'text/calendar');
-      if (saved && context.mounted) _snack(context, 'Saved. Open the file to add it to your calendar.');
-    } on ApiException catch (e) {
-      if (context.mounted) _snack(context, e.message);
-    }
-  }
-
-  Future<void> _downloadFile(BuildContext context, WidgetRef ref, Map<String, dynamic> action) async {
-    final name = action['filename'] as String? ?? 'dhanz-file';
-    try {
-      final bytes = await ref.read(apiClientProvider).downloadFile(action['document_id'] as String);
-      final saved = await saveBytes(name, bytes);
-      if (saved && context.mounted) _snack(context, 'Saved $name');
+      if (saved && context.mounted) {
+        _snack(context, 'Saved. Open the file to add it to your calendar.');
+      }
     } on ApiException catch (e) {
       if (context.mounted) _snack(context, e.message);
     }
@@ -59,7 +52,9 @@ class ToolActivityView extends ConsumerWidget {
 
   Future<void> _openEmail(BuildContext context, Map<String, dynamic> action) async {
     final ok = await launchUrl(Uri.parse(action['mailto'] as String), mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) _snack(context, 'No email app found. Copy the text instead.');
+    if (!ok && context.mounted) {
+      _snack(context, 'No email app found. Copy the text instead.');
+    }
   }
 
   @override
@@ -91,9 +86,45 @@ class ToolActivityView extends ConsumerWidget {
             ),
           for (final a in cards) ...[
             const SizedBox(height: 8),
+            if (a.action!['type'] == 'app_project')
+              OutlinedButton.icon(
+                icon: const Icon(Icons.smartphone_outlined),
+                label: const Text('Open simulator'),
+                onPressed: () => ChatPreviewScope.of(context)?.open(
+                  ChatPreviewTarget(
+                    documentId: 'app-project:${a.action!['id']}',
+                    filename: a.action!['name'] as String? ?? 'App simulator',
+                    simulator: true,
+                    projectId: a.action!['id'] as String,
+                  ),
+                ),
+              ),
+            if (a.action!['type'] == 'open_website') WebsiteOpenCard(url: a.action!['url'] as String),
+            if (a.action!['type'] == 'generate_media')
+              MediaGenerationCard(key: ValueKey(a.action!['request_key']), action: a.action!),
             if (a.action!['type'] == 'reminder') _reminderCard(context, ref, a.action!),
             if (a.action!['type'] == 'email') _emailCard(context, a.action!),
-            if (a.action!['type'] == 'file') _fileCard(context, ref, a.action!),
+            if (a.action!['type'] == 'review_action')
+              FilledButton.icon(
+                onPressed: () {
+                  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.windows) {
+                    ref.read(approvalPanelSignalProvider.notifier).open();
+                  } else {
+                    context.go('/actions');
+                  }
+                },
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Review action'),
+              ),
+            // `download_file` comes from the server extensions; `file` (with `document_id`) from the
+            // backend's own document tools (Word, Excel, PowerPoint, CSV, PDF created in chat).
+            if (a.action!['type'] == 'download_file' || a.action!['type'] == 'file')
+              AttachmentChip(
+                documentId: (a.action!['id'] ?? a.action!['document_id']) as String,
+                previewEnabled: true,
+                filename: a.action!['filename'] as String,
+                fileType: a.action!['file_type'] as String?,
+              ),
           ],
         ],
       ),
@@ -137,58 +168,6 @@ class ToolActivityView extends ConsumerWidget {
       ),
     );
   }
-
-  Widget _fileCard(BuildContext context, WidgetRef ref, Map<String, dynamic> action) {
-    final name = action['filename'] as String? ?? 'File';
-    final kind = (action['file_type'] as String? ?? 'file').toUpperCase();
-    final bytes = action['size_bytes'];
-    final size = bytes is num ? ' · ${(bytes / 1024).toStringAsFixed(bytes < 10240 ? 1 : 0)} KB' : '';
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(_fileIcon(kind)),
-              title: Text(name),
-              subtitle: Text('Saved to your library · $kind$size'),
-            ),
-            Wrap(
-              spacing: 8,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: () =>
-                      showFilePreview(context, ref, documentId: action['document_id'] as String, filename: name),
-                  icon: const Icon(Icons.visibility_outlined, size: 18),
-                  label: const Text('Preview'),
-                ),
-                TextButton.icon(
-                  onPressed: () => _downloadFile(context, ref, action),
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('Download'),
-                ),
-                TextButton.icon(
-                  onPressed: () => context.go('/library'),
-                  icon: const Icon(Icons.folder_outlined, size: 18),
-                  label: const Text('Library'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  IconData _fileIcon(String kind) => switch (kind) {
-    'XLSX' || 'CSV' => Icons.table_chart_outlined,
-    'PPTX' => Icons.slideshow_outlined,
-    'PDF' => Icons.picture_as_pdf_outlined,
-    _ => Icons.description_outlined,
-  };
 
   Widget _emailCard(BuildContext context, Map<String, dynamic> action) {
     final to = action['to'] as String? ?? '';

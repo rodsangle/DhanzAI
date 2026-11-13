@@ -81,7 +81,7 @@ void main() {
 
   testWidgets('knowledge library: add a page, see it listed, and see refusals explained', (tester) async {
     await pumpApp(tester);
-    await tester.tap(find.text('Knowledge library'));
+    await tester.tap(find.byTooltip('Knowledge library')); // the navigation rail shows icons
     await tester.pumpAndSettle();
     expect(find.text('Your library is empty'), findsOneWidget);
 

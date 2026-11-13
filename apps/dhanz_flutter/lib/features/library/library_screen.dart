@@ -9,54 +9,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../core/files.dart';
+import '../../core/uploads/upload_queue.dart';
+import '../../core/uploads/folder_upload_action.dart';
+import 'library_controller.dart';
 import '../chat/attachment_chip.dart';
 import '../chat/file_icons.dart';
-import '../files/file_preview_dialog.dart';
 import '../../models/models.dart';
 import '../../widgets/text_prompt_dialog.dart';
-import '../auth/auth_controller.dart';
 import '../conversations/conversations_controller.dart';
 import '../projects/projects_controller.dart';
-
-class LibraryController extends AsyncNotifier<List<KnowledgeDocument>> {
-  @override
-  Future<List<KnowledgeDocument>> build() async {
-    final userId = ref.watch(authControllerProvider.select((s) => s.value?.id));
-    if (userId == null) return const [];
-    return ref.read(apiClientProvider).documents();
-  }
-
-  Future<void> add(String url) async {
-    final doc = await ref.read(apiClientProvider).addDocument(url);
-    final current = state.value ?? const [];
-    state = AsyncData([
-      doc,
-      for (final d in current)
-        if (d.id != doc.id) d,
-    ]);
-  }
-
-  void addLocal(KnowledgeDocument doc) => state = AsyncData([
-    doc,
-    for (final d in state.value ?? const <KnowledgeDocument>[])
-      if (d.id != doc.id) d,
-  ]);
-
-  Future<void> remove(String id) async {
-    await ref.read(apiClientProvider).deleteDocument(id);
-    state = AsyncData([
-      for (final d in state.value ?? const <KnowledgeDocument>[])
-        if (d.id != id) d,
-    ]);
-  }
-
-  Future<void> refresh() async {
-    ref.invalidateSelf();
-    await future;
-  }
-}
-
-final libraryProvider = AsyncNotifierProvider<LibraryController, List<KnowledgeDocument>>(LibraryController.new);
 
 /// The user's private knowledge library: pages Dhanz can look up and cite.
 class LibraryScreen extends ConsumerStatefulWidget {
@@ -96,7 +57,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
       setState(() => _searching = true);
       try {
         final hits = await ref.read(apiClientProvider).searchLibrary(q.trim());
-        if (mounted && _search.text.trim() == q.trim()) setState(() => _hits = hits);
+        if (mounted && _search.text.trim() == q.trim()) {
+          setState(() => _hits = hits);
+        }
       } on ApiException catch (e) {
         if (mounted) _snack(e.message);
       } finally {
@@ -179,18 +142,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   }
 
   Future<void> _upload() async {
-    final files = await pickFiles();
-    if (files.isEmpty || !mounted) return;
+    final queue = ref.read(uploadQueueProvider.notifier);
+    final ticket = queue.ticket();
     final projectId = ref.read(selectedProjectProvider);
-    for (final f in files) {
-      _snack('Uploading ${f.name}…');
-      try {
-        final doc = await ref.read(apiClientProvider).uploadFile(f.name, f.bytes, projectId: projectId);
-        ref.read(libraryProvider.notifier).addLocal(doc);
-        if (mounted) _snack(doc.notes ?? 'Added ${f.name} to your library');
-      } on ApiException catch (e) {
-        if (mounted) _snack('${f.name}: ${e.message}');
+    try {
+      final files = await pickFiles();
+      if (files.isEmpty) return;
+      queue.files(files, ticket: ticket, projectId: projectId);
+      if (mounted) {
+        _snack('Uploads queued. You can switch chats; see Uploads for progress.');
       }
+    } catch (error) {
+      if (mounted) _snack('$error');
     }
   }
 
@@ -249,14 +212,6 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
   Future<void> _open(String url) async {
     final uri = Uri.tryParse(url);
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _openItem(KnowledgeDocument d) async {
-    if (d.isFile && previewableFileTypes.contains(d.fileType)) {
-      await showFilePreview(context, ref, documentId: d.id, filename: d.title);
-      return;
-    }
-    await _preview(d);
   }
 
   Future<void> _preview(KnowledgeDocument d) async {
@@ -325,6 +280,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
             onPressed: _upload,
             icon: const Icon(Icons.upload_file),
             label: const Text('Upload files'),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'upload-folder',
+            onPressed: () => queueFolderUpload(context, ref),
+            icon: const Icon(Icons.create_new_folder_outlined),
+            label: const Text('Upload folder'),
           ),
           const SizedBox(height: 12),
           FloatingActionButton.extended(
@@ -439,19 +401,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
-                                    onTap: () => _openItem(d),
+                                    onTap: () => _preview(d),
                                     trailing: PopupMenuButton<String>(
                                       tooltip: 'Document options',
                                       onSelected: (a) => switch (a) {
-                                        'preview' => _openItem(d),
                                         'open' => _open(d.url),
                                         'download' => downloadAndSave(context, ref, d.id, d.title),
                                         'move' => _move(d),
                                         _ => _delete(d),
                                       },
                                       itemBuilder: (context) => [
-                                        if (d.isFile && previewableFileTypes.contains(d.fileType))
-                                          const PopupMenuItem(value: 'preview', child: Text('Preview')),
                                         if (d.isFile)
                                           const PopupMenuItem(value: 'download', child: Text('Download'))
                                         else

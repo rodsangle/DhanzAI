@@ -38,12 +38,16 @@ name `dhanzai`).
 - **Live site:** dhanzai.com on a custom AWS server (Docker Compose behind Caddy). Its API is the
   repository backend plus changes applied by `deploy/updaters/*.py` (code embedded as base64/gzip
   payloads, pinned to fingerprints of the running server). Its web app is built from
-  `client_releases/0.10.0-updates` (version 0.10.11+52) by `.github/workflows/web-updates.yml` and
-  published as `web-updates-*` prereleases; the server installs them through Settings → App update.
-- **`main`** (after the consolidation PR) contains the former production branch
-  `codex/spreadsheets-commands` plus the theme work. Two Flutter apps still exist:
-  `client_releases/0.10.0-updates` (live) and `apps/dhanz_flutter` (0.8 line with public-account
-  screens, Office file preview and the three themes). The older 0.9.x snapshots were removed.
+  `apps/dhanz_flutter` by `.github/workflows/web-updates.yml` (manual dispatch only; it publishes
+  `web-updates-*` prereleases and moves the `web-update-channel` the server installs from).
+  Bump `pubspec.yaml` and the workflow's `WEB_VERSION`/`WEB_BUILD`/`RELEASE_ID` together.
+- **One Flutter app:** `apps/dhanz_flutter` = the live client (0.10.12+53) + native projects. It has
+  the three themes (`lib/core/theme.dart`), public-account screens (two-step shown only when the
+  user JSON contains `mfa_enabled`), and the old app's tests on `test/fake_backend.dart`.
+- Not ported from the old app: its creative-activity indicator ("N creations in progress").
+- Models: `scripts/server/upgrade_models.py` (run on AWS) switches to the newest chat/image models the
+  server's keys answer with. ROG (Ryzen AI Max+ 395, 128 GB, 64 GB to GPU, Ubuntu 24.04 WSL2):
+  `setup_next_models.py` tests Wan 2.2 TI2V-5B and Z-Image-Turbo; not yet wired to the worker.
 - CI fails properly now: the Flutter job runs bash with pipefail (it used to hide failing analyze/test
   behind `| tee`).
 - Updater fingerprints use `ast.dump`, whose output differs between Python versions: run
@@ -53,20 +57,17 @@ name `dhanzai`).
 
 ## Open work (in priority order)
 
-1. One Flutter app: make the live client the only app (move it to `apps/dhanz_flutter`), port the
-   public-account screens, Office file preview and themes from the old app, point
-   `web-updates.yml` at it and let it run from `main`.
-2. Retire the updater scripts: move their payload code into `backend/` as readable source with
+1. Retire the updater scripts: move their payload code into `backend/` as readable source with
    Alembic migrations, build the image in CI, deploy by image tag with a rollback tag.
-3. Merge `codex/tailscale-build-0.8.2` (renumber its `0008` migration) and PR #37; clear Dependabot.
-4. One version number across the app, API, web releases and installers; README installer link.
-3. Public-platform Milestone B: Free/Plus/Pro plans in the database, usage metering and quotas, AI
+2. Merge `codex/tailscale-build-0.8.2` (renumber its `0008` migration) and PR #37; clear Dependabot.
+3. One version number across the app, API, web releases and installers; README installer link.
+4. Public-platform Milestone B: Free/Plus/Pro plans in the database, usage metering and quotas, AI
    cost tracking, Stripe Checkout + signed webhooks, Google Play Billing and StoreKit 2 verified
    server-side. (Creative Studio already has a credit ledger and plan allowances to build on.)
-4. Milestone C: web admin dashboard (plans/quotas/providers config, abuse reports, announcements,
+5. Milestone C: web admin dashboard (plans/quotas/providers config, abuse reports, announcements,
    metrics). Milestone D: web hosting, content moderation for chat, privacy policy/terms, store
    listings, object storage for uploads, bot protection on sign-up.
-5. Google sign-in on web/desktop and Apple sign-in off iOS; device testing of push, tray, updates.
+6. Google sign-in on web/desktop and Apple sign-in off iOS; device testing of push, tray, updates.
 
 Full feature status: `docs/ROADMAP.md`. Spec text: `docs/PROJECT_REQUIREMENTS.md`.
 
@@ -150,3 +151,6 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-03/11 — (Codex) web releases 0.9.3–0.10.11 and server updaters on `codex/*` branches.
 - 2026-11-12 — Consolidation PR: production branch merged into main, duplicate theme picker dropped
   (its `theme_style` choice migrates), seven old client snapshots removed, CI pipefail and lint fixed.
+- 2026-11-12 — One Flutter app: live client moved to `apps/dhanz_flutter` with themes and account
+  screens (web 0.10.12+53); web-updates workflow made manual.
+- 2026-11-13 — Server model-upgrade script; ROG test stage for Wan 2.2 TI2V-5B + Z-Image-Turbo.

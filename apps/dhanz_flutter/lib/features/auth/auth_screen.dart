@@ -219,7 +219,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           controller: _server,
                           decoration: const InputDecoration(
                             labelText: 'DHANZ AI server URL',
-                            helperText: 'Use https:// for anything other than local development',
+                            helperText: 'For a .ts.net server, connect Tailscale on both devices.',
                           ),
                           keyboardType: TextInputType.url,
                           validator: (v) => Uri.tryParse(v?.trim() ?? '')?.hasScheme == true ? null : 'Enter a URL',

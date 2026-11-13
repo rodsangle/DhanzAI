@@ -177,28 +177,43 @@ class VoiceController extends Notifier<VoiceState> {
 
   Future<void> listen() async {
     final session = ++_session;
-    if (!await _recorder.hasPermission()) {
+    try {
+      if (!await _recorder.hasPermission()) {
+        state = state.copyWith(
+          phase: VoicePhase.idle,
+          error: () => 'Microphone access was denied. Allow it in your device settings to talk to Dhanz.',
+        );
+        return;
+      }
+      if (session != _session) return;
+      _speechStarted = null;
+      _silentSince = null;
+      _finishing = false;
+      _listenStarted = DateTime.now();
+      await _recorder.start();
+      if (!ref.mounted || session != _session) {
+        await _recorder.cancel();
+        return;
+      }
       state = state.copyWith(
-        phase: VoicePhase.idle,
-        error: () => 'Microphone access was denied. Allow it in your device settings to talk to Dhanz.',
+        phase: VoicePhase.listening,
+        error: () => null,
+        status: () => state.wakePhrase ? 'Listening… say “Hey Dhanz” and your request' : 'Listening…',
       );
-      return;
+      await _levels?.cancel();
+      _levels = _recorder.levels().listen(_onLevel);
+      _maxTimer?.cancel();
+      _maxTimer = Timer(Vad.maxUtterance, () => unawaited(_finishListening()));
+    } on Object {
+      _stopTimers();
+      if (ref.mounted && session == _session) {
+        state = state.copyWith(
+          phase: VoicePhase.idle,
+          error: () => 'Could not start the microphone. Check your input device and permission.',
+          status: () => null,
+        );
+      }
     }
-    if (session != _session) return;
-    _speechStarted = null;
-    _silentSince = null;
-    _finishing = false;
-    _listenStarted = DateTime.now();
-    await _recorder.start();
-    state = state.copyWith(
-      phase: VoicePhase.listening,
-      error: () => null,
-      status: () => state.wakePhrase ? 'Listening… say “Hey Dhanz” and your request' : 'Listening…',
-    );
-    await _levels?.cancel();
-    _levels = _recorder.levels().listen(_onLevel);
-    _maxTimer?.cancel();
-    _maxTimer = Timer(Vad.maxUtterance, () => unawaited(_finishListening()));
   }
 
   void _onLevel(double db) {
@@ -233,7 +248,19 @@ class VoiceController extends Notifier<VoiceState> {
     _finishing = true;
     final session = _session;
     _stopTimers();
-    final recording = await _recorder.stop();
+    Recording? recording;
+    try {
+      recording = await _recorder.stop();
+    } on Object {
+      if (ref.mounted && session == _session) {
+        state = state.copyWith(
+          phase: VoicePhase.idle,
+          error: () => 'The microphone stopped unexpectedly. Try recording again.',
+          status: () => null,
+        );
+      }
+      return;
+    }
     if (session != _session) return;
     if (recording == null || recording.bytes.isEmpty) {
       state = state.copyWith(phase: VoicePhase.idle, status: () => 'Nothing was recorded.');
@@ -243,8 +270,14 @@ class VoiceController extends Notifier<VoiceState> {
     String text;
     try {
       text = await ref.read(apiClientProvider).transcribe(recording.bytes, filename: recording.filename);
-    } on ApiException catch (e) {
-      state = state.copyWith(phase: VoicePhase.idle, error: () => e.message, status: () => null);
+    } on Object catch (e) {
+      if (ref.mounted && session == _session) {
+        state = state.copyWith(
+          phase: VoicePhase.idle,
+          error: () => e is ApiException ? e.message : 'Speech recognition failed. Please try again.',
+          status: () => null,
+        );
+      }
       return;
     }
     if (session != _session) return;

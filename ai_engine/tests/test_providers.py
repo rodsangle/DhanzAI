@@ -199,3 +199,13 @@ async def test_images_are_sent_in_each_provider_format():
     [c async for c in p.stream("llava", VISION_MESSAGES, GenerationParams())]
     assert cap["json"]["messages"][0]["images"] == ["iVBORw0KGgo="]
     assert any("vision" == c.value for c in p.models()[0].capabilities)
+
+
+def test_newer_gpt_models_read_images_and_luna_is_low_cost():
+    from dhanz_ai.providers.openai import OpenAIProvider
+    from dhanz_ai.types import Capability, CostTier
+
+    infos = {m.model: m for m in OpenAIProvider("k", ["gpt-6.1-terra", "gpt-6-luna", "gpt-3.5-turbo"]).models()}
+    assert Capability.VISION in infos["gpt-6.1-terra"].capabilities
+    assert Capability.VISION not in infos["gpt-3.5-turbo"].capabilities
+    assert infos["gpt-6-luna"].cost_tier == CostTier.LOW

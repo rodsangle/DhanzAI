@@ -97,3 +97,25 @@ moderation settings or failed Dhanz jobs are changed by this preview helper. Con
 the working ROG model to the existing server is a subsequent step after visual review.
 
 Source: [version-pinned Wan pipeline documentation](https://github.com/huggingface/diffusers/blob/v0.35.2/docs/source/en/api/pipelines/wan.md).
+
+## Newer models: Wan 2.2 TI2V-5B (video) and Z-Image-Turbo (photos)
+
+For the ROG with 64 GB assigned to the GPU. `setup_next_models.py` installs diffusers 0.43.0
+(with the same verified ROCm PyTorch 2.11 wheel) into a separate environment,
+`~/.local/share/dhanz-rog/venv-models2026`, so the working Wan 2.1 worker is untouched. It
+downloads the two public Apache-2.0 models (safe-tensor weights, configs and tokenizers only,
+revision pinned on first download), then renders one 1024x1024 test photo and one 5-second
+1280x704 test clip, and records render time and peak GPU memory next to each output in
+`~/.local/share/dhanz-rog/next-models/`. Stop the DHANZ worker first; the GPU lock is shared.
+
+```bash
+source ~/.local/share/dhanz-rog/amd-env.sh
+cd ~/DhanzAI/apps/rog_video_worker
+python3 setup_next_models.py                 # plan only
+python3 setup_next_models.py --apply         # install, download, test photo then video
+python3 setup_next_models.py --test-only --only video   # repeat one test
+```
+
+Connecting these models to dhanzai.com (worker and server queue changes) comes after both
+tests pass on the ROG, using the measured times. Larger options that fit only with offloading:
+Wan 2.2 A14B (video) and Qwen-Image (photos).
