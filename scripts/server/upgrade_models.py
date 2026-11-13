@@ -121,6 +121,15 @@ def version_key(model: str) -> tuple:
     return (*parsed, model.count("-20"), model)
 
 
+def _numbers(model: str) -> tuple[float, ...]:
+    return tuple(float(n) for n in re.findall(r"\d+(?:\.\d+)?", model.split("-20")[0])[:2])
+
+
+def is_newer(model: str, current: list[str]) -> bool:
+    """True when the model's version is above every configured model's version."""
+    return not current or _numbers(model) > max(_numbers(c) for c in current)
+
+
 def newest(models: list[str]) -> list[str]:
     return sorted(dict.fromkeys(models), key=version_key)
 
@@ -170,7 +179,7 @@ def _choose(
     for model in candidates:
         if len(chosen) >= MAX_NEW_CHAT_MODELS:
             break
-        if model in current:
+        if model in current or not is_newer(model, current):
             continue
         if works(model):
             chosen.append(model)
@@ -191,7 +200,10 @@ def _choose(
     return Result(setting, ",".join(current), ",".join(final), notes)
 
 
-def openai_chat(env: dict[str, str], call: Http) -> Result | None:
+_DEFAULT_TEMPERATURE_ONLY = "Only the default (1) value is supported"
+
+
+def openai_chat(env: dict[str, str], call: Http) -> list[Result] | None:
     key = env.get("OPENAI_API_KEY")
     if not key:
         return None
@@ -200,28 +212,50 @@ def openai_chat(env: dict[str, str], call: Http) -> Result | None:
     current = csv(env.get("OPENAI_MODELS") or "gpt-4.1-mini,gpt-4.1")
     status, payload = call("GET", f"{base}/models", auth, None)
     if status != 200:
-        return Result("OPENAI_MODELS", ",".join(current), ",".join(current), [f"model list failed (HTTP {status})"])
-    listed = [m for m in _ids(payload) if re.fullmatch(r"gpt-\d+(\.\d+)?(-[a-z]+)?", m) and not _NOT_CHAT.search(m)]
-    cache: dict[str, bool] = {}
+        return [Result("OPENAI_MODELS", ",".join(current), ",".join(current), [f"model list failed (HTTP {status})"])]
+    # "-pro" models only work through the Responses API, which the app does not use.
+    listed = [
+        m
+        for m in _ids(payload)
+        if re.fullmatch(r"gpt-\d+(\.\d+)?(-[a-z]+)?", m) and not _NOT_CHAT.search(m) and not m.endswith("-pro")
+    ]
+    cache: dict[tuple[str, float], bool] = {}
+
+    def works_at(temperature: float, reasons: dict[str, str]) -> Callable[[str], bool]:
+        def works(model: str) -> bool:
+            if (model, temperature) not in cache:
+                body = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": PROBE_PROMPT}],
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                    "temperature": temperature,
+                    "max_completion_tokens": 256,
+                }
+                status, payload = call("POST", f"{base}/chat/completions", auth, body)
+                cache[(model, temperature)] = status == 200
+                if status != 200:
+                    reasons[model] = _reason(status, payload)
+            return cache[(model, temperature)]
+
+        return works
+
+    temperature = float(env.get("DEFAULT_TEMPERATURE") or 0.7)
     reasons: dict[str, str] = {}
-
-    def works(model: str) -> bool:
-        if model not in cache:
-            body = {
-                "model": model,
-                "messages": [{"role": "user", "content": PROBE_PROMPT}],
-                "stream": True,
-                "stream_options": {"include_usage": True},
-                "temperature": float(env.get("DEFAULT_TEMPERATURE") or 0.7),
-                "max_completion_tokens": 256,
-            }
-            status, payload = call("POST", f"{base}/chat/completions", auth, body)
-            cache[model] = status == 200
-            if status != 200:
-                reasons[model] = _reason(status, payload)
-        return cache[model]
-
-    return _choose("OPENAI_MODELS", current, newest(listed), works, reasons)
+    result = _choose("OPENAI_MODELS", current, newest(listed), works_at(temperature, reasons), reasons)
+    needs_default = any(_DEFAULT_TEMPERATURE_ONLY in why for why in reasons.values())
+    if not needs_default or temperature == 1.0:
+        return [result]
+    # Newer models that only accept temperature 1: test everything again at 1 and switch only when
+    # that gives a newer model while every currently working model still answers.
+    alt_reasons: dict[str, str] = {}
+    alt = _choose("OPENAI_MODELS", current, newest(listed), works_at(1.0, alt_reasons), alt_reasons)
+    proposed, alternative = csv(result.proposed), csv(alt.proposed)
+    kept = [m for m in proposed if m in current]
+    if alternative and is_newer(alternative[0], proposed) and all(m in alternative for m in kept):
+        note = f"needed by {alternative[0]}; every listed model answered at 1 (was {temperature:g})"
+        return [alt, Result("DEFAULT_TEMPERATURE", f"{temperature:g}", "1", [note])]
+    return [result]
 
 
 def gemini_chat(env: dict[str, str], call: Http) -> Result | None:
@@ -364,7 +398,9 @@ def plan(env: dict[str, str], call: Http = http) -> list[Result]:
     results = []
     for check in (openai_chat, anthropic_chat, gemini_chat, image_model):
         result = check(env, call)
-        if result is not None:
+        if isinstance(result, list):
+            results.extend(result)
+        elif result is not None:
             results.append(result)
     return results
 

@@ -100,3 +100,47 @@ def test_failed_models_show_the_providers_reason_without_keys():
     note = next(n for n in result.notes if n.startswith("gpt-6-astra"))
     assert "HTTP 400: Unsupported value: 'temperature'" in note
     assert "sk-abcdefghijklmnop" not in note and "[key]" in note
+
+
+class LiveLike(FakeProviders):
+    """Mirrors the live server: GPT-6/5.5/5 accept only temperature 1; -pro is not a chat model."""
+
+    temperature_one_only = {"gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-luna", "gpt-5.5", "gpt-5"}
+
+    def __call__(self, method, url, headers, body):
+        if body and body["model"].endswith("-pro"):
+            return 404, {"error": {"message": "This is not a chat model"}}
+        if body and body["model"] in self.temperature_one_only and body["temperature"] != 1:
+            msg = "Unsupported value: 'temperature' does not support 0.7 with this model. "
+            return 400, {"error": {"message": msg + "Only the default (1) value is supported."}}
+        return super().__call__(method, url, headers, body)
+
+
+LIVE_IDS = [
+    "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-astra", "gpt-6-luna", "gpt-5.5", "gpt-5.5-pro", "gpt-5.4",
+    "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.2", "gpt-5.1", "gpt-5", "gpt-4.1-mini", "gpt-4.1",
+]  # fmt: skip
+LIVE_CURRENT = "gpt-5.4,gpt-5.4-mini,gpt-5.4-nano,gpt-4.1-mini,gpt-4.1"
+
+
+def test_temperature_one_models_switch_default_temperature_and_older_models_are_not_added():
+    fake = LiveLike(LIVE_IDS)
+    chat, temperature = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake)
+    assert chat.proposed == "gpt-6.1-sol,gpt-6.1-terra,gpt-6-astra," + LIVE_CURRENT
+    assert (temperature.setting, temperature.current, temperature.proposed) == ("DEFAULT_TEMPERATURE", "0.7", "1")
+    assert not {"gpt-5.2", "gpt-5.1", "gpt-5.5-pro"} & set(chat.proposed.split(","))
+    probed_pro = [body for _, _, body in fake.calls if body and body["model"].endswith("-pro")]
+    assert probed_pro == []
+
+
+def test_without_newer_models_nothing_changes_even_if_older_ones_answer():
+    fake = LiveLike([m for m in LIVE_IDS if not m.startswith(("gpt-6", "gpt-5.5"))])
+    (chat,) = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT}, fake)
+    assert not chat.changed
+
+
+def test_temperature_stays_when_already_one():
+    fake = LiveLike(LIVE_IDS)
+    results = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": LIVE_CURRENT, "DEFAULT_TEMPERATURE": "1"}, fake)
+    assert [r.setting for r in results] == ["OPENAI_MODELS"]
+    assert results[0].proposed.startswith("gpt-6.1-sol,gpt-6.1-terra,gpt-6-astra,")
