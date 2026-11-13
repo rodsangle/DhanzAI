@@ -177,3 +177,21 @@ conversations past each user's retention choice, temporary chats older than
 `TEMPORARY_CHAT_HOURS`, expired sessions and reset codes, and audit entries older than
 `AUDIT_LOG_RETENTION_DAYS` (default 365). Run it once by hand with
 `docker compose -f docker-compose.prod.yml exec api python -m app.cli maintenance`.
+
+## Switching to the newest AI models
+
+`scripts/server/upgrade_models.py` checks every provider that has a key in `deploy/.env`
+(OpenAI, Anthropic, Gemini, and the Creative Studio image provider). For chat, it sends each
+candidate model one short test request, built like the app's own, and picks only models that
+answer. The models you already have stay listed after the new ones as fallbacks. For images, it
+picks the newest model the provider's model list shows for your key; no image is generated.
+Keys are never printed.
+
+```bash
+cd ~/DhanzAI && git pull
+sudo python3 scripts/server/upgrade_models.py                    # report only
+sudo python3 scripts/server/upgrade_models.py --apply --restart  # save and restart the API
+```
+
+`--apply` saves a timestamped `.env.bak-*` backup first. To undo, copy the backup over `.env`
+and run the restart again. Video uses Runway `gen4.5` when `RUNWAY_API_KEY` is set.

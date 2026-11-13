@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Newest AI models on the server
+
+- `scripts/server/upgrade_models.py` switches the server to the newest chat and image models its
+  own keys can use, after a live test request to each one (report-only unless `--apply`).
+- GPT-5 and later models are treated as able to read images; `luna` models count as low-cost.
+
 ### One Flutter app (web 0.10.12+53)
 
 - `apps/dhanz_flutter` is now the app the live site runs (previously copied in

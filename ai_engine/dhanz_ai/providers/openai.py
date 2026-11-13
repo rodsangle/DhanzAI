@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator, Sequence
 
 import httpx
@@ -49,9 +50,9 @@ class OpenAIProvider(Provider):
         infos = []
         for m in self._models:
             caps = {Capability.CHAT, Capability.CODE, Capability.TOOLS}
-            if "4o" in m or "gpt-4.1" in m or "gpt-5" in m:
+            if "4o" in m or "gpt-4.1" in m or _gpt_major(m) >= 5:
                 caps.add(Capability.VISION)
-            tier = CostTier.LOW if "mini" in m or "nano" in m else CostTier.MEDIUM
+            tier = CostTier.LOW if any(word in m for word in ("mini", "nano", "luna")) else CostTier.MEDIUM
             infos.append(ModelInfo(self.name, m, m, frozenset(caps), tier))
         return infos
 
@@ -133,3 +134,9 @@ def _to_openai(m: ChatMessage) -> dict:
         {"type": "image_url", "image_url": {"url": f"data:{img.mime_type};base64,{img.data_b64}"}} for img in m.images
     ]
     return {"role": m.role, "content": parts}
+
+
+def _gpt_major(model: str) -> int:
+    """Major version of a GPT model id ("gpt-6.1-terra" -> 6); 0 when it is not one."""
+    match = re.match(r"gpt-(\d+)", model)
+    return int(match.group(1)) if match else 0
