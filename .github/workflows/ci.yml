@@ -69,7 +69,7 @@ jobs:
         working-directory: knowledge_engine
         run: pytest -q --cov=dhanz_knowledge --cov-report=term-missing:skip-covered --cov-fail-under=85
       - name: Deployment helper tests
-        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py
+        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py tests/test_deploy_ai_engine.py tests/test_deploy_conversation_extras.py tests/test_upgrade_models.py
       - name: Backend tests (coverage >= 80%)
         working-directory: backend
         run: pytest -q --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=80
