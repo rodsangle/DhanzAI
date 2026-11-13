@@ -21,11 +21,12 @@
 		}
 	}
 
-	# Flutter browser app, with fallback for bookmarked client-side routes.
+	# Flutter browser app under /app/ (built with --base-href=/app/). Folders serve their own
+	# index.html (e.g. /app/); any other unknown path is a client-side route of the app.
 	handle {
 		root * /srv/web
 		header Cache-Control "no-cache"
-		try_files {path} /index.html
+		try_files {path} {path}/index.html /app/index.html
 		file_server
 	}
 
