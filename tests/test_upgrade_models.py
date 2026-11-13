@@ -86,3 +86,17 @@ def test_report_only_by_default_and_apply_keeps_backup(tmp_path, capsys, monkeyp
     (backup,) = tmp_path.glob(".env.bak-*")
     assert backup.read_text() == original
     assert oct(backup.stat().st_mode & 0o777) == "0o600"
+
+
+def test_failed_models_show_the_providers_reason_without_keys():
+    class Rejecting(FakeProviders):
+        def __call__(self, method, url, headers, body):
+            if body and body.get("model") == "gpt-6-astra":
+                msg = "Unsupported value: 'temperature' does not support 0.7 with this model. Key sk-abcdefghijklmnop"
+                return 400, {"error": {"message": msg}}
+            return super().__call__(method, url, headers, body)
+
+    (result,) = um.plan({"OPENAI_API_KEY": "k", "OPENAI_MODELS": "gpt-4.1"}, Rejecting(["gpt-6-astra", "gpt-4.1"]))
+    note = next(n for n in result.notes if n.startswith("gpt-6-astra"))
+    assert "HTTP 400: Unsupported value: 'temperature'" in note
+    assert "sk-abcdefghijklmnop" not in note and "[key]" in note

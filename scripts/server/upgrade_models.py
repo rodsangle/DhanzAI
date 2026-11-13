@@ -147,7 +147,24 @@ def _ids(payload: object, key: str = "data", field_name: str = "id") -> list[str
     return [str(item.get(field_name, "")) for item in payload.get(key) or [] if isinstance(item, dict)]
 
 
-def _choose(setting: str, current: list[str], candidates: list[str], works: Callable[[str], bool]) -> Result:
+def _reason(status: int, payload: object) -> str:
+    """Short, key-free explanation of a failed test request (the provider's own error message)."""
+    message = payload
+    if isinstance(payload, dict):
+        error = payload.get("error", payload)
+        message = error.get("message", error) if isinstance(error, dict) else error
+    text = re.sub(r"\s+", " ", str(message)).strip()
+    text = re.sub(r"(sk|xai|AIza)[-_A-Za-z0-9]{8,}", "[key]", text)
+    return f"HTTP {status}: {text[:200]}" if status else text[:200]
+
+
+def _choose(
+    setting: str,
+    current: list[str],
+    candidates: list[str],
+    works: Callable[[str], bool],
+    reasons: dict[str, str] | None = None,
+) -> Result:
     notes: list[str] = []
     chosen: list[str] = []
     for model in candidates:
@@ -159,7 +176,8 @@ def _choose(setting: str, current: list[str], candidates: list[str], works: Call
             chosen.append(model)
             notes.append(f"{model}: answered the test request")
         else:
-            notes.append(f"{model}: listed but the test request failed, skipped")
+            why = (reasons or {}).get(model)
+            notes.append(f"{model}: listed but the test request failed, skipped" + (f" ({why})" if why else ""))
     kept = []
     for model in current:
         if works(model):
@@ -185,6 +203,7 @@ def openai_chat(env: dict[str, str], call: Http) -> Result | None:
         return Result("OPENAI_MODELS", ",".join(current), ",".join(current), [f"model list failed (HTTP {status})"])
     listed = [m for m in _ids(payload) if re.fullmatch(r"gpt-\d+(\.\d+)?(-[a-z]+)?", m) and not _NOT_CHAT.search(m)]
     cache: dict[str, bool] = {}
+    reasons: dict[str, str] = {}
 
     def works(model: str) -> bool:
         if model not in cache:
@@ -196,10 +215,13 @@ def openai_chat(env: dict[str, str], call: Http) -> Result | None:
                 "temperature": float(env.get("DEFAULT_TEMPERATURE") or 0.7),
                 "max_completion_tokens": 256,
             }
-            cache[model] = call("POST", f"{base}/chat/completions", auth, body)[0] == 200
+            status, payload = call("POST", f"{base}/chat/completions", auth, body)
+            cache[model] = status == 200
+            if status != 200:
+                reasons[model] = _reason(status, payload)
         return cache[model]
 
-    return _choose("OPENAI_MODELS", current, newest(listed), works)
+    return _choose("OPENAI_MODELS", current, newest(listed), works, reasons)
 
 
 def gemini_chat(env: dict[str, str], call: Http) -> Result | None:
@@ -220,15 +242,19 @@ def gemini_chat(env: dict[str, str], call: Http) -> Result | None:
         if re.fullmatch(r"gemini-\d+(\.\d+)?-[a-z]+(-[a-z]+)?", name) and not _NOT_CHAT.search(name):
             listed.append(name)
     cache: dict[str, bool] = {}
+    reasons: dict[str, str] = {}
 
     def works(model: str) -> bool:
         if model not in cache:
             body = {"contents": [{"role": "user", "parts": [{"text": PROBE_PROMPT}]}]}
             url = f"{base}/models/{model}:streamGenerateContent?alt=sse"
-            cache[model] = call("POST", url, auth, body)[0] == 200
+            status, payload = call("POST", url, auth, body)
+            cache[model] = status == 200
+            if status != 200:
+                reasons[model] = _reason(status, payload)
         return cache[model]
 
-    return _choose("GEMINI_MODELS", current, newest(listed), works)
+    return _choose("GEMINI_MODELS", current, newest(listed), works, reasons)
 
 
 def anthropic_chat(env: dict[str, str], call: Http) -> Result | None:
@@ -249,14 +275,18 @@ def anthropic_chat(env: dict[str, str], call: Http) -> Result | None:
             families.add(family.group(1))
             listed.append(model)
     cache: dict[str, bool] = {}
+    reasons: dict[str, str] = {}
 
     def works(model: str) -> bool:
         if model not in cache:
             body = {"model": model, "max_tokens": 16, "messages": [{"role": "user", "content": PROBE_PROMPT}]}
-            cache[model] = call("POST", f"{base}/messages", auth, body)[0] == 200
+            status, payload = call("POST", f"{base}/messages", auth, body)
+            cache[model] = status == 200
+            if status != 200:
+                reasons[model] = _reason(status, payload)
         return cache[model]
 
-    return _choose("ANTHROPIC_MODELS", current, listed, works)
+    return _choose("ANTHROPIC_MODELS", current, listed, works, reasons)
 
 
 def image_model(env: dict[str, str], call: Http) -> Result | None:
