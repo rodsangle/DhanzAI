@@ -159,6 +159,24 @@ async def test_every_model_refusing_keeps_the_status_for_the_user_message():
     assert caught.value.status_code == 400
 
 
+async def test_local_only_routes_only_to_local_models():
+    o, providers = orch()
+    request = RoutingRequest(policy=RoutingPolicy.LOCAL_ONLY)
+    assert [m.model for m in o.candidates(request, TaskType.GENERAL)] == ["local"]
+    out = [rc async for rc in o.stream_chat([ChatMessage("user", "hello")], request)]
+    assert out[0].model == LOCAL and providers["a"].calls == providers["b"].calls == providers["c"].calls == 0
+
+
+def test_local_only_without_a_local_model_or_with_a_cloud_pick_is_refused():
+    o = Orchestrator([ScriptedProvider("a", [CHEAP]), ScriptedProvider("b", [MID])])
+    with pytest.raises(NoModelAvailableError, match="no configured local model"):
+        o.candidates(RoutingRequest(policy=RoutingPolicy.LOCAL_ONLY), TaskType.GENERAL)
+    o, _ = orch()
+    cloud_pick = RoutingRequest(policy=RoutingPolicy.LOCAL_ONLY, explicit_provider="b", explicit_model="mid")
+    with pytest.raises(NoModelAvailableError, match="local-only"):
+        o.candidates(cloud_pick, TaskType.GENERAL)
+
+
 def test_system_prompt_mentions_identity_and_honesty():
     p = build_system_prompt(user_preferences="Answer in French", project_instructions="Use metric units")
     assert "Dhanz" in p and "Never fabricate" in p and "Answer in French" in p and "Use metric units" in p
