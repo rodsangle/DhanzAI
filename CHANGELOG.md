@@ -6,6 +6,8 @@
 
 - `scripts/server/upgrade_models.py` switches the server to the newest chat and image models its
   own keys can use, after a live test request to each one (report-only unless `--apply`).
+- ROG: `apps/rog_video_worker/setup_next_models.py` installs and tests Wan 2.2 TI2V-5B (video)
+  and Z-Image-Turbo (photos) in a separate environment; the Wan 2.1 worker is unchanged.
 - GPT-5 and later models are treated as able to read images; `luna` models count as low-cost.
 
 ### One Flutter app (web 0.10.12+53)
