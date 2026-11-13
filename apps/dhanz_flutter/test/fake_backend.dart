@@ -23,6 +23,8 @@ class FakeBackend {
   final conversationBodies = <Map<String, dynamic>>[];
   String transcript = 'Hey Dhanz, what is the capital of France?';
   final chatBodies = <Map<String, dynamic>>[];
+  final extraModels = <Map<String, dynamic>>[]; // listed by /models after Echo
+  final retiredModels = <String>{}; // 'provider:model' keys the chat route refuses
 
   /// Branch, archive and share (server package "conversation-extras"). False = an older server.
   bool conversationExtras = true;
@@ -441,6 +443,7 @@ class FakeBackend {
             'cost_tier': 0,
             'context_window': 8000,
           },
+          ...extraModels,
         ],
         'default_policy': 'balanced',
         'features': {
@@ -548,6 +551,26 @@ class FakeBackend {
       }
       if (match.group(2) == '/messages') {
         chatBodies.add(body);
+        final chosen = '${body['provider']}:${body['model']}';
+        if (retiredModels.contains(chosen)) {
+          // Like the real server: the turn opens, then fails before any text.
+          final user = _message('user', body['content'] as String);
+          final assistant = _message('assistant', '')
+            ..['status'] = 'error'
+            ..['error'] = 'Model $chosen is not available.';
+          (c['messages'] as List<Object>).addAll([user, assistant]);
+          String ev(String type, Map<String, dynamic> data) =>
+              'event: $type\ndata: ${jsonEncode({'type': type, ...data})}\n\n';
+          final events = [
+            ev('meta', {'conversation_id': c['id'], 'assistant_message_id': assistant['id'], 'user_message': user}),
+            ev('error', {'detail': assistant['error'], 'message': assistant}),
+          ];
+          return http.StreamedResponse(
+            Stream.fromIterable(events.map(utf8.encode)),
+            200,
+            headers: {'content-type': 'text/event-stream'},
+          );
+        }
         return _stream(
           c,
           body['content'] as String,

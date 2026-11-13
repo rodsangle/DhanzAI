@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Retired models fall back to Auto (web 0.10.15+56)
+
+- A model chosen in the picker that the server no longer offers is sent as Auto instead of failing
+  every message ("Model openai:gpt-6.1-sol is not available."). When the server refuses a chosen
+  model, the chat switches to Auto, refreshes the model list and says so.
+
 ### Branch, archive and share chats (web 0.10.14+55, ChatGPT parity round 1)
 
 - **Branch in new chat** on any finished reply: a new chat with the messages up to that reply.
