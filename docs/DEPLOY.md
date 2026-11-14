@@ -239,3 +239,21 @@ python3 scripts/server/deploy_conversation_extras.py --apply    # install (print
 
 Shared chats open at `https://<your domain>/app/#/share/<token>` without signing in. Deleting a
 chat or an account deletes its links (foreign-key cascade).
+
+
+## Live news and automatic weather
+
+`get_live_news` gives DHANZ live headlines through the server's own web search provider (news
+mode), newest first and with sources. DHANZ uses it, and the weather tool, without asking first
+whenever someone asks about news or weather. Install it into the running API (it adds
+`app/services/news_tools.py` and a two-line hook at the end of `app/services/assistant_tools.py`;
+the rest of the image is unchanged):
+
+```bash
+cd ~/DhanzAI && git pull
+python3 scripts/server/deploy_live_news.py            # check only
+python3 scripts/server/deploy_live_news.py --apply    # build, test (one real news search), switch
+```
+
+`--apply` prints the rollback command. Web search must be configured (`SEARCH_PROVIDER` with
+SearXNG, Brave or Tavily); without it DHANZ says live news is unavailable instead of guessing.
