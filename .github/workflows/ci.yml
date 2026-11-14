@@ -33,7 +33,7 @@ jobs:
       - run: python -m ruff check apps/windows_companion
       - run: python -m ruff format --check apps/windows_companion
       - run: python -m pytest -q apps/windows_companion
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.os == 'windows-latest'
         with:
           name: dhanz-windows-companion
@@ -170,7 +170,7 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze --no-pub 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-analysis.log"
       - run: flutter test --no-pub --dart-define=DHANZ_THEME_SCREENSHOTS=true 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-tests.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dhanz-theme-previews
           path: apps/dhanz_flutter/build/theme-previews
@@ -178,7 +178,7 @@ jobs:
         run: flutter test --no-pub --platform chrome test/config_test.dart
       - name: Build Creative Studio web client
         run: flutter build web --no-pub --release --no-web-resources-cdn 2>&1 | tee "$RUNNER_TEMP/dhanz-flutter-build.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dhanz-web
           path: apps/dhanz_flutter/build/web
