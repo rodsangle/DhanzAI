@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Live news and automatic live weather
+
+- New assistant tool `get_live_news`: headlines from the server's search provider in news mode
+  (SearXNG, Brave or Tavily), newest first, each with its source, link and publish time. Only the
+  topic is sent; off in local-only mode; at most three lookups per reply; never invents news.
+- The model calls it, and an installed `get_weather`, right away when the user asks about news or
+  weather: the question is the approval, so DHANZ no longer asks whether it may look it up.
+- `scripts/server/deploy_live_news.py` adds the tool to the running API (one new file plus a
+  two-line hook at the end of the tool module), tests it with one real news search, and keeps a
+  rollback image.
+
 ### Retired models fall back to Auto (web 0.10.15+56)
 
 - A model chosen in the picker that the server no longer offers is sent as Auto instead of failing

@@ -167,3 +167,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-13 — ChatGPT parity round 1 (replica/): branch, archive, share links; app/conversation_extras + deploy_conversation_extras.py (rehearsed); web 0.10.14.
 - 2026-11-13 — Live AI engine is a fork (own prompts.py with capabilities/skill_catalog, ollama.py with context_window, server-only lmstudio.py): deploy_ai_engine.py now replaces only base/openai/orchestrator/types; never replace the whole package.
 - 2026-11-13 — Live: GPT-6 engine files deployed; models gpt-6.1-terra, gpt-6-luna, gpt-6-sol (gpt-6.1-sol and gpt-6-astra refuse tools on chat completions). Web 0.10.15: retired chosen model falls back to Auto.
+- 2026-11-14 — Live news tool get_live_news (news_tools.py, registered via hook like weather; also marks get_weather automatic) + deploy_live_news.py (rehearsed with fake SearXNG).

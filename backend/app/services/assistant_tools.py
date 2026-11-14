@@ -903,3 +903,9 @@ class ToolBox:
             return ToolResult(call.id, call.name, json.dumps({"error": str(exc)}), is_error=True)
         self.activity.append({"tool": call.name, "summary": outcome.summary, "error": False, "action": outcome.action})
         return ToolResult(call.id, call.name, json.dumps(outcome.data, default=str))
+
+
+# Live news (and automatic live weather when installed); added to the registry above.
+from app.services.news_tools import register as _register_dhanz_news  # noqa: E402
+
+_register_dhanz_news(globals())
