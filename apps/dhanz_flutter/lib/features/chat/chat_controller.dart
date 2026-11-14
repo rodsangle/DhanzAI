@@ -259,6 +259,16 @@ class ChatController extends Notifier<ChatState> {
 
   void selectModel(String? key) => state = state.copyWith(modelKey: () => key);
 
+  /// [key] when the server still offers it. A model the server dropped (its list changed after the
+  /// choice was made) falls back to Auto instead of failing every message.
+  String? _offeredModel(String? key) {
+    if (key == null) return null;
+    final models = ref.read(modelsProvider).value;
+    if (models == null || models.any((m) => m.key == key)) return key;
+    if (state.modelKey == key) state = state.copyWith(modelKey: () => null);
+    return null;
+  }
+
   void setWebMode(WebMode mode) => state = state.copyWith(webMode: mode);
 
   void clearNotice() => state = state.copyWith(notice: () => null);
@@ -381,7 +391,7 @@ class ChatController extends Notifier<ChatState> {
         () => _api.streamChat(
           id!,
           content: text,
-          modelKey: prompt.modelKey,
+          modelKey: _offeredModel(prompt.modelKey),
           web: prompt.web,
           attachmentIds: [for (final a in attachments) a.id],
         ),
@@ -427,7 +437,7 @@ class ChatController extends Notifier<ChatState> {
           id,
           content: text,
           editMessageId: messageId,
-          modelKey: state.modelKey,
+          modelKey: _offeredModel(state.modelKey),
           web: state.webMode.asRequest,
         ),
       );
@@ -445,7 +455,12 @@ class ChatController extends Notifier<ChatState> {
     state = state.copyWith(messages: state.messages.sublist(0, lastUser + 1), error: () => null);
     try {
       await _stream(
-        () => _api.streamChat(id, regenerate: true, modelKey: state.modelKey, web: state.webMode.asRequest),
+        () => _api.streamChat(
+          id,
+          regenerate: true,
+          modelKey: _offeredModel(state.modelKey),
+          web: state.webMode.asRequest,
+        ),
       );
     } on ApiException catch (e) {
       state = state.copyWith(streaming: false, error: () => e.message);
@@ -621,10 +636,17 @@ class ChatController extends Notifier<ChatState> {
           final finalMsg = ChatMessage.fromJson(msg);
           _updateLast((_) => finalMsg);
         }
+        var error = event.type == 'error' ? (d['detail'] as String? ?? 'Something went wrong.') : null;
+        if (error != null && state.modelKey != null && error.endsWith('is not available.')) {
+          // The chosen model was removed on the server: go back to Auto and refresh the model list.
+          state = state.copyWith(modelKey: () => null);
+          ref.invalidate(serverInfoProvider);
+          error = '$error The server no longer offers it, so Dhanz switched to Auto. Send again or regenerate.';
+        }
         state = state.copyWith(
           streaming: false,
           queuePaused: event.type != 'done' && state.queuedPrompts.isNotEmpty ? true : state.queuePaused,
-          error: () => event.type == 'error' ? (d['detail'] as String? ?? 'Something went wrong.') : null,
+          error: () => error,
         );
         final id = state.conversationId;
         if (event.type == 'done' && id != null) {

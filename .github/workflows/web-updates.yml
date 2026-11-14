@@ -14,9 +14,9 @@ concurrency:
 
 env:
   APP_DIR: apps/dhanz_flutter
-  RELEASE_ID: web-updates-0.10.14-preview.1
-  WEB_VERSION: "0.10.14"
-  WEB_BUILD: "55"
+  RELEASE_ID: web-updates-0.10.15-preview.1
+  WEB_VERSION: "0.10.15"
+  WEB_BUILD: "56"
 
 jobs:
   build:
@@ -86,7 +86,7 @@ jobs:
           if gh release view "$RELEASE_ID" >/dev/null 2>&1; then
             gh release upload "$RELEASE_ID" dist/web-updates/* --clobber
           else
-            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.14 branch, archive and share" --notes "Checked Dhanz 0.10.14 web build. Branch in new chat from any reply; archive chats (Settings → Archived chats restores them); share a chat with a public read-only link that you can revoke (Settings → Shared links). Shared links show the chat as it was when shared, without attachments, tool details or your name. These need the server update from scripts/server/deploy_conversation_extras.py; on servers without it the app says so. Keeps every 0.10.13 feature. Web only; no native APK or Windows installer is published."
+            gh release create "$RELEASE_ID" dist/web-updates/* --target "$GITHUB_SHA" --prerelease --latest=false --title "Dhanz 0.10.15 branch, archive, share; model fallback" --notes "Checked Dhanz 0.10.15 web build. A chosen model the server no longer offers now falls back to Auto instead of failing every message. Branch in new chat from any reply; archive chats (Settings → Archived chats restores them); share a chat with a public read-only link that you can revoke (Settings → Shared links). Shared links show the chat as it was when shared, without attachments, tool details or your name. These need the server update from scripts/server/deploy_conversation_extras.py; on servers without it the app says so. Keeps every 0.10.14 feature. Web only; no native APK or Windows installer is published."
           fi
       - name: Publish latest web channel after the checked release assets
         if: steps.channel.outputs.promote == 'true'
