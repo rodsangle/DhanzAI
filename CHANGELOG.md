@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Two-step verification for the live server (add-on)
+
+- `server_extensions/two_step` + `scripts/server/deploy_two_step.py`: authenticator app, recovery
+  codes and remember this device for servers that predate the built-in two-step verification
+  (dhanzai.com). Own tables, the same API paths the app uses, two small hooks (create_app, login);
+  the `users` table and migration history are untouched. Rehearsed on the live server's base code
+  with a 14-step end-to-end sign-in check and a rollback.
+
 ### Two-step verification by email, remember this device (web 0.10.16+57, migration 0010)
 
 - Two-step verification can use a code sent by email as well as an authenticator app (the

@@ -299,19 +299,47 @@ and Google/Apple sign-in with 2FA (same challenge).
 5. **Rollback.** Code first; the migration can stay, because old code ignores the new column and
    table. `alembic downgrade 0009` removes them.
 
-**Live server note.** dhanzai.com runs a customised API image, and its network is not reachable
-from the build environment. Before shipping this there, check what the live API has:
+**Live server (dhanzai.com).** The live API is a customised image with its own database history
+(`0008_github_connections` … `0013_connected_operations`). The repository's migrations
+0008–0010 must never run there, because the numbers clash. Checked on 2026-11-16:
+`/auth/mfa/verify` returned 404, `/auth/options` had no 2FA fields, `users` had no 2FA columns, and
+the server sends no email.
+
+So the live server gets **the add-on** `server_extensions/two_step` instead, installed by
+`scripts/server/deploy_two_step.py`:
+
+- **Same API paths** as the built-in version (`/auth/mfa/verify`, `/users/me/mfa/*`,
+  `/users/me/trusted-devices`), so the same app works with both servers.
+- **Own tables** (`two_step_settings`, `two_step_recovery_codes`, `two_step_devices`), created only
+  if missing. The `users` table and the migration history are untouched.
+- **Two small hooks:** `install(app)` in `main.py`, and in `login()` a check placed right before
+  session tokens are issued, after the password check. The script refuses to place either hook
+  unless the code looks exactly as expected.
+- **A small innermost middleware** adds `mfa_enabled` and `mfa_method` to the server's own user
+  replies, and `trusted_device_days` to `/auth/options`.
+- **Authenticator app, recovery codes and remember this device.** Email codes stay off until the
+  server can send email.
+- **Remembered devices:** each one is tied to the password at the time. Changing or resetting the
+  password makes every device ask again; "sign out everywhere" does not reach them, but "Forget all
+  devices" does.
+- **Settings:** `TRUSTED_DEVICE_DAYS` (default 30, 0 = off) and `MFA_CHALLENGE_MINUTES` (default 5)
+  are read from the environment. Without `DATA_ENCRYPTION_KEY`, secrets are encrypted with
+  `JWT_SECRET`, so set `DATA_ENCRYPTION_KEY` before any user turns 2FA on.
+- **Rollback** returns the previous image. The tables stay but are ignored, so everyone signs in
+  with the password only until it is installed again.
+
+Rehearsed on an image built from commit 954776d, the code the live login matches line for line:
+- the check;
+- `--apply` (smoke test, tables, switch, healthy);
+- 14 end-to-end calls: an existing account unaffected, setup, enable, the challenge, wrong password
+  refused first, the code, remember device, skip, the device list, recovery code once, turn off;
+- the re-check, and rollback.
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" -X POST -H 'content-type: application/json' -d '{}' https://dhanzai.com/api/v1/auth/mfa/verify
-curl -s https://dhanzai.com/api/v1/auth/options
+cd ~/DhanzAI && git pull
+python3 scripts/server/deploy_two_step.py            # check only
+python3 scripts/server/deploy_two_step.py --apply    # build, test, create tables, switch
 ```
-
-422 means the TOTP 2FA routes exist; 404 means the live API predates them. The options output
-shows whether `mfa_email` is already reported. The live image needs a guarded deploy script, like
-the AI-engine and conversation-extras ones: check the live files, build `FROM` the running image,
-create the new table, smoke test, then switch with a rollback image. It must not be a blind file
-copy, because several of these files are customised on that server.
 
 ## 9. Security checklist
 
