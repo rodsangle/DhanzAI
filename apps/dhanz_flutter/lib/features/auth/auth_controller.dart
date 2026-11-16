@@ -61,8 +61,8 @@ class AuthController extends AsyncNotifier<User?> {
     );
   }
 
-  Future<void> completeMfa(MfaChallenge challenge, String code) async {
-    final tokens = await _api.verifyMfa(challenge, code.trim());
+  Future<void> completeMfa(MfaChallenge challenge, String code, {bool rememberDevice = false}) async {
+    final tokens = await _api.verifyMfa(challenge, code.trim(), rememberDevice: rememberDevice);
     state = AsyncData(tokens.user);
   }
 

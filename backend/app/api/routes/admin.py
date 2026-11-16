@@ -13,7 +13,7 @@ from app.api.deps import AdminUser, DbDep, parse_uuid
 from app.core import rate_limit
 from app.db.base import utcnow
 from app.models import AuditLog, Conversation, KnowledgeDocument, Message, MfaRecoveryCode, User
-from app.services import audit
+from app.services import accounts, audit
 from app.services.auth_service import revoke_user_sessions
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -200,10 +200,9 @@ async def update_user(
         changes["role"] = body.role
         await revoke_user_sessions(db, target.id)  # new tokens carry the new role
     if body.reset_mfa and target.mfa_enabled:
-        target.mfa_secret = None
-        target.mfa_enabled_at = None
-        target.mfa_last_step = None
+        accounts.clear_mfa(target)
         await db.execute(delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == target.id))
+        await accounts.forget_trusted_devices(db, target.id)
         changes["mfa_reset"] = True
     if changes:
         target.updated_at = utcnow()

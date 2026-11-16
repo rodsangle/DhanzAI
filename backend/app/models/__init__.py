@@ -137,6 +137,8 @@ class User(Base):
     mfa_enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     # Last accepted TOTP time step: a code cannot be used twice.
     mfa_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    # How the second step is done: "totp" (authenticator app) or "email" (emailed code).
+    mfa_method: Mapped[str | None] = mapped_column(String(10))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
@@ -370,6 +372,24 @@ class MfaRecoveryCode(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
+class TrustedDevice(Base):
+    """A device where the user chose "remember this device": sign-in skips the second step there.
+
+    Only the SHA-256 of the random device token is stored. Forgotten when two-step verification is
+    turned off or reset, and whenever all sessions are ended (password change, sign out everywhere).
+    """
+
+    __tablename__ = "trusted_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    last_used_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+
 class OAuthIdentity(Base):
     """A Google or Apple account linked to a DHANZ AI account (the provider's stable subject id)."""
 
@@ -409,6 +429,7 @@ __all__ = [
     "Memory",
     "Message",
     "MfaRecoveryCode",
+    "TrustedDevice",
     "OAuthIdentity",
     "Project",
     "RefreshToken",

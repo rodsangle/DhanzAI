@@ -8,12 +8,16 @@ import '../../core/api/api_client.dart';
 import '../../core/providers.dart';
 import '../../models/models.dart';
 
-/// Turning on two-step verification: password → scan the QR code → type a code → save recovery codes.
+/// Turning on two-step verification. Authenticator app: password → scan the QR code → type a code.
+/// Email codes: password → type the code we emailed. Both end with saving the recovery codes.
 /// Pops `true` once it is on.
 class TwoFactorSetupDialog extends ConsumerStatefulWidget {
-  const TwoFactorSetupDialog({super.key, required this.hasPassword});
+  const TwoFactorSetupDialog({super.key, required this.hasPassword, this.emailAvailable = false});
 
   final bool hasPassword;
+
+  /// The server can send codes by email and the address is confirmed: offer it as a method.
+  final bool emailAvailable;
 
   @override
   ConsumerState<TwoFactorSetupDialog> createState() => _TwoFactorSetupDialogState();
@@ -26,10 +30,16 @@ class _TwoFactorSetupDialogState extends ConsumerState<TwoFactorSetupDialog> {
   bool _busy = false;
   String? _error;
 
+  /// 'totp' (authenticator app, recommended) or 'email'.
+  String _method = 'totp';
+
+  /// Email method: the server's "we sent a code to …" message once the code was emailed.
+  String? _emailSent;
+
   @override
   void initState() {
     super.initState();
-    if (!widget.hasPassword) _start();
+    if (!widget.hasPassword && !widget.emailAvailable) _start();
   }
 
   @override
@@ -53,15 +63,49 @@ class _TwoFactorSetupDialogState extends ConsumerState<TwoFactorSetupDialog> {
   }
 
   Future<void> _start() => _guard(() async {
-    final setup = await ref.read(apiClientProvider).mfaSetup(password: widget.hasPassword ? _input.text : null);
+    final api = ref.read(apiClientProvider);
+    final password = widget.hasPassword ? _input.text : null;
+    if (_method == 'email') {
+      final sent = await api.mfaEmailSetup(password: password);
+      _input.clear();
+      setState(() => _emailSent = sent);
+      return;
+    }
+    final setup = await api.mfaSetup(password: password);
     _input.clear();
     setState(() => _setup = setup);
   });
 
   Future<void> _enable() => _guard(() async {
-    final codes = await ref.read(apiClientProvider).mfaEnable(_input.text.trim());
+    final api = ref.read(apiClientProvider);
+    final code = _input.text.trim();
+    final codes = _method == 'email' ? await api.mfaEmailEnable(code) : await api.mfaEnable(code);
     setState(() => _codes = codes);
   });
+
+  Widget _methodChoice() => RadioGroup<String>(
+    groupValue: _method,
+    onChanged: (v) => setState(() => _method = v ?? 'totp'),
+    child: const Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        RadioListTile<String>(
+          key: Key('mfa-method-totp'),
+          value: 'totp',
+          contentPadding: EdgeInsets.zero,
+          title: Text('Authenticator app (recommended)'),
+          subtitle: Text('Codes from Google Authenticator, Microsoft Authenticator, 1Password … Works offline.'),
+        ),
+        RadioListTile<String>(
+          key: Key('mfa-method-email'),
+          value: 'email',
+          contentPadding: EdgeInsets.zero,
+          title: Text('Code by email'),
+          subtitle: Text('We email a code each time you sign in. Only as safe as your email account.'),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +116,34 @@ class _TwoFactorSetupDialogState extends ConsumerState<TwoFactorSetupDialog> {
     final error = _error == null
         ? const <Widget>[]
         : [const SizedBox(height: 8), Text(_error!, style: TextStyle(color: theme.colorScheme.error))];
+    final sent = _emailSent;
+    if (sent != null) {
+      return AlertDialog(
+        title: const Text('Check your email'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('$sent Enter it to turn on two-step verification.'),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('mfa-email-setup-code'),
+              controller: _input,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              autofillHints: const [AutofillHints.oneTimeCode],
+              decoration: const InputDecoration(labelText: 'Code'),
+              onSubmitted: (_) => _enable(),
+            ),
+            ...error,
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: _busy ? null : _enable, child: const Text('Turn on')),
+        ],
+      );
+    }
     if (setup == null) {
       return AlertDialog(
         title: const Text('Turn on two-step verification'),
@@ -79,10 +151,14 @@ class _TwoFactorSetupDialogState extends ConsumerState<TwoFactorSetupDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Signing in will also need a code from an authenticator app on your phone '
-              '(Google Authenticator, Microsoft Authenticator, 1Password, ...).',
-            ),
+            if (widget.emailAvailable) ...[
+              const Text('Signing in will also need a second code. Choose where it comes from:'),
+              _methodChoice(),
+            ] else
+              const Text(
+                'Signing in will also need a code from an authenticator app on your phone '
+                '(Google Authenticator, Microsoft Authenticator, 1Password, ...).',
+              ),
             if (widget.hasPassword) ...[
               const SizedBox(height: 16),
               TextField(
@@ -99,7 +175,8 @@ class _TwoFactorSetupDialogState extends ConsumerState<TwoFactorSetupDialog> {
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          if (widget.hasPassword) FilledButton(onPressed: _busy ? null : _start, child: const Text('Continue')),
+          if (widget.hasPassword || widget.emailAvailable)
+            FilledButton(onPressed: _busy ? null : _start, child: const Text('Continue')),
         ],
       );
     }
@@ -184,8 +261,8 @@ class RecoveryCodesDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'If you lose your phone, each of these codes lets you sign in once. Keep them somewhere safe, '
-              'like a password manager. They will not be shown again.',
+              'If you lose your phone or cannot get into your email, each of these codes lets you sign in '
+              'once. Keep them somewhere safe, like a password manager. They will not be shown again.',
             ),
             const SizedBox(height: 12),
             Container(

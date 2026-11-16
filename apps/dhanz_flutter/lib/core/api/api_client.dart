@@ -253,9 +253,16 @@ class ApiClient {
     return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
   }
 
-  /// Signs in, or returns an [MfaChallenge] when the account also needs an authenticator code.
+  /// Signs in, or returns an [MfaChallenge] when the account also needs a second-step code.
+  /// A remembered device sends its token and skips that step.
   Future<Object> login(String email, String password) async {
-    final body = await _json('POST', '/auth/login', body: {'email': email, 'password': password}, auth: false);
+    final device = await store.read(StoreKeys.trustedDevice);
+    final body = await _json(
+      'POST',
+      '/auth/login',
+      body: {'email': email, 'password': password, 'trusted_device_token': ?device},
+      auth: false,
+    );
     return _signInResult(body as Map<String, dynamic>);
   }
 
@@ -264,25 +271,40 @@ class ApiClient {
     final body = await _json(
       'POST',
       '/auth/oauth/$provider',
-      body: {'id_token': idToken, 'nonce': ?nonce, 'display_name': ?displayName},
+      body: {
+        'id_token': idToken,
+        'nonce': ?nonce,
+        'display_name': ?displayName,
+        'trusted_device_token': ?await store.read(StoreKeys.trustedDevice),
+      },
       auth: false,
     );
     return _signInResult(body as Map<String, dynamic>);
   }
 
-  /// Second sign-in step: a code from the authenticator app, or a recovery code.
-  Future<AuthTokens> verifyMfa(MfaChallenge challenge, String code) async {
+  /// Second sign-in step: the authenticator code, the emailed code, or a recovery code. With
+  /// [rememberDevice], this device skips the step next time (the server's token is kept here).
+  Future<AuthTokens> verifyMfa(MfaChallenge challenge, String code, {bool rememberDevice = false}) async {
     final body = await _json(
       'POST',
       '/auth/mfa/verify',
-      body: {'mfa_token': challenge.token, 'code': code},
+      body: {'mfa_token': challenge.token, 'code': code, if (rememberDevice) 'remember_device': true},
       auth: false,
     );
-    return _saveTokens(AuthTokens.fromJson(body as Map<String, dynamic>));
+    final json = body as Map<String, dynamic>;
+    final device = json['trusted_device_token'] as String?;
+    if (device != null) await store.write(StoreKeys.trustedDevice, device);
+    return _saveTokens(AuthTokens.fromJson(json));
+  }
+
+  /// Emails a new sign-in code (email-code accounts); returns the server's message.
+  Future<String> resendMfaCode(MfaChallenge challenge) async {
+    final body = await _json('POST', '/auth/mfa/resend', body: {'mfa_token': challenge.token}, auth: false);
+    return (body as Map<String, dynamic>)['detail'] as String? ?? 'We sent a new code.';
   }
 
   Future<Object> _signInResult(Map<String, dynamic> body) async {
-    if (body['mfa_required'] == true) return MfaChallenge(body['mfa_token'] as String);
+    if (body['mfa_required'] == true) return MfaChallenge.fromJson(body);
     return _saveTokens(AuthTokens.fromJson(body));
   }
 
@@ -645,6 +667,33 @@ class ApiClient {
 
   Future<User> mfaDisable(String code) async =>
       User.fromJson(await _json('POST', '/users/me/mfa/disable', body: {'code': code}) as Map<String, dynamic>);
+
+  /// Starts two-step verification by emailed code: the server emails a code to confirm.
+  Future<String> mfaEmailSetup({String? password}) async {
+    final body = await _json('POST', '/users/me/mfa/email/setup', body: {'password': ?password});
+    return (body as Map<String, dynamic>)['detail'] as String? ?? 'We sent you a code.';
+  }
+
+  /// Switches emailed codes on; returns the recovery codes (shown only once).
+  Future<List<String>> mfaEmailEnable(String code) async {
+    final body = await _json('POST', '/users/me/mfa/email/enable', body: {'code': code}) as Map<String, dynamic>;
+    return [for (final c in body['recovery_codes'] as List<dynamic>) c as String];
+  }
+
+  /// Email-code accounts: a code that confirms a security change (turn off, new recovery codes, delete).
+  Future<String> mfaEmailCode() async {
+    final body = await _json('POST', '/users/me/mfa/email/code');
+    return (body as Map<String, dynamic>)['detail'] as String? ?? 'We sent you a code.';
+  }
+
+  Future<List<TrustedDevice>> trustedDevices() async => [
+    for (final d in await _json('GET', '/users/me/trusted-devices') as List<dynamic>)
+      TrustedDevice.fromJson(d as Map<String, dynamic>),
+  ];
+
+  Future<void> forgetTrustedDevice(String id) => _json('DELETE', '/users/me/trusted-devices/$id');
+
+  Future<void> forgetAllTrustedDevices() => _json('DELETE', '/users/me/trusted-devices');
 
   Future<List<String>> newRecoveryCodes(String code) async {
     final body = await _json('POST', '/users/me/mfa/recovery-codes', body: {'code': code}) as Map<String, dynamic>;

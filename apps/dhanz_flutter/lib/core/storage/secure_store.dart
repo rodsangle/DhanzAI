@@ -48,6 +48,10 @@ class MemorySecureStore implements SecureStore {
 abstract final class StoreKeys {
   static const accessToken = 'access_token';
   static const refreshToken = 'refresh_token';
+
+  /// "Remember this device": skips the second sign-in step on this device while the server trusts it.
+  /// Kept when signing out (that is its purpose); the server forgets it after security changes.
+  static const trustedDevice = 'trusted_device_token';
   static const apiUrl = 'api_url';
 
   /// Pre-0.9 light/dark/system choice; still written for older builds.

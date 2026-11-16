@@ -3,13 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.security import create_access_token, hash_token, new_refresh_token
 from app.db.base import utcnow
-from app.models import RefreshToken, User
+from app.models import RefreshToken, TrustedDevice, User
 from app.schemas import TokenResponse, UserOut
 
 
@@ -86,7 +86,12 @@ async def session_active(db: AsyncSession, family_id: uuid.UUID) -> bool:
 
 
 async def revoke_user_sessions(db: AsyncSession, user_id: uuid.UUID, *, keep: uuid.UUID | None = None) -> int:
-    """Sign the user out everywhere (except session [keep]). Returns the number of sessions ended."""
+    """Sign the user out everywhere (except session [keep]). Returns the number of sessions ended.
+
+    Remembered devices are forgotten too: after a security change every device does the second
+    step of two-step verification again.
+    """
+    await db.execute(delete(TrustedDevice).where(TrustedDevice.user_id == user_id))
     query = (
         update(RefreshToken)
         .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))

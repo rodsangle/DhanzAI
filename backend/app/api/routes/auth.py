@@ -12,6 +12,7 @@ from app.api.deps import DbDep, SettingsDep
 from app.core import rate_limit
 from app.core.security import (
     InvalidTokenError,
+    MfaTicket,
     decode_mfa_token,
     hash_password_async,
     hash_token,
@@ -27,6 +28,7 @@ from app.schemas import (
     AuthOptions,
     LoginRequest,
     MfaChallenge,
+    MfaResendRequest,
     MfaVerifyRequest,
     OAuthSignInRequest,
     PasswordResetConfirm,
@@ -71,6 +73,8 @@ async def auth_options(request: Request, db: DbDep, settings: SettingsDep) -> Au
         email_verification_required=mail and settings.require_email_verification,
         google_client_id=google[0] if google else None,
         apple_sign_in=bool(settings.apple_client_id_list),
+        mfa_email=mail and settings.mfa_email_enabled,
+        trusted_device_days=settings.trusted_device_days,
     )
 
 
@@ -134,32 +138,74 @@ async def login(body: LoginRequest, request: Request, db: DbDep, settings: Setti
     await rate_limit.limiter.clear(lock_key)
     if user.password_hash and password_needs_rehash(user.password_hash):
         user.password_hash = await hash_password_async(body.password)
-    result = await accounts.finish_sign_in(db, settings, request, user, "password")
+    result = await accounts.finish_sign_in(
+        db, settings, request, user, "password", trusted_device_token=body.trusted_device_token
+    )
     await db.commit()
     return result
 
 
-@router.post("/mfa/verify", response_model=TokenResponse)
-async def verify_mfa(body: MfaVerifyRequest, request: Request, db: DbDep, settings: SettingsDep) -> TokenResponse:
-    """Second sign-in step: the code from the authenticator app (or a recovery code)."""
-    ip = await _limit(request, settings, "mfa")
+async def _challenge_user(db, settings, token: str) -> tuple[User, MfaTicket]:
     expired = HTTPException(status.HTTP_401_UNAUTHORIZED, "This sign-in has expired. Please start again.")
     try:
-        user_id, first_factor = decode_mfa_token(settings, body.mfa_token)
+        ticket = decode_mfa_token(settings, token)
     except InvalidTokenError:
         raise expired from None
-    user = await db.get(User, user_id)
+    user = await db.get(User, ticket.user_id)
     if user is None or not user.is_active or not user.mfa_enabled:
         raise expired
-    method = await accounts.guarded_second_factor(db, settings, user, body.code)
+    return user, ticket
+
+
+@router.post("/mfa/verify", response_model=TokenResponse)
+async def verify_mfa(body: MfaVerifyRequest, request: Request, db: DbDep, settings: SettingsDep) -> TokenResponse:
+    """Second sign-in step: the authenticator code, the emailed code, or a recovery code.
+
+    With `remember_device`, the response also carries a `trusted_device_token` that skips this step
+    on the same device for TRUSTED_DEVICE_DAYS.
+    """
+    ip = await _limit(request, settings, "mfa")
+    user, ticket = await _challenge_user(db, settings, body.mfa_token)
+    method = await accounts.guarded_second_factor(db, settings, user, body.code, challenge_id=ticket.challenge_id)
     if method is None:
         audit.record(db, "auth.mfa_failed", user_id=user.id, ip=ip)
         await db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That code is not correct. Check the time on your phone.")
-    tokens = await issue_tokens(db, settings, user, user_agent=request.headers.get("user-agent"))
-    audit.record(db, "auth.login", user_id=user.id, ip=ip, detail={"method": first_factor, "mfa": method})
+        hint = "Check the time on your phone." if user.mfa_method != "email" else "Use the newest code we emailed."
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"That code is not correct. {hint}")
+    user_agent = request.headers.get("user-agent")
+    tokens = await issue_tokens(db, settings, user, user_agent=user_agent)
+    if body.remember_device:
+        tokens.trusted_device_token = await accounts.remember_device(db, settings, user, user_agent)
+    audit.record(
+        db,
+        "auth.login",
+        user_id=user.id,
+        ip=ip,
+        detail={"method": ticket.first_factor, "mfa": method, "remembered": tokens.trusted_device_token is not None},
+    )
+    if method == "recovery_code":
+        accounts.security_notice(
+            request, user, "a recovery code was used", "A recovery code was just used to sign in to your account."
+        )
     await db.commit()
     return tokens
+
+
+@router.post("/mfa/resend", status_code=status.HTTP_202_ACCEPTED)
+async def resend_mfa_code(body: MfaResendRequest, request: Request, db: DbDep, settings: SettingsDep) -> dict:
+    """Email a new sign-in code for this challenge (email-code accounts; the old code stops working)."""
+    await _limit(request, settings, "mfa-resend")
+    user, ticket = await _challenge_user(db, settings, body.mfa_token)
+    if user.mfa_method != "email":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This account uses an authenticator app.")
+    await rate_limit.enforce(f"mfa-resend:{user.id}", 1, 30)
+    await rate_limit.enforce(f"mfa-resend-hour:{user.id}", 6, 3600)
+    if not await accounts.send_login_code(db, settings, request, user, ticket.challenge_id):
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "Email is not configured on this server. Use a recovery code."
+        )
+    await db.commit()
+    return {"detail": f"We sent a new code to {accounts.mask_email(user.email)}."}
 
 
 @router.post("/oauth/{provider}", response_model=TokenResponse | MfaChallenge)
@@ -220,7 +266,9 @@ async def oauth_sign_in(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account is disabled.")
     link.last_used_at = utcnow()
     try:
-        result = await accounts.finish_sign_in(db, settings, request, user, provider)
+        result = await accounts.finish_sign_in(
+            db, settings, request, user, provider, trusted_device_token=body.trusted_device_token
+        )
         await db.commit()
     except IntegrityError:
         await db.rollback()

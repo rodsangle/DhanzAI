@@ -261,7 +261,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   }
 }
 
-/// Second sign-in step: the 6-digit code from the authenticator app (or a recovery code).
+/// Second sign-in step: the 6-digit code from the authenticator app or from the email we sent (or a
+/// recovery code), with "remember this device" when the server offers it.
 class MfaStepScreen extends ConsumerStatefulWidget {
   const MfaStepScreen({super.key, required this.challenge, required this.onBack});
 
@@ -276,12 +277,41 @@ class _MfaStepScreenState extends ConsumerState<MfaStepScreen> {
   final _code = TextEditingController();
   bool _busy = false;
   bool _recovery = false;
+  bool _remember = false;
+  bool _resending = false;
   String? _error;
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.challenge;
+    if (c.byEmail && !c.codeSent) {
+      _notice = 'This server cannot send email right now. Use one of your recovery codes.';
+      _recovery = true;
+    }
+  }
 
   @override
   void dispose() {
     _code.dispose();
     super.dispose();
+  }
+
+  Future<void> _resend() async {
+    setState(() {
+      _resending = true;
+      _error = null;
+      _notice = null;
+    });
+    try {
+      final message = await ref.read(apiClientProvider).resendMfaCode(widget.challenge);
+      if (mounted) setState(() => _notice = message);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _resending = false);
+    }
   }
 
   Future<void> _verify() async {
@@ -291,7 +321,9 @@ class _MfaStepScreenState extends ConsumerState<MfaStepScreen> {
       _error = null;
     });
     try {
-      await ref.read(authControllerProvider.notifier).completeMfa(widget.challenge, _code.text);
+      await ref
+          .read(authControllerProvider.notifier)
+          .completeMfa(widget.challenge, _code.text, rememberDevice: _remember);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -302,6 +334,14 @@ class _MfaStepScreenState extends ConsumerState<MfaStepScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final byEmail = widget.challenge.byEmail;
+    final rememberDays = ref.watch(authOptionsProvider).value?.trustedDeviceDays ?? 0;
+    final instruction = _recovery
+        ? 'Enter one of the recovery codes you saved when you turned on two-step verification.'
+        : byEmail
+        ? 'We emailed a 6-digit code to ${widget.challenge.emailHint ?? 'your email address'}. '
+              'Enter it below. It works for this sign-in only.'
+        : 'Enter the 6-digit code from your authenticator app.';
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(tooltip: 'Back', icon: const Icon(Icons.arrow_back), onPressed: widget.onBack),
@@ -323,12 +363,15 @@ class _MfaStepScreenState extends ConsumerState<MfaStepScreen> {
                     style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    _recovery
-                        ? 'Enter one of the recovery codes you saved when you turned on two-step verification.'
-                        : 'Enter the 6-digit code from your authenticator app.',
-                    textAlign: TextAlign.center,
-                  ),
+                  Text(instruction, textAlign: TextAlign.center),
+                  if (_notice != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _notice!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: theme.colorScheme.primary),
+                    ),
+                  ],
                   const SizedBox(height: 24),
                   TextField(
                     controller: _code,
@@ -350,20 +393,40 @@ class _MfaStepScreenState extends ConsumerState<MfaStepScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ],
-                  const SizedBox(height: 20),
+                  if (rememberDays > 0) ...[
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      key: const Key('remember-device'),
+                      value: _remember,
+                      onChanged: (v) => setState(() => _remember = v ?? false),
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text('Remember this device for $rememberDays days'),
+                      subtitle: const Text('Only on a device you own. Not on shared or public computers.'),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
                   FilledButton(
                     onPressed: _busy ? null : _verify,
                     child: _busy
                         ? const SizedBox.square(dimension: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
                         : const Text('Verify'),
                   ),
+                  if (byEmail && !_recovery && widget.challenge.codeSent)
+                    TextButton(onPressed: _resending ? null : _resend, child: const Text('Send a new code')),
                   TextButton(
                     onPressed: () => setState(() {
                       _recovery = !_recovery;
                       _code.clear();
                       _error = null;
                     }),
-                    child: Text(_recovery ? 'Use the authenticator app' : 'Lost your phone? Use a recovery code'),
+                    child: Text(
+                      _recovery
+                          ? (byEmail ? 'Use the emailed code' : 'Use the authenticator app')
+                          : (byEmail
+                                ? 'No access to your email? Use a recovery code'
+                                : 'Lost your phone? Use a recovery code'),
+                    ),
                   ),
                 ],
               ),

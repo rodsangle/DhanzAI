@@ -17,6 +17,7 @@ class User {
     this.emailVerified = true,
     this.mfaEnabled = false,
     this.mfaSupported = false,
+    this.mfaMethod,
     this.hasPassword = true,
   });
 
@@ -33,6 +34,7 @@ class User {
     emailVerified: j['email_verified'] as bool? ?? true,
     mfaEnabled: j['mfa_enabled'] as bool? ?? false,
     mfaSupported: j.containsKey('mfa_enabled'),
+    mfaMethod: j['mfa_method'] as String?,
     hasPassword: j['has_password'] as bool? ?? true,
   );
 
@@ -61,6 +63,12 @@ class User {
   /// The server offers two-step verification (it reports `mfa_enabled`; older servers do not).
   final bool mfaSupported;
 
+  /// How the second step is done: 'totp' (authenticator app) or 'email' (emailed code). Older
+  /// servers do not report it; they only have authenticator apps.
+  final String? mfaMethod;
+
+  bool get mfaByEmail => mfaMethod == 'email';
+
   /// False for accounts that only sign in with Google or Apple.
   final bool hasPassword;
 
@@ -76,6 +84,8 @@ class AuthOptions {
     this.emailVerificationRequired = false,
     this.googleClientId,
     this.appleSignIn = false,
+    this.mfaEmail = false,
+    this.trustedDeviceDays = 0,
   });
 
   factory AuthOptions.fromJson(Map<String, dynamic> j) => AuthOptions(
@@ -85,6 +95,8 @@ class AuthOptions {
     emailVerificationRequired: j['email_verification_required'] as bool? ?? false,
     googleClientId: j['google_client_id'] as String?,
     appleSignIn: j['apple_sign_in'] as bool? ?? false,
+    mfaEmail: j['mfa_email'] as bool? ?? false,
+    trustedDeviceDays: j['trusted_device_days'] as int? ?? 0,
   );
 
   final bool registrationOpen;
@@ -97,13 +109,60 @@ class AuthOptions {
   /// The OAuth client ID Google ID tokens are requested for, when Google sign-in is enabled.
   final String? googleClientId;
   final bool appleSignIn;
+
+  /// Two-step verification by emailed code can be set up on this server.
+  final bool mfaEmail;
+
+  /// "Remember this device" lasts this many days; 0 when the server does not offer it.
+  final int trustedDeviceDays;
 }
 
-/// The password (or Google/Apple) was accepted; a code from the authenticator app is still needed.
+/// The password (or Google/Apple) was accepted; a second-step code is still needed.
 class MfaChallenge {
-  const MfaChallenge(this.token);
+  const MfaChallenge(this.token, {this.method = 'totp', this.emailHint, this.codeSent = false});
+
+  factory MfaChallenge.fromJson(Map<String, dynamic> j) => MfaChallenge(
+    j['mfa_token'] as String,
+    method: j['method'] as String? ?? 'totp',
+    emailHint: j['email_hint'] as String?,
+    codeSent: j['code_sent'] as bool? ?? false,
+  );
 
   final String token;
+
+  /// 'totp': a code from the authenticator app. 'email': the code emailed to [emailHint].
+  final String method;
+  final String? emailHint;
+
+  /// Email method: whether the server sent the code (false when its email is not configured).
+  final bool codeSent;
+
+  bool get byEmail => method == 'email';
+}
+
+/// A device that skips the second sign-in step ("remember this device").
+class TrustedDevice {
+  const TrustedDevice({
+    required this.id,
+    required this.label,
+    required this.createdAt,
+    required this.lastUsedAt,
+    required this.expiresAt,
+  });
+
+  factory TrustedDevice.fromJson(Map<String, dynamic> j) => TrustedDevice(
+    id: j['id'] as String,
+    label: j['label'] as String,
+    createdAt: _date(j['created_at']),
+    lastUsedAt: _date(j['last_used_at']),
+    expiresAt: _date(j['expires_at']),
+  );
+
+  final String id;
+  final String label;
+  final DateTime createdAt;
+  final DateTime lastUsedAt;
+  final DateTime expiresAt;
 }
 
 /// A new authenticator secret, before two-factor authentication is switched on.
