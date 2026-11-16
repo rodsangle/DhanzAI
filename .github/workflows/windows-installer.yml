@@ -84,7 +84,7 @@ jobs:
         if: always()
         shell: pwsh
         run: Remove-Item "$env:RUNNER_TEMP\cert.pfx" -ErrorAction SilentlyContinue
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*

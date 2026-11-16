@@ -88,7 +88,7 @@ jobs:
           NAME="${GITHUB_REF_NAME//\//-}"   # manual runs on branches like dependabot/... have slashes
           cp build/app/outputs/flutter-apk/app-release.apk "dist/dhanz-ai-$NAME.apk"
           cp build/app/outputs/bundle/release/app-release.aab "dist/dhanz-ai-$NAME.aab"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: ${{ env.APP_DIR }}/dist/*
@@ -163,7 +163,7 @@ jobs:
         if: always()
         shell: pwsh
         run: Remove-Item "$env:RUNNER_TEMP\cert.pfx" -ErrorAction SilentlyContinue
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*
@@ -232,7 +232,7 @@ jobs:
             flutter build ios --release --no-codesign ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL" --dart-define=GOOGLE_IOS_CLIENT_ID="$GOOGLE_IOS_CLIENT_ID"
             (cd build/ios/iphoneos && zip -qry "$GITHUB_WORKSPACE/$APP_DIR/dist/dhanz-ai-ios-unsigned.zip" Runner.app)
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios
           path: ${{ env.APP_DIR }}/dist/*
@@ -256,7 +256,7 @@ jobs:
           flutter build macos --release ${BUILD_NAME:+--build-name=${BUILD_NAME#v} --build-number=$GITHUB_RUN_NUMBER} --dart-define=DHANZ_API_URL="$API_URL"
           mkdir -p dist
           ditto -c -k --keepParent "build/macos/Build/Products/Release/DHANZ AI.app" "dist/dhanz-ai-macos-unsigned.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: ${{ env.APP_DIR }}/dist/*
