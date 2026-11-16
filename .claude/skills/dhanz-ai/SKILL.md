@@ -169,3 +169,4 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-13 — Live: GPT-6 engine files deployed; models gpt-6.1-terra, gpt-6-luna, gpt-6-sol (gpt-6.1-sol and gpt-6-astra refuse tools on chat completions). Web 0.10.15: retired chosen model falls back to Auto.
 - 2026-11-14 — Live news tool get_live_news (news_tools.py, registered via hook like weather; also marks get_weather automatic) + deploy_live_news.py (rehearsed with fake SearXNG).
 - 2026-11-16 — 2FA round 2: email-code method (mfa_method), challenge-bound codes (jti), trusted devices (migration 0010), alert emails, Flutter UI (web 0.10.16); docs/TWO_FACTOR.md. Live server not yet updated: needs a guarded deploy script.
+- 2026-11-16 — Live server facts: own alembic history 0008_github_connections..0013 (never run repo 0008+ there), no 2FA, no SMTP; login() = repo 954776d. 2FA add-on server_extensions/two_step + deploy_two_step.py (rehearsed e2e).
