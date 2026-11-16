@@ -20,6 +20,7 @@ from app.models import (
     OAuthIdentity,
     Project,
     RefreshToken,
+    TrustedDevice,
     User,
 )
 from app.schemas import (
@@ -36,6 +37,7 @@ from app.schemas import (
     ProjectOut,
     RecoveryCodesOut,
     SessionOut,
+    TrustedDeviceOut,
     UserOut,
     UserUpdate,
 )
@@ -213,7 +215,7 @@ async def delete_me(
         body.mfa_code and await accounts.guarded_second_factor(db, settings, user, body.mfa_code)
     ):
         await db.commit()  # keep the consumed/failed-attempt state
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Enter a current code from your authenticator app")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, _code_needed(user))
     audit.record(db, "user.deleted", user_id=None, ip=rate_limit.client_ip(request), detail={"user_id": str(user.id)})
     uploads = list(
         await db.scalars(
@@ -301,15 +303,95 @@ async def mfa_enable(
     if step is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "That code is not correct. Check the time on your phone.")
     user.mfa_last_step = step
+    return await _turn_on(db, request, user, "totp")
+
+
+async def _turn_on(db, request: Request, user: User, method: str) -> RecoveryCodesOut:
+    user.mfa_method = method
     user.mfa_enabled_at = utcnow()
     codes = await accounts.new_recovery_codes(db, user)
     # Sessions on other devices were opened with one factor only.
     ended = await revoke_user_sessions(db, user.id, keep=current_session(request))
     audit.record(
-        db, "user.mfa_enabled", user_id=user.id, ip=rate_limit.client_ip(request), detail={"sessions_ended": ended}
+        db,
+        "user.mfa_enabled",
+        user_id=user.id,
+        ip=rate_limit.client_ip(request),
+        detail={"sessions_ended": ended, "method": method},
+    )
+    how = "an authenticator app" if method == "totp" else "a code sent to this email address"
+    accounts.security_notice(
+        request,
+        user,
+        "two-step verification is on",
+        f"Two-step verification was turned on. Sign-in now also needs {how}.",
     )
     await db.commit()
     return RecoveryCodesOut(recovery_codes=codes)
+
+
+def _code_needed(user: User) -> str:
+    if user.mfa_method == "email":
+        return "Enter the newest security code we emailed you, or a recovery code"
+    return "Enter a current code from your authenticator app, or a recovery code"
+
+
+@router.post("/me/mfa/email/setup", status_code=status.HTTP_202_ACCEPTED)
+async def mfa_email_setup(
+    body: MfaSetupRequest, request: Request, user: CurrentUser, db: DbDep, settings: SettingsDep
+) -> dict:
+    """Start turning on two-step verification by emailed code: sends a code to confirm it arrives.
+
+    Needs email on the server and a confirmed address. Nothing changes for sign-in until
+    `/me/mfa/email/enable` receives the code.
+    """
+    mailer = request.app.state.mailer
+    if not settings.mfa_email_enabled or mailer is None:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Email codes are not available on this server")
+    if user.mfa_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Two-factor authentication is already on")
+    if not user.email_verified:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Confirm your email address first")
+    await rate_limit.enforce(f"mfa-email-setup:{user.id}", 3, 3600)
+    if user.has_password and not (body.password and await verify_password_async(body.password, user.password_hash)):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Password is incorrect")
+    await accounts.send_manage_code(db, settings, mailer, user, accounts.SETUP_PURPOSE)
+    await db.commit()
+    return {"detail": f"We sent a code to {accounts.mask_email(user.email)}."}
+
+
+@router.post("/me/mfa/email/enable", response_model=RecoveryCodesOut)
+async def mfa_email_enable(
+    body: MfaCodeRequest, request: Request, user: CurrentUser, db: DbDep, settings: SettingsDep
+) -> RecoveryCodesOut:
+    """Confirm the emailed code; turns on email codes and returns ten recovery codes (shown only now)."""
+    await rate_limit.enforce(f"mfa-enable:{user.id}", 10)
+    if user.mfa_enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Two-factor authentication is already on")
+    if not await accounts.consume_code(db, user, accounts.SETUP_PURPOSE, body.code):
+        await db.commit()
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The code is invalid or has expired. Request a new one.")
+    user.mfa_secret = None  # an unfinished authenticator setup no longer applies
+    user.mfa_last_step = None
+    return await _turn_on(db, request, user, "email")
+
+
+@router.post("/me/mfa/email/code", status_code=status.HTTP_202_ACCEPTED)
+async def mfa_email_code(request: Request, user: CurrentUser, db: DbDep, settings: SettingsDep) -> dict:
+    """Email-code accounts: send a code that confirms a security change (turn off, new recovery
+    codes, delete account). The previous one stops working."""
+    mailer = request.app.state.mailer
+    if user.mfa_method != "email" or not user.mfa_enabled:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This account does not use email codes")
+    if mailer is None:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "Email is not configured on this server. Use a recovery code."
+        )
+    await rate_limit.enforce(f"mfa-manage-code:{user.id}", 1, 30)
+    await rate_limit.enforce(f"mfa-manage-code-hour:{user.id}", 6, 3600)
+    await accounts.send_manage_code(db, settings, mailer, user, accounts.MANAGE_PURPOSE)
+    await db.commit()
+    return {"detail": f"We sent a code to {accounts.mask_email(user.email)}."}
 
 
 @router.post("/me/mfa/disable", response_model=UserOut)
@@ -321,11 +403,13 @@ async def mfa_disable(
     if await accounts.guarded_second_factor(db, settings, user, body.code) is None:
         await db.commit()
         raise HTTPException(status.HTTP_403_FORBIDDEN, "That code is not correct")
-    user.mfa_secret = None
-    user.mfa_enabled_at = None
-    user.mfa_last_step = None
+    accounts.clear_mfa(user)
     await db.execute(delete(MfaRecoveryCode).where(MfaRecoveryCode.user_id == user.id))
+    await accounts.forget_trusted_devices(db, user.id)
     audit.record(db, "user.mfa_disabled", user_id=user.id, ip=rate_limit.client_ip(request))
+    accounts.security_notice(
+        request, user, "two-step verification is off", "Two-step verification was turned off for your account."
+    )
     await db.commit()
     return user
 
@@ -342,6 +426,9 @@ async def mfa_new_recovery_codes(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "That code is not correct")
     codes = await accounts.new_recovery_codes(db, user)
     audit.record(db, "user.mfa_recovery_codes_replaced", user_id=user.id, ip=rate_limit.client_ip(request))
+    accounts.security_notice(
+        request, user, "new recovery codes", "New recovery codes were created. The previous ones no longer work."
+    )
     await db.commit()
     return RecoveryCodesOut(recovery_codes=codes)
 
@@ -354,6 +441,40 @@ async def mfa_recovery_codes_left(user: CurrentUser, db: DbDep) -> dict:
         )
     )
     return {"remaining": left or 0}
+
+
+# --- remembered devices ----------------------------------------------------------------------------
+
+
+@router.get("/me/trusted-devices", response_model=list[TrustedDeviceOut])
+async def trusted_devices(user: CurrentUser, db: DbDep) -> list[TrustedDevice]:
+    """Devices that skip the second sign-in step ("remember this device"), newest first."""
+    return list(
+        await db.scalars(
+            select(TrustedDevice)
+            .where(TrustedDevice.user_id == user.id, TrustedDevice.expires_at > utcnow())
+            .order_by(TrustedDevice.last_used_at.desc())
+        )
+    )
+
+
+@router.delete("/me/trusted-devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def forget_trusted_device(device_id: str, request: Request, user: CurrentUser, db: DbDep) -> Response:
+    device = await db.get(TrustedDevice, parse_uuid(device_id))
+    if device is None or device.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Device not found")
+    await db.delete(device)
+    audit.record(db, "user.trusted_device_forgotten", user_id=user.id, ip=rate_limit.client_ip(request))
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/me/trusted-devices", status_code=status.HTTP_204_NO_CONTENT)
+async def forget_all_trusted_devices(request: Request, user: CurrentUser, db: DbDep) -> Response:
+    await accounts.forget_trusted_devices(db, user.id)
+    audit.record(db, "user.trusted_devices_forgotten", user_id=user.id, ip=rate_limit.client_ip(request))
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # --- Google / Apple sign-in ------------------------------------------------------------------------

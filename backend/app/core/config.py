@@ -167,6 +167,14 @@ class Settings(BaseSettings):
     data_encryption_key: str | None = None
     # Time to type the authenticator code after the password was accepted.
     mfa_challenge_minutes: int = Field(default=5, ge=1, le=30)
+    # Two-step verification by emailed code, for people without an authenticator app (needs SMTP
+    # and a confirmed address). Off: only authenticator apps can be set up; accounts that already
+    # use email codes keep working.
+    mfa_email_enabled: bool = True
+    # How long an emailed sign-in code works.
+    mfa_email_code_minutes: int = Field(default=10, ge=2, le=30)
+    # "Remember this device": skip the second step on that device for this many days (0 = off).
+    trusted_device_days: int = Field(default=30, ge=0, le=90)
     # Sign in with Google / Apple: the OAuth client IDs whose ID tokens are accepted (comma-separated).
     # GOOGLE_CLIENT_IDS: the first one is the "Web application" client the apps request tokens for.
     # APPLE_CLIENT_IDS: the iOS/macOS bundle ID (ai.dhanz.app) and/or a Services ID.

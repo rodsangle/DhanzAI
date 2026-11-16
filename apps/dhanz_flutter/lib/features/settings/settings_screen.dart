@@ -422,19 +422,30 @@ class SettingsScreen extends ConsumerWidget {
 
 typedef DeleteConfirmation = ({String? password, String? confirmEmail, String? mfaCode});
 
-/// Asks for the password (or, without one, the email) and an authenticator code when 2-step is on.
-class DeleteAccountDialog extends StatefulWidget {
+/// Asks for the password (or, without one, the email) and the second-step code when 2-step is on
+/// (authenticator code, or for email-code accounts a code sent from here).
+class DeleteAccountDialog extends ConsumerStatefulWidget {
   const DeleteAccountDialog({super.key, required this.user});
 
   final User user;
 
   @override
-  State<DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+  ConsumerState<DeleteAccountDialog> createState() => _DeleteAccountDialogState();
 }
 
-class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
+class _DeleteAccountDialogState extends ConsumerState<DeleteAccountDialog> {
   final _secret = TextEditingController();
   final _code = TextEditingController();
+  String? _codeNote;
+
+  Future<void> _sendCode() async {
+    try {
+      final note = await ref.read(apiClientProvider).mfaEmailCode();
+      if (mounted) setState(() => _codeNote = note);
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _codeNote = e.message);
+    }
+  }
 
   @override
   void dispose() {
@@ -474,7 +485,11 @@ class _DeleteAccountDialogState extends State<DeleteAccountDialog> {
               TextField(
                 controller: _code,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Code from your authenticator app'),
+                decoration: InputDecoration(
+                  labelText: user.mfaByEmail ? 'Code we email you' : 'Code from your authenticator app',
+                  helperText: _codeNote ?? 'A recovery code works too.',
+                  suffixIcon: user.mfaByEmail ? TextButton(onPressed: _sendCode, child: const Text('Send code')) : null,
+                ),
                 onChanged: (_) => setState(() {}),
               ),
             ],

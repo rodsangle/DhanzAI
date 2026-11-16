@@ -84,6 +84,15 @@ class FakeBackend {
   bool legacyServer = false;
   static const emailCode = '482913';
   static const mfaCode = '123456';
+
+  /// The code "emailed" for email-code accounts (sign-in, setup and security changes).
+  static const emailMfaCode = '654321';
+  final loginBodies = <Map<String, dynamic>>[];
+  final mfaVerifyBodies = <Map<String, dynamic>>[];
+  int mfaEmailsSent = 0;
+
+  /// Remembered devices: token -> {id, email, label}.
+  final trustedDevices = <String, Map<String, dynamic>>{};
   static const recoveryCode = 'AAAA-BBBB-CCCC';
   static const googleToken = 'google-id-token-abc';
   final oauthBodies = <Map<String, dynamic>>[];
@@ -96,9 +105,21 @@ class FakeBackend {
 
   Map<String, dynamic> get _user => _current ?? users.values.first;
 
-  Map<String, dynamic> _signIn(Map<String, dynamic> user) => user['mfa_enabled'] == true
-      ? {'mfa_required': true, 'mfa_token': 'mfa-${user['email']}', 'expires_in': 300}
-      : _tokensFor(user);
+  Map<String, dynamic> _signIn(Map<String, dynamic> user, {String? deviceToken}) {
+    if (user['mfa_enabled'] != true || trustedDevices[deviceToken]?['email'] == user['email']) {
+      return _tokensFor(user);
+    }
+    final byEmail = user['mfa_method'] == 'email';
+    if (byEmail) mfaEmailsSent++;
+    return {
+      'mfa_required': true,
+      'mfa_token': 'mfa-${user['email']}',
+      'expires_in': 300,
+      'method': byEmail ? 'email' : 'totp',
+      'email_hint': byEmail ? 'a*a@example.com' : null,
+      'code_sent': byEmail,
+    };
+  }
 
   Map<String, dynamic> _tokensFor(Map<String, dynamic> user) {
     _current = user;
@@ -167,17 +188,30 @@ class FakeBackend {
       if (user == null || passwords[user['email']] != body['password']) {
         return json({'detail': 'Invalid email or password'}, 401);
       }
-      return json(_signIn(user));
+      loginBodies.add(body);
+      return json(_signIn(user, deviceToken: body['trusted_device_token'] as String?));
     }
     if (path == '/auth/options') return json(authOptions);
     if (path == '/auth/mfa/verify') {
       final email = (body['mfa_token'] as String).replaceFirst('mfa-', '');
       final user = users[email];
       final code = (body['code'] as String).toUpperCase();
-      if (user == null || (code != mfaCode && code != recoveryCode)) {
+      final expected = user?['mfa_method'] == 'email' ? emailMfaCode : mfaCode;
+      mfaVerifyBodies.add(body);
+      if (user == null || (code != expected && code != recoveryCode)) {
         return json({'detail': 'That code is not correct. Check the time on your phone.'}, 401);
       }
-      return json(_tokensFor(user));
+      final tokens = _tokensFor(user);
+      if (body['remember_device'] == true && (authOptions['trusted_device_days'] as int? ?? 0) > 0) {
+        final token = 'device-token-${trustedDevices.length + 1}';
+        trustedDevices[token] = {'id': _id(), 'email': user['email'], 'label': 'Chrome on Windows'};
+        tokens['trusted_device_token'] = token;
+      }
+      return json(tokens);
+    }
+    if (path == '/auth/mfa/resend') {
+      mfaEmailsSent++;
+      return json({'detail': 'We sent a new code to a*a@example.com.'}, 202);
     }
     if (path.startsWith('/auth/oauth/')) {
       oauthBodies.add(body);
@@ -317,9 +351,51 @@ class FakeBackend {
       });
     }
     if (path == '/users/me/mfa/disable') {
-      if (body['code'] != mfaCode) return json({'detail': 'That code is not correct'}, 403);
+      final expected = _user['mfa_method'] == 'email' ? emailMfaCode : mfaCode;
+      if (body['code'] != expected) return json({'detail': 'That code is not correct'}, 403);
       _user['mfa_enabled'] = false;
+      _user['mfa_method'] = null;
+      trustedDevices.removeWhere((_, d) => d['email'] == _user['email']);
       return json(_user);
+    }
+    if (path == '/users/me/mfa/email/setup') {
+      if (_user['has_password'] != false && passwords[_user['email']] != body['password']) {
+        return json({'detail': 'Password is incorrect'}, 403);
+      }
+      mfaEmailsSent++;
+      return json({'detail': 'We sent a code to a*a@example.com.'}, 202);
+    }
+    if (path == '/users/me/mfa/email/enable') {
+      if (body['code'] != emailMfaCode) {
+        return json({'detail': 'The code is invalid or has expired. Request a new one.'}, 400);
+      }
+      _user['mfa_enabled'] = true;
+      _user['mfa_method'] = 'email';
+      return json({
+        'recovery_codes': [recoveryCode, 'DDDD-EEEE-FFFF'],
+      });
+    }
+    if (path == '/users/me/mfa/email/code') {
+      mfaEmailsSent++;
+      return json({'detail': 'We sent a code to a*a@example.com.'}, 202);
+    }
+    if (path == '/users/me/trusted-devices' && req.method == 'GET') {
+      final now = DateTime.now().toUtc();
+      return json([
+        for (final d in trustedDevices.values.where((d) => d['email'] == _user['email']))
+          {
+            'id': d['id'],
+            'label': d['label'],
+            'created_at': now.toIso8601String(),
+            'last_used_at': now.toIso8601String(),
+            'expires_at': now.add(const Duration(days: 30)).toIso8601String(),
+          },
+      ]);
+    }
+    if (path.startsWith('/users/me/trusted-devices') && req.method == 'DELETE') {
+      final id = path == '/users/me/trusted-devices' ? null : path.split('/').last;
+      trustedDevices.removeWhere((_, d) => d['email'] == _user['email'] && (id == null || d['id'] == id));
+      return json(null, 204);
     }
     if (path == '/users/me/identities') return json(identities);
     if (path.startsWith('/users/me/identities/') && req.method == 'DELETE') {

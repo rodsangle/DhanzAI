@@ -20,6 +20,16 @@ final identitiesProvider = FutureProvider.autoDispose<List<LinkedIdentity>>(
   (ref) => ref.watch(apiClientProvider).identities(),
 );
 
+/// Devices that skip the second sign-in step. Empty on servers without the feature.
+final trustedDevicesProvider = FutureProvider.autoDispose<List<TrustedDevice>>((ref) async {
+  try {
+    return await ref.watch(apiClientProvider).trustedDevices();
+  } on ApiException catch (e) {
+    if (e.statusCode == 404 || e.statusCode == 405) return const [];
+    rethrow;
+  }
+});
+
 /// Email, two-step verification, password, linked accounts and signed-in devices.
 class SecurityScreen extends ConsumerWidget {
   const SecurityScreen({super.key});
@@ -36,22 +46,43 @@ class SecurityScreen extends ConsumerWidget {
     }
   }
 
-  Future<String?> _askCode(BuildContext context, String title, String confirmLabel, {bool destructive = false}) =>
-      showTextPrompt(
-        context,
-        title: title,
-        confirmLabel: confirmLabel,
-        destructive: destructive,
-        label: 'Code from your authenticator app',
-        help: const Text('A recovery code works too.'),
-        prefixIcon: Icons.pin_outlined,
-      );
+  /// Asks for the second-step code. Email-code accounts get a fresh code emailed first.
+  Future<String?> _askCode(
+    BuildContext context,
+    WidgetRef ref,
+    User user,
+    String title,
+    String confirmLabel, {
+    bool destructive = false,
+  }) async {
+    var help = 'A recovery code works too.';
+    if (user.mfaByEmail) {
+      try {
+        help = '${await ref.read(apiClientProvider).mfaEmailCode()} A recovery code works too.';
+      } on ApiException catch (e) {
+        help = '${e.message} A recovery code works too.';
+      }
+      if (!context.mounted) return null;
+    }
+    return showTextPrompt(
+      context,
+      title: title,
+      confirmLabel: confirmLabel,
+      destructive: destructive,
+      label: user.mfaByEmail ? 'Code we emailed you' : 'Code from your authenticator app',
+      help: Text(help),
+      prefixIcon: Icons.pin_outlined,
+    );
+  }
 
   Future<void> _enableMfa(BuildContext context, WidgetRef ref, User user) async {
     final on = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => TwoFactorSetupDialog(hasPassword: user.hasPassword),
+      builder: (_) => TwoFactorSetupDialog(
+        hasPassword: user.hasPassword,
+        emailAvailable: (ref.read(authOptionsProvider).value?.mfaEmail ?? false) && user.emailVerified,
+      ),
     );
     if (on == true && context.mounted) {
       ref.read(authControllerProvider.notifier).updateUser(await ref.read(apiClientProvider).me());
@@ -60,19 +91,20 @@ class SecurityScreen extends ConsumerWidget {
     }
   }
 
-  Future<void> _disableMfa(BuildContext context, WidgetRef ref) async {
-    final code = await _askCode(context, 'Turn off two-step verification?', 'Turn off', destructive: true);
+  Future<void> _disableMfa(BuildContext context, WidgetRef ref, User user) async {
+    final code = await _askCode(context, ref, user, 'Turn off two-step verification?', 'Turn off', destructive: true);
     if (code == null || code.trim().isEmpty || !context.mounted) return;
     try {
       ref.read(authControllerProvider.notifier).updateUser(await ref.read(apiClientProvider).mfaDisable(code.trim()));
+      ref.invalidate(trustedDevicesProvider);
       if (context.mounted) _snack(context, 'Two-step verification is off.');
     } on ApiException catch (e) {
       if (context.mounted) _snack(context, e.message);
     }
   }
 
-  Future<void> _newRecoveryCodes(BuildContext context, WidgetRef ref) async {
-    final code = await _askCode(context, 'New recovery codes', 'Create');
+  Future<void> _newRecoveryCodes(BuildContext context, WidgetRef ref, User user) async {
+    final code = await _askCode(context, ref, user, 'New recovery codes', 'Create');
     if (code == null || code.trim().isEmpty || !context.mounted) return;
     try {
       final codes = await ref.read(apiClientProvider).newRecoveryCodes(code.trim());
@@ -82,6 +114,28 @@ class SecurityScreen extends ConsumerWidget {
         barrierDismissible: false,
         builder: (dialog) => RecoveryCodesDialog(codes: codes, onDone: () => Navigator.pop(dialog)),
       );
+    } on ApiException catch (e) {
+      if (context.mounted) _snack(context, e.message);
+    }
+  }
+
+  Future<void> _forgetDevice(BuildContext context, WidgetRef ref, TrustedDevice? device) async {
+    try {
+      final api = ref.read(apiClientProvider);
+      if (device == null) {
+        await api.forgetAllTrustedDevices();
+      } else {
+        await api.forgetTrustedDevice(device.id);
+      }
+      ref.invalidate(trustedDevicesProvider);
+      if (context.mounted) {
+        _snack(
+          context,
+          device == null
+              ? 'All devices will ask for the second step again.'
+              : '${device.label} will ask for the second step again.',
+        );
+      }
     } on ApiException catch (e) {
       if (context.mounted) _snack(context, e.message);
     }
@@ -124,6 +178,7 @@ class SecurityScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final sessions = ref.watch(sessionsProvider);
     final identities = ref.watch(identitiesProvider);
+    final trusted = ref.watch(trustedDevicesProvider);
     final user = ref.watch(authControllerProvider).value;
     final options = ref.watch(authOptionsProvider).value ?? const AuthOptions();
     final format = DateFormat.yMMMd().add_jm();
@@ -156,19 +211,60 @@ class SecurityScreen extends ConsumerWidget {
                     secondary: const Icon(Icons.verified_user_outlined),
                     title: const Text('Two-step verification'),
                     subtitle: Text(
-                      user.mfaEnabled
-                          ? 'On: signing in also needs a code from your authenticator app'
-                          : 'Protect your account with a code from an authenticator app',
+                      !user.mfaEnabled
+                          ? (options.mfaEmail
+                                ? 'Protect your account with a code from an authenticator app or your email'
+                                : 'Protect your account with a code from an authenticator app')
+                          : user.mfaByEmail
+                          ? 'On: signing in also needs a code we email to you'
+                          : 'On: signing in also needs a code from your authenticator app',
                     ),
                     value: user.mfaEnabled,
-                    onChanged: (on) => on ? _enableMfa(context, ref, user) : _disableMfa(context, ref),
+                    onChanged: (on) => on ? _enableMfa(context, ref, user) : _disableMfa(context, ref, user),
                   ),
                 if (user.mfaEnabled)
                   ListTile(
                     leading: const Icon(Icons.key_outlined),
                     title: const Text('New recovery codes'),
                     subtitle: const Text('Replaces your saved codes'),
-                    onTap: () => _newRecoveryCodes(context, ref),
+                    onTap: () => _newRecoveryCodes(context, ref, user),
+                  ),
+                if (user.mfaEnabled)
+                  ...trusted.maybeWhen(
+                    data: (devices) => [
+                      if (devices.isNotEmpty) ...[
+                        const Divider(height: 32),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text('Remembered devices', style: theme.textTheme.titleMedium),
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16, 4, 16, 0),
+                          child: Text('These skip the second sign-in step until they expire.'),
+                        ),
+                        for (final d in devices)
+                          ListTile(
+                            leading: const Icon(Icons.devices_outlined),
+                            title: Text(d.label),
+                            subtitle: Text(
+                              'Last used ${format.format(d.lastUsedAt)} · until ${DateFormat.yMMMd().format(d.expiresAt)}',
+                            ),
+                            trailing: TextButton(
+                              onPressed: () => _forgetDevice(context, ref, d),
+                              child: const Text('Forget'),
+                            ),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: OutlinedButton.icon(
+                            onPressed: () => _forgetDevice(context, ref, null),
+                            icon: const Icon(Icons.phonelink_erase_outlined),
+                            label: const Text('Forget all devices'),
+                          ),
+                        ),
+                      ],
+                    ],
+                    orElse: () => const <Widget>[],
                   ),
                 if (user.hasPassword)
                   ListTile(

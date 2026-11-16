@@ -97,22 +97,41 @@ class InvalidTokenError(Exception):
     pass
 
 
-def create_mfa_token(settings: Settings, user_id: uuid.UUID, method: str) -> tuple[str, int]:
+@dataclass(frozen=True)
+class MfaTicket:
+    """What a valid sign-in challenge token says: whose sign-in, how the first factor was done, and
+    the challenge's own id (an emailed code is bound to it, so it only works for this sign-in)."""
+
+    user_id: uuid.UUID
+    first_factor: str
+    challenge_id: str
+
+
+def create_mfa_token(
+    settings: Settings, user_id: uuid.UUID, method: str, *, minutes: int | None = None
+) -> tuple[str, int]:
     """Proof that the first sign-in factor (password, Google, Apple) succeeded; useless on its own."""
     now = datetime.now(UTC)
-    ttl = timedelta(minutes=settings.mfa_challenge_minutes)
-    payload = {"sub": str(user_id), "type": "mfa", "amr": method, "iat": now, "exp": now + ttl}
+    ttl = timedelta(minutes=minutes or settings.mfa_challenge_minutes)
+    payload = {
+        "sub": str(user_id),
+        "type": "mfa",
+        "amr": method,
+        "jti": secrets.token_hex(8),
+        "iat": now,
+        "exp": now + ttl,
+    }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm), int(ttl.total_seconds())
 
 
-def decode_mfa_token(settings: Settings, token: str) -> tuple[uuid.UUID, str]:
+def decode_mfa_token(settings: Settings, token: str) -> MfaTicket:
     try:
         payload = jwt.decode(
             token, settings.jwt_secret, algorithms=[settings.jwt_algorithm], options={"require": ["sub", "exp", "type"]}
         )
         if payload.get("type") != "mfa":
             raise InvalidTokenError("wrong token type")
-        return uuid.UUID(payload["sub"]), str(payload.get("amr", "pwd"))
+        return MfaTicket(uuid.UUID(payload["sub"]), str(payload.get("amr", "pwd")), str(payload.get("jti", "")))
     except (jwt.PyJWTError, ValueError) as exc:
         raise InvalidTokenError(str(exc)) from exc
 

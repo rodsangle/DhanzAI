@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Two-step verification by email, remember this device (web 0.10.16+57, migration 0010)
+
+- Two-step verification can use a code sent by email as well as an authenticator app (the
+  recommended choice). Emailed sign-in codes are bound to that one sign-in, single use, 10 minutes,
+  five tries; resending is limited. `MFA_EMAIL_ENABLED` switches the option off for new setups.
+- "Remember this device for 30 days" on the sign-in step (`TRUSTED_DEVICE_DAYS`, 0 = off). Only a
+  SHA-256 of the device token is stored; every security change forgets all remembered devices.
+  Settings → Security lists them with Forget / Forget all.
+- Alert emails when two-step verification is turned on or off, a recovery code is used, or new
+  recovery codes are created.
+- `docs/TWO_FACTOR.md`: the design, schema, API, flows, tests, rollout and security checklist.
+
 ### Live news and automatic live weather
 
 - New assistant tool `get_live_news`: headlines from the server's search provider in news mode

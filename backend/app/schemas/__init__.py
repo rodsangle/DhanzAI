@@ -77,6 +77,10 @@ class AuthOptions(BaseModel):
     # The OAuth client ID apps request Google ID tokens for (Android "serverClientId"), or null.
     google_client_id: str | None = None
     apple_sign_in: bool = False
+    # Two-step verification by emailed code can be set up (email configured and allowed).
+    mfa_email: bool = False
+    # "Remember this device" length in days (0: the option is not offered).
+    trusted_device_days: int = 0
 
 
 class MfaChallenge(BaseModel):
@@ -85,15 +89,35 @@ class MfaChallenge(BaseModel):
     mfa_required: Literal[True] = True
     mfa_token: str
     expires_in: int
+    # "totp": a code from the authenticator app. "email": a code we emailed (to `email_hint`).
+    method: Literal["totp", "email"] = "totp"
+    email_hint: str | None = None
+    # Email method: whether the code was sent (False when email is not configured on the server).
+    code_sent: bool = False
 
 
 class MfaVerifyRequest(BaseModel):
     mfa_token: str = Field(min_length=20, max_length=2000)
-    code: str = Field(min_length=6, max_length=20, description="Authenticator code or a recovery code")
+    code: str = Field(min_length=6, max_length=20, description="Authenticator or emailed code, or a recovery code")
+    # Skip the second step on this device for TRUSTED_DEVICE_DAYS; the response carries the token.
+    remember_device: bool = False
+
+
+class MfaResendRequest(BaseModel):
+    mfa_token: str = Field(min_length=20, max_length=2000)
+
+
+class TrustedDeviceOut(ORM):
+    id: uuid.UUID
+    label: str
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
 
 
 class OAuthSignInRequest(BaseModel):
     id_token: str = Field(min_length=20, max_length=8192)
+    trusted_device_token: str | None = Field(default=None, max_length=200)
     nonce: str | None = Field(default=None, max_length=200)
     # Apple shares the user's name only with the app, on the very first sign-in.
     display_name: str | None = Field(default=None, max_length=100)
@@ -139,6 +163,8 @@ class SessionOut(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+    # From an earlier "remember this device": skips the second step while it is valid.
+    trusted_device_token: str | None = Field(default=None, max_length=200)
 
 
 class RefreshRequest(BaseModel):
@@ -157,6 +183,7 @@ class UserOut(ORM):
     retention_days: int | None = None
     email_verified: bool = True
     mfa_enabled: bool = False
+    mfa_method: str | None = None
     has_password: bool = True
     created_at: datetime
 
@@ -167,6 +194,8 @@ class TokenResponse(BaseModel):
     token_type: Literal["bearer"] = "bearer"  # noqa: S105
     expires_in: int
     user: UserOut
+    # Only after a second step with remember_device: keep it on this device and send it when signing in.
+    trusted_device_token: str | None = None
 
 
 class UserUpdate(BaseModel):
