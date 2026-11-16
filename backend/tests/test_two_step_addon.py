@@ -26,6 +26,12 @@ import two_step  # noqa: E402
 from two_step import core, service  # noqa: E402
 from two_step.models import TABLES  # noqa: E402
 
+# The add-on's tables belong to servers without the built-in two-step verification; this backend's
+# migrations never create them. Keep them out of the shared metadata so the migration/model
+# comparison (test_research.test_migrations_match_models) is unaffected; they are created by name.
+for _table in TABLES:
+    Base.metadata.remove(_table)
+
 API = "/api/v1"
 PASSWORD = "correct-horse-9"
 
