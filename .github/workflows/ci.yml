@@ -165,7 +165,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/dhanz_gpt/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      - run: npx next typegen && npx tsc --noEmit
       - run: npm run lint
       - name: Build the image the server deploy script builds
         run: docker build -t dhanz-gpt:ci .
