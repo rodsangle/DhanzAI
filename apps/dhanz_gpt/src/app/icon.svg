@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Placeholder mark until the logo brief in replica/brand.md is delivered. Colours: accent and bone from the tokens. -->
+  <rect width="64" height="64" rx="14" fill="#a93f14"/>
+  <path d="M22 16h22v7H30v7h12v7H30v11h-8z" fill="#fbf9f5"/>
+</svg>

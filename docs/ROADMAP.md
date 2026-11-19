@@ -138,6 +138,13 @@ as before.
 | Native tool-calling verified against live provider APIs | 🟡 | Wire formats are tested against recorded examples, not against the live services in this milestone |
 
 
+## Dhanz GPT — second web app (gpt.dhanzai.com)
+
+- 🟡 Built and tested (Playwright suite incl. DHANZ sign-in with two-step); deploy script rehearsed
+  locally. Waiting on: the DNS record for `gpt.dhanzai.com` and a first `--apply` on the server.
+- Not yet: email sending (no `RESEND_API_KEY` on the server, emails stay in the app's outbox) and web
+  push (no VAPID keys). See `docs/DHANZ_GPT.md`.
+
 ## Public platform
 
 The goal from here: a public service anyone can download and sign up for, with Free / Plus / Pro

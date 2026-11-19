@@ -257,3 +257,10 @@ python3 scripts/server/deploy_live_news.py --apply    # build, test (one real ne
 
 `--apply` prints the rollback command. Web search must be configured (`SEARCH_PROVIDER` with
 SearXNG, Brave or Tavily); without it DHANZ says live news is unavailable instead of guessing.
+
+## Dhanz GPT at gpt.<domain>
+
+A separate web app (`apps/dhanz_gpt`) that signs people in with their DHANZ AI accounts. It gets its own
+container, database and Caddy site block and leaves the API and dhanzai.com untouched. Add the DNS
+record, then run `python3 scripts/server/deploy_dhanz_gpt.py` (check) and `--apply`. Full guide:
+[DHANZ_GPT.md](DHANZ_GPT.md).

@@ -33,7 +33,7 @@ name `dhanzai`).
 - Git: work on the session's assigned branch; no PRs unless the owner asks; never rewrite others'
   history (merge, don't rebase/force-push shared branches); no model names in commits or code.
 
-## Current state (2026-11-12)
+## Current state (2026-11-19)
 
 - **Live site:** dhanzai.com on a custom AWS server (Docker Compose behind Caddy). Its API is the
   repository backend plus changes applied by `deploy/updaters/*.py` (code embedded as base64/gzip
@@ -52,11 +52,18 @@ name `dhanzai`).
   behind `| tee`).
 - Updater fingerprints use `ast.dump`, whose output differs between Python versions: run
   `tests/test_attachment_updater.py` with Python 3.12 (CI and the server), not 3.13.
+- **Dhanz GPT** (`apps/dhanz_gpt`, Next.js 16 + PostgreSQL): second web app for gpt.<domain>, signs in
+  with DHANZ AI accounts through the API (two-step included). Deployed by
+  `scripts/server/deploy_dhanz_gpt.py` (own container `dhanz-gpt`, database `dhanz_gpt`, volume, backup
+  container, one Caddy block between markers). Rehearsed locally only; not yet on the live server.
+  Its e2e suite (Playwright, stand-in DHANZ API) runs from `apps/dhanz_gpt`; see `docs/DHANZ_GPT.md`.
 - Still unmerged elsewhere: `codex/tailscale-build-0.8.2` (Tailscale server, GitHub access), PR #37
   (Coding Agent mode), Dependabot PRs #39–#46.
 
 ## Open work (in priority order)
 
+0. Dhanz GPT go-live: owner adds DNS for gpt.dhanzai.com, runs the deploy script check then `--apply`;
+   later RESEND and VAPID keys, and `--forwarded-allow-ips` for the gpt container.
 1. Retire the updater scripts: move their payload code into `backend/` as readable source with
    Alembic migrations, build the image in CI, deploy by image tag with a rollback tag.
 2. Merge `codex/tailscale-build-0.8.2` (renumber its `0008` migration) and PR #37; clear Dependabot.
@@ -170,3 +177,6 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-14 — Live news tool get_live_news (news_tools.py, registered via hook like weather; also marks get_weather automatic) + deploy_live_news.py (rehearsed with fake SearXNG).
 - 2026-11-16 — 2FA round 2: email-code method (mfa_method), challenge-bound codes (jti), trusted devices (migration 0010), alert emails, Flutter UI (web 0.10.16); docs/TWO_FACTOR.md. Live server not yet updated: needs a guarded deploy script.
 - 2026-11-16 — Live server facts: own alembic history 0008_github_connections..0013 (never run repo 0008+ there), no 2FA, no SMTP; login() = repo 954776d. 2FA add-on server_extensions/two_step + deploy_two_step.py (rehearsed e2e).
+- 2026-11-19 — Dhanz GPT added (apps/dhanz_gpt) + deploy_dhanz_gpt.py, CI job, docs/DHANZ_GPT.md;
+  rehearsed: standalone build, non-superuser DB (admin must create the `vector` extension), stand-in
+  DHANZ API sign-in with two-step, Caddy 2.10 validates the generated Caddyfile.

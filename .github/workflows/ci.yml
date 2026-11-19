@@ -69,7 +69,7 @@ jobs:
         working-directory: knowledge_engine
         run: pytest -q --cov=dhanz_knowledge --cov-report=term-missing:skip-covered --cov-fail-under=85
       - name: Deployment helper tests
-        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py tests/test_deploy_ai_engine.py tests/test_deploy_conversation_extras.py tests/test_upgrade_models.py tests/test_deploy_live_news.py tests/test_deploy_two_step.py
+        run: pytest -q tests/test_update_bundle.py tests/test_ocr_activation.py tests/test_attachment_updater.py tests/test_web_updater.py tests/test_deploy_ai_engine.py tests/test_deploy_conversation_extras.py tests/test_upgrade_models.py tests/test_deploy_live_news.py tests/test_deploy_two_step.py tests/test_deploy_dhanz_gpt.py
       - name: Backend tests (coverage >= 80%)
         working-directory: backend
         run: pytest -q --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=80
@@ -150,6 +150,52 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build
         run: docker build -f backend/Dockerfile -t dhanz-api:ci .
+
+  dhanz-gpt:
+    name: Dhanz GPT (lint, types, image, health)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dhanz_gpt
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/dhanz_gpt/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint
+      - name: Build the image the server deploy script builds
+        run: docker build -t dhanz-gpt:ci .
+      - name: Bootstrap a plain Postgres like the server, migrate, start, check health
+        run: |
+          docker network create gptci
+          docker run -d --name db --network gptci -e POSTGRES_PASSWORD=ci pgvector/pgvector:pg16
+          for i in $(seq 1 30); do docker exec db pg_isready -U postgres && break; sleep 2; done
+          python3 - <<'PY' | docker exec -i db psql -v ON_ERROR_STOP=1 -U postgres
+          import importlib.util, sys
+          sys.path.insert(0, "../../scripts/server")
+          spec = importlib.util.spec_from_file_location("d", "../../scripts/server/deploy_dhanz_gpt.py")
+          d = importlib.util.module_from_spec(spec); spec.loader.exec_module(d)
+          print(d.bootstrap_sql("ci_password"))
+          print("create database dhanz_gpt owner dhanz_gpt;")
+          print("\\c dhanz_gpt")
+          print(d.EXTENSIONS_SQL)
+          PY
+          printf '%s\n' NODE_ENV=production AUTH_MODE=dhanz DHANZ_API_URL=http://api:8000/api/v1 \
+            DATABASE_URL=postgres://dhanz_gpt:ci_password@db:5432/dhanz_gpt \
+            APP_TOKEN_KEY=$(openssl rand -base64 32) APP_URL=https://gpt.example.test STORAGE_DRIVER=local > /tmp/gpt.env
+          for step in platform migrate "signup-mode personal"; do
+            docker run --rm --network gptci --env-file /tmp/gpt.env --entrypoint node dhanz-gpt:ci scripts/db.mjs $step
+          done
+          docker run -d --name dhanz-gpt --network gptci --env-file /tmp/gpt.env dhanz-gpt:ci
+          for i in $(seq 1 30); do
+            out=$(docker exec dhanz-gpt node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log).catch(()=>{})" || true)
+            echo "$out"; echo "$out" | grep -q '"auth":"dhanz"' && exit 0; sleep 2
+          done
+          docker logs dhanz-gpt; exit 1
 
   flutter:
     name: Flutter (format, analyze, test)

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Dhanz GPT (new web app, gpt.dhanzai.com)
+
+- `apps/dhanz_gpt`: chat with streaming, pages, projects, custom assistants, images, dictation,
+  scheduled tasks, share links and connected apps. Signs in with DHANZ AI accounts (password and
+  two-step verification checked by the API; sessions re-checked every five minutes, signing out of
+  either ends both); one private workspace per account.
+- `scripts/server/deploy_dhanz_gpt.py`: check / `--apply` / `--rollback` / `--uninstall`. Own
+  container, database, volume and backup container; one Caddy site block, validated before reload.
+  Rehearsed locally (standalone build, non-superuser database, stand-in DHANZ API, real Caddy
+  validation of the generated Caddyfile); not yet run on the live server.
+- CI: new `Dhanz GPT` job (lint, types, image build, health check against a fresh PostgreSQL) and
+  `tests/test_deploy_dhanz_gpt.py`. Guide: `docs/DHANZ_GPT.md`.
+
 ### Two-step verification for the live server (add-on)
 
 - `server_extensions/two_step` + `scripts/server/deploy_two_step.py`: authenticator app, recovery
