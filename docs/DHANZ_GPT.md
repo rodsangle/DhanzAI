@@ -1,8 +1,9 @@
 # Dhanz GPT (gpt.dhanzai.com)
 
-Dhanz GPT is a second web app from DHANZ AI: chat with streaming replies, pages (documents you write
-with the assistant), projects, custom assistants, image generation, voice dictation, scheduled tasks,
-share links and connected apps. Its source is `apps/dhanz_gpt` (Next.js 16, TypeScript, PostgreSQL).
+Dhanz GPT is a second web app from DHANZ AI: chat with streaming replies (with a Think longer option and
+a short summary of the reasoning), pages (documents you write with the assistant), projects, custom
+assistants, images in three shapes with edits by prompt, voice dictation, read aloud, transcripts of
+uploaded recordings, scheduled tasks, share links and connected apps. Its source is `apps/dhanz_gpt` (Next.js 16, TypeScript, PostgreSQL).
 
 It runs next to the main DHANZ AI service on the same AWS server and **changes nothing in it**:
 
@@ -78,7 +79,8 @@ Generated once and kept in `~/.config/dhanz-gpt/dhanz-gpt.env` (mode 600): the d
 tokens can't be decrypted (people simply sign in again; connected apps need reconnecting).
 
 `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are copied from the running API's settings at every
-`--apply`, so Dhanz GPT uses the same provider accounts. Nothing is printed.
+`--apply`, so Dhanz GPT uses the same provider accounts. Nothing is printed. With the OpenAI key,
+images, image edits, dictation, recording transcripts and read aloud (gpt-4o-mini-tts) all work.
 
 Optional, not set by the script (add them to the secrets file and re-run `--apply` once supported):
 email sending (`RESEND_API_KEY`: without it, emails such as scheduled-task results are kept in the
@@ -102,7 +104,7 @@ sudo docker logs --tail 100 dhanz-gpt
 sudo docker exec dhanz-gpt node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>r.text()).then(console.log)"
 ```
 
-`/api/health` answers `{"ok":true,"migrations":10,"auth":"dhanz"}` when the database is reachable.
+`/api/health` answers `{"ok":true,"migrations":11,"auth":"dhanz"}` when the database is reachable.
 
 ## Known limits
 

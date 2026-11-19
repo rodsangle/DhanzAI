@@ -4,8 +4,8 @@ import {
   attachFiles, checkAttachments, checkSendRate, createConversation, getConversationDetail, HttpError, insertUserMessage, messageRow, patchMessage,
   updateConversation, usageToday,
 } from "@/lib/data";
-import { DEFAULT_MODEL, LIMITS, MODELS, type ContentBlock } from "@/lib/data/types";
-import { sseFor, startAssistantReply } from "@/lib/ai/generation";
+import { DEFAULT_MODEL, LIMITS, MODELS, type ContentBlock, type MessageOptions } from "@/lib/data/types";
+import { replyOptions, sseFor, startAssistantReply } from "@/lib/ai/generation";
 import { body, requireUser, route } from "@/lib/server/http";
 
 const ChatBody = z.object({
@@ -18,7 +18,14 @@ const ChatBody = z.object({
   file_ids: z.array(z.uuid()).max(LIMITS.attachmentsPerMessage).default([]),
   model: z.string().max(100).optional(),
   temporary: z.boolean().optional(),
-  tools: z.object({ image: z.boolean().optional(), search: z.boolean().optional() }).optional(),
+  tools: z
+    .object({
+      image: z.boolean().optional(),
+      image_size: z.enum(["square", "landscape", "portrait"]).optional(),
+      search: z.boolean().optional(),
+      think: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const POST = route(async (req: Request) => {
@@ -53,7 +60,12 @@ export const POST = route(async (req: Request) => {
     if (!p || p.conversation_id !== conversation.id) throw new HttpError(400, "That message isn't part of this chat.");
     parent = p.id;
   }
-  const user = await insertUserMessage({ conversation_id: conversation.id, user_id: userId, text, parent });
+  const options: MessageOptions = {
+    ...(b.tools?.image ? { image: true, ...(b.tools.image_size ? { image_size: b.tools.image_size } : {}) } : {}),
+    ...(b.tools?.search && !b.tools?.image ? { search: true } : {}),
+    ...(b.tools?.think && !b.tools?.image ? { think: true } : {}),
+  };
+  const user = await insertUserMessage({ conversation_id: conversation.id, user_id: userId, text, parent, options });
   if (b.file_ids.length) {
     const files = await attachFiles(userId, user.id, b.file_ids);
     const content: ContentBlock[] = [
@@ -62,7 +74,7 @@ export const POST = route(async (req: Request) => {
     ];
     await patchMessage(user.id, { content });
   }
-  const { assistant, done } = await startAssistantReply(userId, conversation, user, { forceImage: !!b.tools?.image, forceSearch: !!b.tools?.search && !b.tools?.image });
+  const { assistant, done } = await startAssistantReply(userId, conversation, user, replyOptions(options));
   after(done);
   return sseFor(assistant, [
     { type: "meta", conversation_id: conversation.id, user_message_id: user.id, assistant_message_id: assistant.id, title: conversation.title },

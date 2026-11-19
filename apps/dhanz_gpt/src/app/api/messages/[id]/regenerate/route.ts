@@ -1,8 +1,8 @@
 import { after } from "next/server";
 import { z } from "zod";
-import { getOwnMessage, HttpError, messageRow, updateConversation } from "@/lib/data";
+import { getOwnMessage, HttpError, messageOptions, messageRow, updateConversation } from "@/lib/data";
 import { MODELS } from "@/lib/data/types";
-import { sseFor, startAssistantReply } from "@/lib/ai/generation";
+import { replyOptions, sseFor, startAssistantReply } from "@/lib/ai/generation";
 import { idParam, requireUser, route } from "@/lib/server/http";
 
 const Body = z.object({ model: z.string().max(100).optional() });
@@ -18,7 +18,8 @@ export const POST = route(async (req: Request, { params }: { params: Promise<{ i
   const parent = await messageRow(message.parent_id);
   if (!parent) throw new HttpError(404, "Not found");
   const conv = model && MODELS.some((m) => m.id === model) ? await updateConversation(userId, conversation.id, { model }) : conversation;
-  const { assistant, done } = await startAssistantReply(userId, conv, parent);
+  // Retry asks the same way the person did: image mode and shape, web search, think longer.
+  const { assistant, done } = await startAssistantReply(userId, conv, parent, replyOptions(await messageOptions(parent.id)));
   after(done);
   return sseFor(assistant, [{ type: "meta", conversation_id: conv.id, assistant_message_id: assistant.id }]);
 });

@@ -205,23 +205,24 @@ export function titleFor(prompt: string) {
 }
 
 /** Placeholder "image model": an abstract SVG seeded by the prompt. Clearly labelled, never passed off as real. */
-export function placeholderImage(prompt: string) {
+export function placeholderImage(prompt: string, shape: "square" | "landscape" | "portrait" = "square", edit = false) {
+  const [w, hgt] = shape === "landscape" ? [1536, 1024] : shape === "portrait" ? [1024, 1536] : [1024, 1024];
   const h = hashOf(prompt);
   const hue = h % 360;
   const hue2 = (hue + 40 + (h % 90)) % 360;
   const shapes = Array.from({ length: 6 }, (_, i) => {
-    const x = (h >> (i * 3)) % 900 + 50;
-    const y = (h >> (i * 2 + 5)) % 900 + 50;
+    const x = ((h >> (i * 3)) % 900 + 50) * (w / 1024);
+    const y = ((h >> (i * 2 + 5)) % 900 + 50) * (hgt / 1024);
     const r = 60 + ((h >> i) % 180);
     return `<circle cx="${x}" cy="${y}" r="${r}" fill="hsl(${(hue + i * 25) % 360} 45% ${30 + i * 6}%)" fill-opacity=".55"/>`;
   }).join("");
   const label = prompt.replace(/[<>&"]/g, "").slice(0, 60);
   return Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${hgt}" width="${w}" height="${hgt}">` +
       `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue} 30% 14%)"/><stop offset="1" stop-color="hsl(${hue2} 40% 30%)"/></linearGradient></defs>` +
-      `<rect width="1024" height="1024" fill="url(#g)"/>${shapes}` +
-      `<text x="48" y="960" font-family="Inter, sans-serif" font-size="30" fill="#fff" fill-opacity=".85">${label}</text>` +
-      `<text x="48" y="80" font-family="Inter, sans-serif" font-size="22" letter-spacing="4" fill="#fff" fill-opacity=".6">PLACEHOLDER RENDER</text>` +
+      `<rect width="${w}" height="${hgt}" fill="url(#g)"/>${shapes}` +
+      `<text x="48" y="${hgt - 64}" font-family="Inter, sans-serif" font-size="30" fill="#fff" fill-opacity=".85">${label}</text>` +
+      `<text x="48" y="80" font-family="Inter, sans-serif" font-size="22" letter-spacing="4" fill="#fff" fill-opacity=".6">${edit ? "PLACEHOLDER EDIT" : "PLACEHOLDER RENDER"} · ${shape.toUpperCase()}</text>` +
       `</svg>`,
   );
 }

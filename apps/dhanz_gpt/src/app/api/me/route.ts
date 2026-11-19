@@ -1,3 +1,4 @@
+import { speechProvider } from "@/lib/ai/speech";
 import { getProfile, getWorkspaceFor, unseenRunCount, usageToday } from "@/lib/data";
 import { LIMITS } from "@/lib/data/types";
 import { requireUser, route } from "@/lib/server/http";
@@ -14,7 +15,7 @@ export const GET = route(async () => {
   return {
     profile, workspace, role,
     usage: { messages, images, limits: { messages: LIMITS.messagesPerDay, images: LIMITS.imagesPerDay } },
-    features: { webSearch: webSearchMode(), email: emailProvider() !== "off", push: pushConfigured(), dictation: transcribeProvider() !== "off" },
+    features: { webSearch: webSearchMode(), email: emailProvider() !== "off", push: pushConfigured(), dictation: transcribeProvider() !== "off", speech: speechProvider() !== "off" },
     unseen_task_runs: unseenTasks,
   };
 });

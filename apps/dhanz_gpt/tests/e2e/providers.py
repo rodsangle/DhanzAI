@@ -1,5 +1,5 @@
 # Adapter tests: real app code path → official Anthropic SDK / Images API call → stand-in server.
-import json, time, threading, urllib.request, http.cookiejar, base64, io
+import json, time, threading, urllib.request, http.cookiejar, base64, io, subprocess
 A, B = "http://localhost:3100", "http://localhost:3101"
 MOCK_BASE = "http://localhost:4010"
 LOG = "/tmp/mock-requests.jsonl"
@@ -66,10 +66,15 @@ evs = sse(A, "/api/chat", {"project_id": fw26["id"], "text": "Write captions for
 meta = evs[0]; done = evs[-1]
 txt = text_of(evs)
 check("answer streams through the Anthropic SDK and completes", done.get("type") == "done" and done.get("status") == "complete" and txt.startswith("Mock answer from the stand-in API."), json.dumps(evs[-2:])[:300])
-check("thinking deltas are not shown to the user", "internal reasoning" not in txt)
+check("thinking stays out of the answer text", "internal reasoning" not in txt)
+final_content = next((e["content"] for e in reversed(evs) if e["type"] in ("content", "snapshot") and e.get("content")), [])
+check("thinking summary is kept as a collapsed reasoning block", any(b["type"] == "reasoning" and "internal reasoning" in b["text"] for b in final_content), json.dumps(final_content)[:300])
 reqs = [l for l in logs() if l["path"].startswith("/v1/messages")]
 stream_req = next(r for r in reqs if r["body"].get("stream"))
 bdy = stream_req["body"]
+check("chat asks for adaptive thinking with summaries, medium effort, and room for thinking",
+      bdy.get("thinking") == {"type": "adaptive", "display": "summarized"} and bdy.get("output_config") == {"effort": "medium"} and bdy["max_tokens"] >= 16000,
+      json.dumps({k: bdy.get(k) for k in ("thinking", "output_config", "max_tokens")}))
 check("request uses the chosen model and no sampling params", bdy["model"] == "claude-sonnet-5-5" and not any(k in bdy for k in ("temperature", "top_p", "top_k")), json.dumps({k: bdy[k] for k in bdy if k != "messages" and k != "system"}))
 hdr = stream_req["headers"]
 check("API key and anthropic-version header sent by the SDK", (hdr.get("x-api-key") == "sk-ant-test" or hdr.get("authorization") == "Bearer sk-ant-test") and bool(hdr.get("anthropic-version")), str(hdr)[:200])
@@ -116,6 +121,33 @@ check("Stop pressed on instance B stops a generation running on instance A", row
 rev = resumed.get("evs", [])
 check("instance B followed the live answer (polling path) and saw it end", any(e["type"] == "delta" for e in rev) and rev and rev[-1].get("status") == "stopped", json.dumps(rev[-2:])[:200])
 
+# --- 4b. think longer: high effort, kept for Try again
+open(LOG, "w").close()
+evs_t = sse(A, "/api/chat", {"conversation_id": conv, "text": "Think hard about pricing", "model": "claude-sonnet-5-5", "tools": {"think": True}})
+treq = next(l for l in logs() if l["path"].startswith("/v1/messages") and l["body"].get("stream"))["body"]
+check("Think longer sends high effort and a bigger max_tokens", treq.get("output_config") == {"effort": "high"} and treq["max_tokens"] > bdy["max_tokens"], json.dumps({k: treq.get(k) for k in ("output_config", "max_tokens")}))
+open(LOG, "w").close()
+think_answer = evs_t[0]["assistant_message_id"]
+sse(A, f"/api/messages/{think_answer}/regenerate", {})
+rreq = next(l for l in logs() if l["path"].startswith("/v1/messages") and l["body"].get("stream"))["body"]
+check("Try again on a Think longer answer thinks longer again", rreq.get("output_config") == {"effort": "high"}, json.dumps(rreq.get("output_config")))
+
+# --- 4c. read aloud through the speech endpoint
+open(LOG, "w").close()
+s_sp, b_sp = call(A, "GET", f"/api/messages/{think_answer}/speech?part=0")
+sreq = next((l for l in logs() if l["path"] == "/v1/audio/speech"), None)
+check("Read aloud calls the speech endpoint with model, voice and plain text, and returns the audio",
+      s_sp == 200 and b_sp.startswith(b"ID3") and sreq and sreq["body"]["model"] == "gpt-4o-mini-tts" and sreq["body"]["voice"] and sreq["body"]["input"].startswith("Mock answer")
+      and sreq["headers"]["authorization"] == "Bearer sk-test", f"{s_sp} {b_sp[:40]} {sreq}")
+s_bad, _ = call(A, "GET", f"/api/messages/{think_answer}/speech?part=99")
+check("a part that doesn't exist is refused", s_bad == 400, str(s_bad))
+
+# --- 4d. an uploaded recording is transcribed into the file's text
+f_audio = upload("standup.m4a", "audio/mp4", b"fake audio bytes for the stand-in")
+out_a = subprocess.run(["psql", "-h", "/tmp", "-p", "5499", "-U", "postgres", "rodrech", "-tAc",
+    f"select extracted_text from files where id = '{f_audio['id']}'"], capture_output=True, text=True).stdout
+check("uploaded audio gets a transcript as its text", f_audio["status"] == "ready" and "Transcript of the recording standup.m4a" in out_a and "Drop the black fitted" in out_a, out_a[:200])
+
 # --- 5. overloaded API → friendly retryable error
 evs = sse(A, "/api/chat", {"conversation_id": conv, "text": "MOCK_ERROR_529 please", "model": "claude-sonnet-5-5"})
 check("API overload becomes a friendly error", evs[-1].get("status") == "error" and "busy" in (evs[-1].get("error") or ""), json.dumps(evs[-1]))
@@ -128,6 +160,18 @@ s, data = call(A, "GET", f"/api/files/{fid}/download?inline=1") if fid else (0, 
 check("image request goes to the Images API and saves a PNG", evs[-1].get("status") == "complete" and s == 200 and data[:4] == b"\x89PNG", f"{evs[-1]} {s}")
 ireq = next(l for l in logs() if l["path"].startswith("/v1/images"))
 check("image request carries the model, prompt and bearer key", ireq["body"]["prompt"] == "a bone fitted cap on a plinth" and ireq["body"]["model"] and ireq["headers"]["authorization"] == "Bearer sk-test")
+check("a new image is square unless asked", ireq["body"].get("size") == "1024x1024", str(ireq["body"].get("size")))
+open(LOG, "w").close()
+evs_p = sse(A, "/api/chat", {"conversation_id": img and evs[0]["conversation_id"], "text": "make it portrait with a darker background", "tools": {"image": True, "image_size": "portrait"}})
+ereq = next((l for l in logs() if l["path"] == "/v1/images/edits"), None)
+check("a follow-up change edits the last image through /images/edits, in the chosen shape",
+      evs_p[-1].get("status") == "complete" and ereq and ereq["body"]["size"] == "1024x1536" and len(ereq["body"]["images"]) == 1
+      and ereq["body"]["images"][0]["field"] == "image" and ereq["body"]["images"][0]["type"] == "image/png" and ereq["headers"]["authorization"] == "Bearer sk-test", str(ereq)[:300])
+open(LOG, "w").close()
+evs_a = sse(A, "/api/chat", {"text": "combine these into one poster", "file_ids": [f_png["id"], upload("second.png", "image/png", png)["id"]], "tools": {"image": True}})
+areq = next((l for l in logs() if l["path"] == "/v1/images/edits"), None)
+check("two attached photos go to the edit as image[] parts, keeping their proportions (size auto)",
+      evs_a[-1].get("status") == "complete" and areq and [i["field"] for i in areq["body"]["images"]] == ["image[]", "image[]"] and areq["body"]["size"] == "auto", str(areq)[:300])
 evs = sse(A, "/api/chat", {"text": "BLOCKME cap", "tools": {"image": True}})
 check("image refusal shows the 'declined' message", evs[-1].get("status") == "error" and "declined" in (evs[-1].get("error") or ""), json.dumps(evs[-1]))
 

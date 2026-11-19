@@ -4,6 +4,11 @@
 
 ### Dhanz GPT (new web app, gpt.dhanzai.com)
 
+- Round 5: images in Square / Landscape / Portrait and edits by prompt (attached photos, or "make it
+  warmer" after an image); Think longer with a collapsed reasoning summary; Read aloud; uploaded
+  recordings get a transcript; Library storage bar. Try again keeps how the message was asked
+  (migration 0011). Update the server with `--apply` again.
+
 - `apps/dhanz_gpt`: chat with streaming, pages, projects, custom assistants, images, dictation,
   scheduled tasks, share links and connected apps. Signs in with DHANZ AI accounts (password and
   two-step verification checked by the API; sessions re-checked every five minutes, signing out of

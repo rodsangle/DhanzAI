@@ -14,6 +14,38 @@ import { PageHeader } from "@/components/shell/app-shell";
 import { useUI } from "@/components/shell/providers";
 import { useRouter } from "next/navigation";
 
+const gb = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1).replace(/\.0$/, "")} GB` : n >= 1024 ** 2 ? `${Math.round(n / 1024 ** 2)} MB` : `${Math.max(0, Math.round(n / 1024))} KB`);
+
+/** How much of the storage quota the person's files use. */
+function StorageBar() {
+  const { data } = useSWR<{ used: number; quota: number }>("/api/files/usage");
+  if (!data) return <Skeleton className="h-9" />;
+  const pct = Math.min(100, (data.used / data.quota) * 100);
+  const full = pct >= 90;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between text-sm">
+        <span id="storage-label">Storage</span>
+        <span className={cn("text-xs tabular-nums", full ? "text-warning-text" : "text-muted")}>
+          {gb(data.used)} of {gb(data.quota)} used
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-labelledby="storage-label"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(pct)}
+        aria-valuetext={`${gb(data.used)} of ${gb(data.quota)} used`}
+        className="h-1.5 overflow-hidden rounded-full bg-surface-muted"
+      >
+        <div className={cn("h-full rounded-full", full ? "bg-warning-text" : "bg-accent")} style={{ width: `${Math.max(pct, data.used ? 1 : 0)}%` }} />
+      </div>
+      {full && <p className="text-xs text-warning-text">Almost full. Delete files you don&apos;t need: deleted files stop counting right away.</p>}
+    </div>
+  );
+}
+
 const fmt = (n: number) => (n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`);
 
 function FileList({ files, trashed }: { files: FileRow[] | undefined; trashed?: boolean }) {
@@ -28,6 +60,7 @@ function FileList({ files, trashed }: { files: FileRow[] | undefined; trashed?: 
     await api.trashFile(f.id, t);
     mutate("/api/files");
     mutate("/api/files?trashed=1");
+    mutate("/api/files/usage");
     if (t) toast({ title: `Moved ${f.name} to Recently deleted`, action: { label: "Undo", onClick: () => setTrashed(f, false) } });
   }
   if (!files) return <div className="flex flex-col gap-2" aria-busy="true">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-12" />)}</div>;
@@ -67,7 +100,7 @@ function FileList({ files, trashed }: { files: FileRow[] | undefined; trashed?: 
   );
 }
 
-// S11 Library (partial: list, search, download, recently deleted)
+// S11 Library: list, search, download, recently deleted, storage used
 export default function LibraryPage() {
   const { data: files } = useSWR<FileRow[]>("/api/files");
   const { data: trashed } = useSWR<FileRow[]>("/api/files?trashed=1");
@@ -79,6 +112,7 @@ export default function LibraryPage() {
     <main id="main" className="flex flex-1 flex-col overflow-y-auto">
       <PageHeader left={<h1 className="px-2 text-lg font-semibold">Library</h1>} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-10">
+        <StorageBar />
         <TextInput label="Search files" hideLabel leading={<Search />} placeholder="Search files" value={q} onChange={(e) => setQ(e.target.value)} />
         <Tabs
           defaultValue="all"

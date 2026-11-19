@@ -8,6 +8,9 @@ import { planResponse, titleFor, tokenize } from "./fake-model";
  * Text models behind one interface.
  * - "anthropic": the Claude API through the official SDK. Requests send no sampling parameters
  *   (current Sonnet models reject non-default ones) and mark the system prompt for prompt caching.
+ *   Thinking is adaptive (always on for current models); `output_config.effort` sets its depth:
+ *   "medium" for chat, "high" when the person picks Think longer. Summaries of it stream back as
+ *   `thinking` chunks and show collapsed above the answer.
  * - "demo": the offline sample model, for development and tests.
  * Chosen by MODEL_PROVIDER, defaulting to "anthropic" when ANTHROPIC_API_KEY is set.
  */
@@ -16,6 +19,8 @@ export type Attachment = { file: FileRow; bytes: Buffer | null };
 
 export interface AnswerContext {
   model: string;
+  /** The person turned on Think longer for this message. */
+  think?: boolean;
   prompt: string;
   attachments: Attachment[];
   history: { role: "user" | "assistant"; text: string; attachmentNames: string[] }[];
@@ -48,6 +53,8 @@ export type ToolSpec = { name: string; description: string; input_schema: Record
 
 export type Chunk =
   | { type: "text"; text: string }
+  /** A piece of the model's reasoning summary. */
+  | { type: "thinking"; text: string }
   /** The model wants app actions run before it continues. */
   | { type: "tool_calls"; calls: ToolCall[]; assistantContent: unknown[] }
   | { type: "usage"; input_tokens: number; output_tokens: number; web_searches?: number }
@@ -270,6 +277,17 @@ export async function* streamAnswer(ctx: AnswerContext, signal: AbortSignal): As
       model: ctx.model,
     });
     if (plan.search) yield { type: "searching", query: plan.search.query };
+    if (ctx.think) {
+      // The demo model "thinks" in a labelled sample summary, so the Think longer path can be tried offline.
+      for (const line of [
+        "**Working out the question.** Demo reasoning summary: the sample model lists the parts of the request, ",
+        "checks what's known from the chat, and plans the answer before writing it.",
+      ]) {
+        if (signal.aborted) return;
+        yield { type: "thinking", text: line };
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
     await new Promise((r) => setTimeout(r, ctx.model.includes("opus") ? 900 : 350));
     let sent = 0;
     for (const tok of tokenize(plan.text)) {
@@ -311,7 +329,10 @@ async function* claudeAnswer(ctx: AnswerContext, signal: AbortSignal): AsyncGene
       const stream = anthropic().messages.stream(
         {
           model: ctx.model,
-          max_tokens: 8192,
+          // Thinking counts toward max_tokens, so leave it room (more when thinking longer).
+          max_tokens: ctx.think ? 48_000 : 16_000,
+          thinking: { type: "adaptive", display: "summarized" },
+          output_config: { effort: ctx.think ? "high" : "medium" },
           system: [{ type: "text", text: systemPrompt(ctx), cache_control: { type: "ephemeral" } }],
           messages,
           ...(search || ctx.tools?.length
@@ -333,6 +354,7 @@ async function* claudeAnswer(ctx: AnswerContext, signal: AbortSignal): AsyncGene
           else if (ev.type === "content_block_start" && ev.content_block.type === "server_tool_use") toolJson.set(ev.index, "");
           else if (ev.type === "content_block_delta") {
             if (ev.delta.type === "text_delta") yield { type: "text", text: ev.delta.text };
+            else if (ev.delta.type === "thinking_delta" && ev.delta.thinking) yield { type: "thinking", text: ev.delta.thinking };
             else if (ev.delta.type === "input_json_delta" && toolJson.has(ev.index)) toolJson.set(ev.index, toolJson.get(ev.index)! + ev.delta.partial_json);
             else if (ev.delta.type === "citations_delta" && ev.delta.citation.type === "web_search_result_location") {
               const c = ev.delta.citation;

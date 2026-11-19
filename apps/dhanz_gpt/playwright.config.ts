@@ -53,6 +53,8 @@ export default defineConfig({
       OPENAI_BASE_URL: "http://localhost:4010/v1",
       OPENAI_API_KEY: "test-openai",
       IMAGE_PROVIDER: "placeholder",
+      // Read aloud plays the demo voice's short silent clip (a stand-in MP3 wouldn't decode in the browser).
+      SPEECH_PROVIDER: "demo",
     },
     url: "http://localhost:3100/login",
     reuseExistingServer: true,

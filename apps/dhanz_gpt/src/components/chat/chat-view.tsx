@@ -3,15 +3,16 @@
 import { BRAND } from "@/lib/brand";
 import {
   Bot,
-  ArrowDown, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, FilePlus2, FileText, Pencil, RefreshCw, Share, ThumbsDown, ThumbsUp, Upload,
+  ArrowDown, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, FilePlus2, FileText, Lightbulb, Pencil, RefreshCw, Share, ThumbsDown, ThumbsUp, Upload,
 } from "lucide-react";
+import { ReadAloud } from "./read-aloud";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import useSWR, { mutate } from "swr";
 import { api, ApiError, fileUrl, uploadFile } from "@/lib/api";
 import { streamEvents, type GenEvent } from "@/lib/stream";
-import { LIMITS, MODELS, type AssistantDetail, type AssistantListItem, type ContentBlock, type ConversationDetail, type FileRow, type Message } from "@/lib/data/types";
+import { LIMITS, MODELS, type AssistantDetail, type AssistantListItem, type ContentBlock, type ConversationDetail, type FileRow, type ImageSize, type Message } from "@/lib/data/types";
 import { cn, focusRing } from "@/lib/cn";
 import { Button, IconButton } from "@/components/ui/button";
 import { Badge, Banner, useToast } from "@/components/ui/feedback";
@@ -112,6 +113,7 @@ function Blocks({
   const textEl = (hasTextBlock || !content.length) && text ? (role === "user" ? <p className="whitespace-pre-wrap">{text}</p> : <Markdown text={text} />) : null;
   return (
     <div className="flex flex-col gap-3">
+      {role === "assistant" && content.map((b, i) => (b.type === "reasoning" ? <Reasoning key={`r${i}`} text={b.text} /> : null))}
       {role === "assistant" && content.map((b, i) => (b.type === "tool_activity" ? <ToolActivity key={`a${i}`} items={b.items} /> : null))}
       {role === "assistant" && textEl}
       {role === "assistant" && content.map((b) => (b.type === "approval" ? <ApprovalCard key={b.approval_id} block={b} onDecide={onDecide} /> : null))}
@@ -134,6 +136,21 @@ function Blocks({
       {role === "user" && textEl}
       {role === "assistant" && content.map((b, i) => (b.type === "sources" ? <SourcesRow key={i} items={b.items} onOpenMemory={() => openSettings("personalization")} /> : null))}
     </div>
+  );
+}
+
+/** The model's reasoning summary, collapsed until opened. */
+function Reasoning({ text }: { text: string }) {
+  return (
+    <details className="group rounded-md text-sm text-muted">
+      <summary className={cn("flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md py-1 pr-2 hover:text-fg [&::-webkit-details-marker]:hidden", focusRing)}>
+        <Lightbulb aria-hidden className="size-4" /> Thought process
+        <ChevronDown aria-hidden className="size-4 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-1 border-l-2 border-border pl-3 [&_p]:my-1">
+        <Markdown text={text} />
+      </div>
+    </details>
   );
 }
 
@@ -186,6 +203,9 @@ export function ChatView({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [imageMode, setImageModeRaw] = useState(false);
   const [searchMode, setSearchModeRaw] = useState(false);
+  // null = not chosen: new images are square, edits keep the shape of the image they change.
+  const [imageSize, setImageSize] = useState<ImageSize | null>(null);
+  const [think, setThink] = useState(false);
   // One tool at a time: turning one on turns the other off.
   const setImageMode = (on: boolean) => { setImageModeRaw(on); if (on) setSearchModeRaw(false); };
   const setSearchMode = (on: boolean) => { setSearchModeRaw(on); if (on) setImageModeRaw(false); };
@@ -396,7 +416,7 @@ export function ChatView({
               body: JSON.stringify({
                 conversation_id: convId, project_id: projectId, assistant_id: convId ? undefined : assistantProp?.id, parent_id: opts.parentId, text: body,
                 file_ids: files.map((f) => f.fileId).filter(Boolean), model, temporary: isNew ? temporary : undefined,
-                tools: { image: imageMode, search: searchMode },
+                tools: { image: imageMode, image_size: imageMode && imageSize ? imageSize : undefined, search: searchMode, think: think && !imageMode },
               }),
             },
             on,
@@ -415,7 +435,9 @@ export function ChatView({
         },
       );
       setImageMode(false);
+      setImageSize(null);
       setSearchMode(false);
+      setThink(false);
       if (isNew && embedded) router.push(`/c/${convIdRef.current}`);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Couldn't send. Check your connection and try again.";
@@ -622,6 +644,10 @@ export function ChatView({
       onRemoveAttachment={(id) => setAttachments((a) => a.filter((x) => x.id !== id))}
       imageMode={imageMode}
       onImageMode={canImage ? setImageMode : undefined}
+      imageSize={imageSize ?? undefined}
+      onImageSize={setImageSize}
+      think={think}
+      onThink={setThink}
       searchMode={me?.features?.webSearch === "off" || !canSearch ? null : searchMode}
       onSearchMode={setSearchMode}
       onAddFromLibrary={() => setLibraryOpen(true)}
@@ -829,6 +855,7 @@ export function ChatView({
                       >
                         <BranchNav kind="Answer" index={sibIndex} total={sibs.length} onPick={(i) => pickSibling(m, i)} />
                         <IconButton label={copied === m.id ? "Copied" : "Copy"} size="sm" onClick={() => copy(m, textNow)}>{copied === m.id ? <Check /> : <Copy />}</IconButton>
+                        {me?.features?.speech && status === "complete" && textNow.trim() && <ReadAloud messageId={m.id} />}
                         {canEdit && (
                           <>
                             <IconButton label="Good answer" size="sm" aria-pressed={m.feedback === 1} onClick={() => rate(m, 1)}><ThumbsUp className={cn(m.feedback === 1 && "fill-current")} /></IconButton>

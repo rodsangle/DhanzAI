@@ -1,14 +1,14 @@
 import "server-only";
 import {
   assistantContext, filesForMessages, getMemory, getPersonalization, projectExcerpts, relatedExchanges, insertMessage, messageRow, messagesForConversation, patchMessage, projectContext,
-  readFileBytes, recordImage, recordUsage, saveGeneratedFile, threadPath, updateConversation, conversationRow, HttpError,
+  readFileBytes, recordImage, recordUsage, saveGeneratedFile, threadPath, updateConversation, conversationRow, HttpError, getFileForView, messageOptions,
 } from "@/lib/data";
 import { createApproval, finishApproval, takeApproval } from "@/lib/apps/approvals";
 import { mentionedApps, needsApproval, provider as appProvider, toolOwner } from "@/lib/apps/registry";
 import { activeConnection, allowAlways, runTool } from "@/lib/apps/store";
-import type { ContentBlock, Conversation, Message, Source } from "@/lib/data/types";
+import type { ContentBlock, Conversation, FileRow, ImageSize, Message, MessageOptions, Source } from "@/lib/data/types";
 import { refreshMemory } from "./memory";
-import { generateImage } from "./images";
+import { EDITABLE_IMAGE, generateImage, imageProvider, type SourceImage } from "./images";
 import {
   makeTitle, ModelError, PROJECT_EXCERPT_CHAR_BUDGET, PROJECT_FILES_CHAR_BUDGET, streamAnswer, webSearchMode,
   type AgentStep, type AnswerContext, type ToolCall, type ToolResult, type ToolSpec,
@@ -49,7 +49,14 @@ function publish(messageId: string, e: GenEvent) {
 const IMAGE_ASK = /^(create|make|draw|generate|design)\b.*\b(image|picture|poster|graphic|mockup|illustration|art)\b/i;
 
 /** Inserts an assistant message under `parent` and starts answering. Returns the row and the task's promise. */
-export async function startAssistantReply(userId: string, conversation: Conversation, parent: Message, opts: { forceImage?: boolean; forceSearch?: boolean } = {}) {
+/** How the person asked: image mode and shape, web search, think longer. Saved with their message. */
+export type ReplyOptions = { forceImage?: boolean; forceSearch?: boolean; imageSize?: ImageSize; think?: boolean };
+
+export function replyOptions(o: MessageOptions): ReplyOptions {
+  return { forceImage: !!o.image, forceSearch: !!o.search && !o.image, imageSize: o.image_size, think: !!o.think };
+}
+
+export async function startAssistantReply(userId: string, conversation: Conversation, parent: Message, opts: ReplyOptions = {}) {
   const assistant = await insertMessage({
     conversation_id: conversation.id, parent_id: parent.id, user_id: null, role: "assistant", content: [], text: "",
     model: conversation.model, status: "streaming", error: null, feedback: null,
@@ -67,7 +74,53 @@ export async function startAssistantReply(userId: string, conversation: Conversa
   return { assistant, done };
 }
 
-async function buildContext(userId: string, conversation: Conversation, parent: Message, opts: { forceSearch?: boolean } = {}): Promise<AnswerContext> {
+/** Words that make an image-mode message a change to the picture already in the chat, not a new one. */
+const IMAGE_CHANGE = /^(make|change|turn|add|remove|replace|put|use|try|now|but|more|less|without|with|swap|crop|recolou?r|brighten|darken)\b|\b(it|this|that|the (image|picture|photo|poster|logo))\b/i;
+
+/**
+ * The images an image request should change: images attached to this message, or in image mode a
+ * follow-up like "make it blue" changes the last image made in this thread. Empty = a new image.
+ */
+/** A change request ("make it warmer", "can you remove the text?"), not a question about the image. */
+function isImageChange(raw: string) {
+  const t = raw.trim();
+  if (/^(can|could|would|will) you (please )?(make|change|turn|add|remove|replace|put|swap|crop|recolou?r|brighten|darken)\b/i.test(t)) return true;
+  return IMAGE_CHANGE.test(t) && !/\?\s*$/.test(t);
+}
+
+async function imagesToEdit(
+  userId: string, conversation: Conversation, parent: Message, explicit: boolean, prompt: string,
+): Promise<{ sources: SourceImage[]; shape?: ImageSize }> {
+  const placeholder = imageProvider() === "placeholder";
+  const usable = (f: FileRow) => (placeholder ? f.mime.startsWith("image/") : EDITABLE_IMAGE.test(f.mime)) && f.bytes <= 25 * 1024 * 1024;
+  const all = await messagesForConversation(conversation.id);
+  const path = threadPath(all, parent.id);
+  const own = (await filesForMessages([parent.id])).map((f) => f.file).filter(usable);
+  let picked: FileRow[] = own;
+  let shape: ImageSize | undefined;
+  if (!own.length && explicit && IMAGE_CHANGE.test(prompt)) {
+    for (const m of [...path].reverse()) {
+      if (m.role !== "assistant") continue;
+      const img = m.content.find((b): b is Extract<ContentBlock, { type: "image" }> => b.type === "image");
+      if (!img) continue;
+      const f = await getFileForView(userId, img.file_id).catch(() => null);
+      if (f && usable(f)) {
+        picked = [f];
+        // Keep the shape it was made in.
+        if (m.parent_id) shape = (await messageOptions(m.parent_id)).image_size;
+      }
+      break;
+    }
+  }
+  const out: SourceImage[] = [];
+  for (const f of picked.slice(0, 4)) {
+    const bytes = await readFileBytes(f).catch(() => null);
+    if (bytes) out.push({ bytes, mime: f.mime, name: f.name });
+  }
+  return { sources: out, shape };
+}
+
+async function buildContext(userId: string, conversation: Conversation, parent: Message, opts: { forceSearch?: boolean; think?: boolean } = {}): Promise<AnswerContext> {
   const all = await messagesForConversation(conversation.id);
   const path = threadPath(all, parent.id);
   const history = path.slice(0, -1).filter((m) => (m.role === "user" || m.role === "assistant") && m.status !== "error");
@@ -121,6 +174,7 @@ async function buildContext(userId: string, conversation: Conversation, parent: 
     memory: memory || null,
     pastChats,
     model: conversation.model,
+    think: !!opts.think,
     prompt: parent.text,
     attachments,
     history: history.map((m) => ({
@@ -149,8 +203,9 @@ type ActivityItem = { app: string; text: string; ok: boolean };
 type ApprovalBlock = Extract<ContentBlock, { type: "approval" }>;
 
 /** The message's blocks: what the apps did, the text, approval cards, then sources. */
-function compose(text: string, activity: ActivityItem[], approvals: ApprovalBlock[], sources: Source[]): ContentBlock[] {
+function compose(text: string, activity: ActivityItem[], approvals: ApprovalBlock[], sources: Source[], reasoning = ""): ContentBlock[] {
   return [
+    ...(reasoning.trim() ? [{ type: "reasoning" as const, text: reasoning.trim().slice(0, 20_000) }] : []),
     ...(activity.length ? [{ type: "tool_activity" as const, items: activity }] : []),
     { type: "text" as const, text },
     ...approvals,
@@ -166,9 +221,10 @@ async function run(
   parent: Message,
   assistant: Message,
   abort: AbortController,
-  opts: { forceImage?: boolean; forceSearch?: boolean; resume?: { state: ResumeState; decision: "approve" | "always" | "deny"; approvalId: string } },
+  opts: ReplyOptions & { resume?: { state: ResumeState; decision: "approve" | "always" | "deny"; approvalId: string } },
 ) {
   let text = opts.resume?.state.text ?? "";
+  let reasoning = "";
   let blocks: ContentBlock[] = [];
   let lastSave = 0;
   let stopped = false;
@@ -180,17 +236,24 @@ async function run(
   const save = async (force = false) => {
     if (!force && Date.now() - lastSave < 400) return;
     lastSave = Date.now();
-    const row = await patchMessage(assistant.id, { text, content: compose(text, activity, approvals, []) });
+    const row = await patchMessage(assistant.id, { text, content: compose(text, activity, approvals, [], reasoning) });
     if (row?.stop_requested && !abort.signal.aborted) abort.abort();
   };
 
   // An assistant can have image creation turned off; then image requests get a text answer.
   const setup = conversation.assistant_id ? await assistantContext(conversation.assistant_id) : null;
   const imagesOff = !!setup && !setup.capabilities.includes("image_generation");
-  const wantsImage = !opts.resume && !imagesOff && (opts.forceImage || IMAGE_ASK.test(parent.text.trim()));
+  // "Make it blue" right after an image is a change to that image, even with image mode off.
+  const prev = !opts.resume && !imagesOff && !opts.forceImage && parent.parent_id ? await messageRow(parent.parent_id) : null;
+  const followsImage = !!prev && prev.role === "assistant" && prev.content.some((x) => x.type === "image") && isImageChange(parent.text);
+  const wantsImage = !opts.resume && !imagesOff && (opts.forceImage || followsImage || IMAGE_ASK.test(parent.text.trim()));
   if (wantsImage) {
     const prompt = parent.text.replace(/^\/image\s*/i, "").trim();
-    const result = await generateImage(prompt, abort.signal);
+    const { sources, shape } = await imagesToEdit(userId, conversation, parent, !!opts.forceImage || followsImage, prompt);
+    if (sources.length) publish(assistant.id, { type: "status", text: "Editing the image" });
+    // A chosen shape wins; otherwise an edit keeps the shape of what it changes.
+    const size = opts.imageSize ?? shape ?? (sources.length ? "auto" : "square");
+    const result = await generateImage(prompt, { size, sources, signal: abort.signal });
     if (abort.signal.aborted) {
       stopped = true;
     } else if (result.ok) {
@@ -200,9 +263,10 @@ async function run(
         mime: result.mime,
         bytes: result.bytes,
       });
+      const what = sources.length ? `the edited image: **${prompt.slice(0, 80)}**` : `**${prompt.slice(0, 80)}**`;
       text = result.provider === "placeholder"
-        ? `Here's a first pass at **${prompt.slice(0, 80)}**.\n\nThis is a placeholder render from the demo image generator. Once an image model is connected, the same request returns a real image. Tell me what to change: colours, layout, or the text on it.`
-        : `Here's **${prompt.slice(0, 80)}**. Tell me what to change: colours, layout, framing, or the text on it.`;
+        ? `Here's a first pass at ${what}.\n\nThis is a placeholder render from the demo image generator. Once an image model is connected, the same request returns a real image. Tell me what to change: colours, layout, or the text on it.`
+        : `Here's ${what}. Tell me what to change: colours, layout, framing, or the text on it.`;
       blocks = [{ type: "text", text }, { type: "image", file_id: file.id, alt: prompt.slice(0, 300) }];
       publish(assistant.id, { type: "delta", text });
       publish(assistant.id, { type: "content", content: blocks });
@@ -213,14 +277,14 @@ async function run(
       throw new ModelError(result.message, !result.refused);
     }
   } else {
-    const ctx = await buildContext(userId, conversation, parent, { forceSearch: opts.forceSearch });
+    const ctx = await buildContext(userId, conversation, parent, { forceSearch: opts.forceSearch, think: opts.think });
     let web: { title: string; url: string }[] = [];
     const sources: Source[] = opts.resume?.state.sources ?? [
       ...(ctx.memory ? [{ kind: "memory" } as const] : []),
       ...(ctx.pastChats ?? []).map((c): Source => ({ kind: "chat", conversation_id: c.conversation_id, title: c.title })),
     ];
     const steps: AgentStep[] = [...(opts.resume?.state.steps ?? [])];
-    const showContent = () => publish(assistant.id, { type: "content", content: compose(text, activity, approvals, []) });
+    const showContent = () => publish(assistant.id, { type: "content", content: compose(text, activity, approvals, [], reasoning) });
 
     /**
      * Runs a round's app actions from `from`, in order. Pauses (returns false) at the first one that
@@ -289,6 +353,11 @@ async function run(
           };
           continue;
         }
+        if (chunk.type === "thinking") {
+          if (!reasoning) publish(assistant.id, { type: "status", text: opts.think ? "Thinking longer" : "Thinking" });
+          reasoning += chunk.text;
+          continue;
+        }
         if (chunk.type === "searching") {
           publish(assistant.id, { type: "status", text: chunk.query ? `Searching the web: ${chunk.query}` : "Searching the web" });
           continue;
@@ -311,7 +380,7 @@ async function run(
     stopped = abort.signal.aborted;
     // Web sources first, in citation order ([1], [2], …).
     sources.unshift(...web.filter((w) => !sources.some((x) => x.kind === "web" && x.url === w.url)).map((w): Source => ({ kind: "web", title: w.title, url: w.url })));
-    blocks = compose(text, activity, approvals, sources);
+    blocks = compose(text, activity, approvals, sources, reasoning);
     if (blocks.length > 1) publish(assistant.id, { type: "content", content: blocks });
   }
 
@@ -360,7 +429,8 @@ export async function resumeAfterApproval(userId: string, approvalId: string, de
   await patchMessage(assistant.id, { status: "streaming", content: compose(state.text, state.activity, approvals, []) });
   const abort = new AbortController();
   live.set(assistant.id, { listeners: new Set(), abort });
-  const done = run(userId, conversation, parent, assistant, abort, { resume: { state: resumeState, decision, approvalId } })
+  const asked = replyOptions(await messageOptions(parent.id));
+  const done = run(userId, conversation, parent, assistant, abort, { think: asked.think, resume: { state: resumeState, decision, approvalId } })
     .catch(async (err) => {
       console.error("[generation]", (err as Error)?.message);
       const msg = err instanceof ModelError ? err.message : "Something went wrong while answering.";

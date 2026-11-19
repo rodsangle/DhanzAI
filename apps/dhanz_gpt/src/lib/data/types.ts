@@ -56,8 +56,27 @@ export type ContentBlock =
   | { type: "sources"; items: Source[] }
   /** App actions taken while answering ("Searched Google Drive for …"). */
   | { type: "tool_activity"; items: { app: string; text: string; ok: boolean }[] }
+  /** A short summary of how the model reasoned (shown collapsed above the answer). */
+  | { type: "reasoning"; text: string }
   /** An app action waiting for (or past) the person's go-ahead. */
   | { type: "approval"; approval_id: UUID; app: string; action: string; fields: { label: string; value: string }[]; status: "pending" | "approved" | "denied" | "expired" };
+
+/** Image shapes the image model can make. */
+export const IMAGE_SIZES = [
+  { id: "square", label: "Square", size: "1024x1024" },
+  { id: "landscape", label: "Landscape", size: "1536x1024" },
+  { id: "portrait", label: "Portrait", size: "1024x1536" },
+] as const;
+export type ImageSize = (typeof IMAGE_SIZES)[number]["id"];
+
+/** What the person chose for one message; kept with it so Retry asks the same way. */
+export interface MessageOptions {
+  image?: boolean;
+  image_size?: ImageSize;
+  search?: boolean;
+  /** "Think longer": more reasoning effort before answering. */
+  think?: boolean;
+}
 
 /** What an answer drew on, listed under it: saved memory, an earlier chat, or a web page. */
 export type Source =

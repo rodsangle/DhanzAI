@@ -1,11 +1,12 @@
 import "server-only";
+import { TRANSCRIBE_MAX_BYTES, transcribe, transcribeProvider } from "@/lib/ai/transcribe";
 import { ExtractError, TOKEN_LIMITS, chunkText, estimateTokens, extractKind, extractText, formatTokens } from "@/lib/server/extract";
 import { asService, asUser, type Tx } from "@/lib/server/db";
 import { putObject, readObject, statObject, uploadTarget } from "@/lib/server/storage";
 import { HttpError } from "./errors";
 import {
   LIMITS, type ContentBlock, type Conversation, type ConversationDetail, type ConversationListItem, type FileRow, type ImageGeneration,
-  type Memory, type Message, type Personalization, type Profile, type Project, type ProjectDetail, type SearchResult, type SharedLink,
+  type Memory, type Message, type MessageOptions, type Personalization, type Profile, type Project, type ProjectDetail, type SearchResult, type SharedLink,
   type UsageEvent, type Workspace,
 } from "./types";
 
@@ -188,7 +189,7 @@ export async function insertMessage(m: Omit<Message, "id" | "created_at" | "upda
  * and is refused while that answer runs or is about to start, instead of forking the thread.
  * parent "leaf" = reply to whatever is latest now; an id = branch from there (edits); null = new root.
  */
-export async function insertUserMessage(m: { conversation_id: string; user_id: string; text: string; parent: "leaf" | string | null }) {
+export async function insertUserMessage(m: { conversation_id: string; user_id: string; text: string; parent: "leaf" | string | null; options?: MessageOptions }) {
   return asService(async (q) => {
     const [c] = await q<{ current_leaf_id: string | null }[]>`
       select current_leaf_id from conversations where id = ${m.conversation_id} for update`;
@@ -202,12 +203,20 @@ export async function insertUserMessage(m: { conversation_id: string; user_id: s
         throw new HttpError(409, "Wait for the current answer to finish, or stop it first.");
     }
     const [row] = await q<Message[]>`
-      insert into messages (conversation_id, parent_id, user_id, role, content, text, model, status, error, feedback)
+      insert into messages (conversation_id, parent_id, user_id, role, content, text, model, status, error, feedback, options)
       values (${m.conversation_id}, ${parentId}, ${m.user_id}, 'user', ${q.json([{ type: "text", text: m.text }] as never)}, ${m.text},
-              null, 'complete', null, null)
+              null, 'complete', null, null, ${q.json((m.options ?? {}) as never)})
       returning id, conversation_id, parent_id, user_id, role, content, text, model, status, error, feedback, created_at, updated_at`;
     await q`update conversations set current_leaf_id = ${row.id}, last_message_at = ${row.created_at}::timestamptz where id = ${m.conversation_id}`;
     return row;
+  });
+}
+
+/** The choices saved with a message (image mode, size, search, think longer). */
+export async function messageOptions(id: string): Promise<MessageOptions> {
+  return asService(async (q) => {
+    const [row] = await q<{ options: MessageOptions }[]>`select options from messages where id = ${id}`;
+    return row?.options ?? {};
   });
 }
 
@@ -501,6 +510,13 @@ export async function projectExcerpts(
 const STORAGE_QUOTA_BYTES = Number(process.env.STORAGE_QUOTA_BYTES ?? 20 * 1024 ** 3);
 const UPLOADS_PER_10_MIN = 60;
 
+/** Storage the person's files use against their quota. Files in Recently deleted don't count. */
+export async function storageUsage(userId: string) {
+  const [{ used }] = await asService((q) => q`
+    select coalesce(sum(bytes) filter (where deleted_at is null), 0)::bigint as used from files where owner_id = ${userId}`);
+  return { used: Number(used), quota: STORAGE_QUOTA_BYTES };
+}
+
 export async function createUpload(userId: string, input: { name: string; mime: string; bytes: number; temporary?: boolean }) {
   const { workspace } = await getWorkspaceFor(userId);
   const name = input.name.trim().replace(/[/\\]/g, "_").slice(0, 255);
@@ -535,6 +551,11 @@ export async function receiveUpload(userId: string, id: string, bytes: Buffer) {
   await putObject(file.storage_path, bytes, file.mime);
 }
 
+/** Audio the transcription service takes (it also reads the audio track of mp4/webm). */
+function isAudio(mime: string, name: string) {
+  return /^audio\//.test(mime) || /\.(mp3|m4a|wav|webm|ogg|oga|flac|mpga|mpeg)$/i.test(name);
+}
+
 export async function completeUpload(userId: string, id: string) {
   const [f] = await asService((q) => q`select * from files where id = ${id} and owner_id = ${userId}`);
   if (!f) throw notFound();
@@ -546,6 +567,7 @@ export async function completeUpload(userId: string, id: string) {
   let text: string | null = null;
   let tokens: number | null = null;
   const kind = extractKind(file.mime, file.name);
+  const audio = isAudio(file.mime, file.name);
   if (size === null) {
     status = "error";
     error = "We didn't receive the file. Try again.";
@@ -561,14 +583,21 @@ export async function completeUpload(userId: string, id: string) {
       status = "error";
       error = e.message;
     }
-    if (text) {
-      tokens = estimateTokens(text);
-      if (tokens > TOKEN_LIMITS.file) {
-        status = "error";
-        error = `${file.name} is about ${formatTokens(tokens)} tokens, over the ${formatTokens(TOKEN_LIMITS.file)} limit for one file. Split it into smaller files.`;
-        text = null;
-        tokens = null;
-      }
+  } else if (audio && transcribeProvider() !== "off" && file.bytes <= TRANSCRIBE_MAX_BYTES) {
+    // A recording (meeting, voice note): its transcript is what chats and projects read.
+    const bytes = await readObject(file.storage_path);
+    const r = bytes
+      ? await transcribe(new Blob([new Uint8Array(bytes)], { type: file.mime }), file.name, undefined, "A recording: a meeting, interview or voice note.")
+      : null;
+    if (r?.ok && r.text.trim()) text = `Transcript of the recording ${file.name}:\n\n${r.text.trim()}`;
+  }
+  if (text) {
+    tokens = estimateTokens(text);
+    if (tokens > TOKEN_LIMITS.file) {
+      status = "error";
+      error = `${file.name} is about ${formatTokens(tokens)} tokens, over the ${formatTokens(TOKEN_LIMITS.file)} limit for one file. Split it into smaller files.`;
+      text = null;
+      tokens = null;
     }
   }
   return asService(async (q) => {

@@ -1,7 +1,11 @@
 "use client";
 
 import { BRAND } from "@/lib/brand";
-import { ArrowUp, AudioLines, Check, FileText, Loader2, Globe, ImageIcon, ImagePlus, Library, Paperclip, Plus, Square, Telescope, X } from "lucide-react";
+import {
+  ArrowUp, AudioLines, Check, ChevronDown, FileText, Lightbulb, Loader2, Globe, ImageIcon, ImagePlus, Library, Paperclip, Plus, RectangleHorizontal,
+  RectangleVertical, Square, SquareDashed, Telescope, X,
+} from "lucide-react";
+import { IMAGE_SIZES, type ImageSize } from "@/lib/data/types";
 import { forwardRef, useId, useImperativeHandle, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from "react";
 import { cn, focusRing } from "@/lib/cn";
 import { IconButton } from "@/components/ui/button";
@@ -111,6 +115,12 @@ export const Composer = forwardRef<ComposerHandle, {
   variant?: "home" | "thread";
   imageMode?: boolean;
   onImageMode?: (on: boolean) => void;
+  /** Absent = not chosen yet (shown as Square, the default for new images). */
+  imageSize?: ImageSize;
+  onImageSize?: (size: ImageSize) => void;
+  /** Think longer for the next message. Absent hides it. */
+  think?: boolean;
+  onThink?: (on: boolean) => void;
   onAddFromLibrary?: () => void;
   /** Apps offered after @ (connected ones are usable; others get a "connect it first" answer). */
   mentionApps?: { label: string; connected: boolean }[];
@@ -125,7 +135,7 @@ export const Composer = forwardRef<ComposerHandle, {
 }>(function Composer(
   {
     value, onChange, onSend, onStop, attachments = [], onAddFiles, onRemoveAttachment, streaming, disabled, disabledReason,
-    placeholder = "Ask, draft, or paste copy to edit", variant = "thread", imageMode, onImageMode, searchMode, onSearchMode, onAddFromLibrary, mentionApps = [], commands = [], dictation, onLastMessageEdit,
+    placeholder = "Ask, draft, or paste copy to edit", variant = "thread", imageMode, onImageMode, imageSize = "square", onImageSize, think, onThink, searchMode, onSearchMode, onAddFromLibrary, mentionApps = [], commands = [], dictation, onLastMessageEdit,
   },
   ref,
 ) {
@@ -326,6 +336,11 @@ export const Composer = forwardRef<ComposerHandle, {
             {searchMode !== null && (
               <MenuItem icon={<Globe />} onSelect={() => onSearchMode?.(!searchMode)}>{searchMode ? "Stop searching the web" : "Search the web"}</MenuItem>
             )}
+            {onThink && !imageMode && (
+              <MenuItem icon={<Lightbulb />} onSelect={() => onThink(!think)} description={think ? undefined : "More reasoning for hard questions"}>
+                {think ? "Stop thinking longer" : "Think longer"}
+              </MenuItem>
+            )}
             <MenuItem icon={<Telescope />} disabled description="Arrives in a later release">Deep research</MenuItem>
           </MenuContent>
         </Menu>
@@ -337,6 +352,36 @@ export const Composer = forwardRef<ComposerHandle, {
             aria-label="Image mode on. Turn off"
           >
             <ImageIcon aria-hidden /> Image <X aria-hidden className="size-3.5!" />
+          </button>
+        )}
+        {imageMode && onImageSize && (
+          <Menu>
+            <MenuTrigger asChild>
+              <button
+                type="button"
+                className={cn("flex h-8 items-center gap-1 rounded-full px-2.5 text-sm text-muted hover:bg-surface-hover [&_svg]:size-4", focusRing)}
+                aria-label={`Image shape: ${IMAGE_SIZES.find((x) => x.id === imageSize)?.label}. Change`}
+              >
+                {sizeIcon(imageSize)} {IMAGE_SIZES.find((x) => x.id === imageSize)?.label} <ChevronDown aria-hidden className="size-3.5!" />
+              </button>
+            </MenuTrigger>
+            <MenuContent>
+              {IMAGE_SIZES.map((x) => (
+                <MenuItem key={x.id} icon={x.id === imageSize ? <Check /> : sizeIcon(x.id)} onSelect={() => onImageSize(x.id)}>
+                  {x.label}
+                </MenuItem>
+              ))}
+            </MenuContent>
+          </Menu>
+        )}
+        {think && !imageMode && (
+          <button
+            type="button"
+            onClick={() => onThink?.(false)}
+            className={cn("flex h-8 items-center gap-1.5 rounded-full bg-info-subtle px-3 text-sm text-info-text [&_svg]:size-4", focusRing)}
+            aria-label="Think longer on. Turn off"
+          >
+            <Lightbulb aria-hidden /> Think <X aria-hidden className="size-3.5!" />
           </button>
         )}
         {searchMode && (
@@ -393,3 +438,7 @@ export const Composer = forwardRef<ComposerHandle, {
     </form>
   );
 });
+
+function sizeIcon(size: ImageSize) {
+  return size === "landscape" ? <RectangleHorizontal aria-hidden /> : size === "portrait" ? <RectangleVertical aria-hidden /> : <SquareDashed aria-hidden />;
+}

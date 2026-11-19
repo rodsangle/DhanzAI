@@ -4,7 +4,8 @@ import "server-only";
  * Speech to text for dictation (S05), behind one interface.
  * - "openai": OpenAI's transcription endpoint (`POST /v1/audio/transcriptions`) with the server's own key.
  *   Default model `gpt-transcribe`; set TRANSCRIBE_MODEL to change it. Files up to 25 MB; browsers record webm.
- * - "off": no key configured. The composer hides the Dictate button.
+ * - "off": no key configured. The composer hides the Dictate button, and uploaded recordings get no transcript.
+ * Also used for uploaded audio files: their transcript becomes the file's text, so chats can read them.
  */
 
 export const TRANSCRIBE_MAX_BYTES = 24 * 1024 * 1024; // under the provider's 25 MB cap, with room for the form
@@ -21,14 +22,14 @@ const VOCABULARY = "Dhanz, Dhanz GPT, DHANZ AI.";
 
 export type TranscribeResult = { ok: true; text: string } | { ok: false; status: number; message: string };
 
-export async function transcribe(audio: Blob, filename: string, signal?: AbortSignal): Promise<TranscribeResult> {
+export async function transcribe(audio: Blob, filename: string, signal?: AbortSignal, context = "Dictated message to an AI assistant."): Promise<TranscribeResult> {
   if (transcribeProvider() === "off") return { ok: false, status: 503, message: "Dictation isn't set up for this workspace." };
   const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const form = new FormData();
   form.set("file", audio, filename);
   form.set("model", process.env.TRANSCRIBE_MODEL || "gpt-transcribe");
   form.set("response_format", "json");
-  form.set("prompt", `Dictated message to an AI assistant. ${VOCABULARY}`);
+  form.set("prompt", `${context} ${VOCABULARY}`);
   let res: Response;
   try {
     res = await fetch(`${base}/audio/transcriptions`, {

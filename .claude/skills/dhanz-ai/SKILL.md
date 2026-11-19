@@ -180,3 +180,5 @@ workflow manually (workflow_dispatch) on the branch to verify plugins compile.
 - 2026-11-19 — Dhanz GPT added (apps/dhanz_gpt) + deploy_dhanz_gpt.py, CI job, docs/DHANZ_GPT.md;
   rehearsed: standalone build, non-superuser DB (admin must create the `vector` extension), stand-in
   DHANZ API sign-in with two-step, Caddy 2.10 validates the generated Caddyfile.
+- 2026-11-19 — Dhanz GPT round 5: image shapes + edits, Think longer (effort high) + reasoning summary, read aloud,
+  recording transcripts, storage bar; migration 0011 (messages.options). 151 e2e + 42 adapter checks pass.

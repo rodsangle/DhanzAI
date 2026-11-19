@@ -11,6 +11,8 @@ http.createServer(async (req, res) => {
   for await (const c of req) raw += c;
   if (req.url.startsWith("/__") || /^\/(google|slack|shop)\//.test(req.url)) return apps(req, res, raw);
   if (req.url.startsWith("/v1/audio/transcriptions")) return transcription(req, res, raw);
+  if (req.url.startsWith("/v1/images/edits")) return imageEdit(req, res, raw);
+  if (req.url.startsWith("/v1/audio/speech")) return speech(req, res, raw);
   if (req.url.startsWith("/dhanz/")) return dhanz(req, res, raw);
   const body = raw ? JSON.parse(raw) : {};
   fs.appendFileSync(LOG, JSON.stringify({ path: req.url, headers: req.headers, body }) + "\n");
@@ -220,6 +222,31 @@ function dhanz(req, res, raw) {
 }
 
 /* Stand-in for the speech-to-text endpoint: checks it got a multipart form with a model and a file. */
+/** OpenAI image edits: multipart with model, prompt, size and one `image` or several `image[]` parts. */
+function imageEdit(req, res, raw) {
+  const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`).exec(raw)?.[1];
+  const images = [...raw.matchAll(/name="(image(?:\[\])?)"; filename="([^"]+)"\r\nContent-Type: ([^\r]+)/g)].map((m) => ({ field: m[1], filename: m[2], type: m[3] }));
+  fs.appendFileSync(LOG, JSON.stringify({ path: "/v1/images/edits", body: { model: field("model"), prompt: field("prompt"), size: field("size"), images }, headers: { authorization: req.headers.authorization } }) + "\n");
+  if (!(req.headers["content-type"] ?? "").startsWith("multipart/form-data") || !images.length || !field("prompt")) {
+    res.writeHead(400, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: { message: "Expected a multipart form with prompt and image." } }));
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  return res.end(JSON.stringify({ created: 1, data: [{ b64_json: PNG }] }));
+}
+
+/** OpenAI speech: JSON in, audio bytes out. */
+function speech(req, res, raw) {
+  const body = raw ? JSON.parse(raw) : {};
+  fs.appendFileSync(LOG, JSON.stringify({ path: "/v1/audio/speech", body, headers: { authorization: req.headers.authorization } }) + "\n");
+  if (!body.model || !body.voice || !body.input) {
+    res.writeHead(400, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: { message: "model, voice and input are required" } }));
+  }
+  res.writeHead(200, { "content-type": "audio/mpeg" });
+  return res.end(Buffer.from("ID3mock-audio-" + body.input.length));
+}
+
 function transcription(req, res, raw) {
   const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r]*)`).exec(raw)?.[1];
   const file = /name="file"; filename="([^"]+)"\r\nContent-Type: ([^\r]+)/.exec(raw);

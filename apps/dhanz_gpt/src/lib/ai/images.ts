@@ -1,9 +1,11 @@
 import "server-only";
+import { IMAGE_SIZES, type ImageSize } from "@/lib/data/types";
 import { placeholderImage } from "./fake-model";
 
 /**
  * Image generation behind one interface.
- * - "openai": the OpenAI Images API (`POST /v1/images/generations`) with the server's own key.
+ * - "openai": the OpenAI Images API with the server's own key: `POST /v1/images/generations` for a new
+ *   image, `POST /v1/images/edits` to change images the person gave (or the last one made in the chat).
  *   Set IMAGE_MODEL to the model you've chosen; check OpenAI's docs for the current name.
  * - "placeholder": a labelled abstract render, for development and tests.
  * Swap in another provider (e.g. fal.ai) by adding a branch here: nothing else changes.
@@ -19,19 +21,50 @@ export function imageProvider(): "openai" | "placeholder" {
   return p;
 }
 
-export async function generateImage(prompt: string, signal?: AbortSignal): Promise<ImageResult> {
+/** An image to change: one the person attached, or the last one made in the chat. */
+export type SourceImage = { bytes: Buffer; mime: string; name: string };
+
+/** Formats the edit endpoint takes; others (SVG placeholders, GIF) can't be edited. */
+export const EDITABLE_IMAGE = /^image\/(png|jpeg|webp)$/;
+
+export async function generateImage(
+  prompt: string,
+  /** "auto" (edits only) keeps the proportions of the image being changed. */
+  opts: { size?: ImageSize | "auto"; sources?: SourceImage[]; signal?: AbortSignal } = {},
+): Promise<ImageResult> {
   const provider = imageProvider();
-  if (provider === "placeholder") return { ok: true, bytes: placeholderImage(prompt), mime: "image/svg+xml", provider };
+  const sources = (opts.sources ?? []).slice(0, 4);
+  const auto = opts.size === "auto" && sources.length > 0;
+  const shape = IMAGE_SIZES.find((s) => s.id === opts.size) ?? IMAGE_SIZES[0];
+  if (provider === "placeholder")
+    return { ok: true, bytes: placeholderImage(prompt, shape.id, sources.length > 0), mime: "image/svg+xml", provider };
 
   const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const model = process.env.IMAGE_MODEL || "gpt-image-1";
   let res: Response;
   try {
-    res = await fetch(`${base}/images/generations`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: process.env.IMAGE_MODEL || "gpt-image-1", prompt: prompt.slice(0, 4000), size: "1024x1024", n: 1 }),
-      signal,
-    });
+    if (sources.length) {
+      const form = new FormData();
+      form.set("model", model);
+      form.set("prompt", prompt.slice(0, 4000));
+      form.set("size", auto ? "auto" : shape.size);
+      form.set("n", "1");
+      for (const src of sources)
+        form.append(sources.length > 1 ? "image[]" : "image", new Blob([new Uint8Array(src.bytes)], { type: src.mime }), src.name);
+      res = await fetch(`${base}/images/edits`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+        body: form,
+        signal: opts.signal,
+      });
+    } else {
+      res = await fetch(`${base}/images/generations`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt: prompt.slice(0, 4000), size: shape.size, n: 1 }),
+        signal: opts.signal,
+      });
+    }
   } catch {
     return { ok: false, refused: false, message: "The image service didn't respond. Try again.", provider };
   }

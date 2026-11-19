@@ -49,7 +49,7 @@ export type Me = {
   workspace: Workspace;
   role: string;
   usage: { messages: number; images: number; limits: { messages: number; images: number } };
-  features: { webSearch: "auto" | "manual" | "off"; email: boolean; push: boolean; dictation: boolean };
+  features: { webSearch: "auto" | "manual" | "off"; email: boolean; push: boolean; dictation: boolean; speech: boolean };
   unseen_task_runs: number;
 };
 
